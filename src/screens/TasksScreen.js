@@ -1,0 +1,934 @@
+import React, { useState, useMemo } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Platform,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons, Feather } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import { useApp } from '../context/AppContext';
+import { Card, Modal, Button, Input, ChipGroup } from '../components';
+import {
+  colors,
+  shadows,
+  borderRadius,
+  spacing,
+  typography,
+  priorityLevels,
+} from '../utils/theme';
+
+const TasksScreen = () => {
+  const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
+  const {
+    tasks,
+    notes,
+    addTask,
+    updateTask,
+    deleteTask,
+    toggleTaskCompletion,
+    addNote,
+    deleteNote,
+    getTodayTasks,
+    getUpcomingTasks,
+  } = useApp();
+
+  const [activeTab, setActiveTab] = useState('All Tasks');
+  const [filterType, setFilterType] = useState('Date');
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [showTaskDetailModal, setShowTaskDetailModal] = useState(false);
+  const [showNoteDetailModal, setShowNoteDetailModal] = useState(false);
+  const [selectedTask, setSelectedTask] = useState(null);
+  const [selectedNote, setSelectedNote] = useState(null);
+
+  // Task form state
+  const [taskTitle, setTaskTitle] = useState('');
+  const [taskDescription, setTaskDescription] = useState('');
+  const [taskPriority, setTaskPriority] = useState('medium');
+  const [taskDate, setTaskDate] = useState(new Date().toISOString().split('T')[0]);
+  const [taskTime, setTaskTime] = useState('');
+
+  // Note form state
+  const [noteTitle, setNoteTitle] = useState('');
+  const [noteContent, setNoteContent] = useState('');
+
+  const tabs = ['All Tasks', 'Today', 'Upcoming'];
+  const filters = ['Date', 'Priority', 'A-Z'];
+
+  const filteredTasks = useMemo(() => {
+    let filtered = [...tasks];
+
+    // Filter by tab
+    switch (activeTab) {
+      case 'Today':
+        const today = new Date().toDateString();
+        filtered = filtered.filter(
+          (t) => new Date(t.date).toDateString() === today
+        );
+        break;
+      case 'Upcoming':
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        filtered = filtered.filter((t) => new Date(t.date) >= now);
+        break;
+      default:
+        break;
+    }
+
+    // Sort by filter
+    switch (filterType) {
+      case 'Priority':
+        const priorityOrder = { high: 0, medium: 1, low: 2 };
+        filtered.sort(
+          (a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]
+        );
+        break;
+      case 'A-Z':
+        filtered.sort((a, b) => a.title.localeCompare(b.title));
+        break;
+      case 'Date':
+      default:
+        filtered.sort((a, b) => new Date(a.date) - new Date(b.date));
+        break;
+    }
+
+    return filtered;
+  }, [tasks, activeTab, filterType]);
+
+  const resetTaskForm = () => {
+    setTaskTitle('');
+    setTaskDescription('');
+    setTaskPriority('medium');
+    setTaskDate(new Date().toISOString().split('T')[0]);
+    setTaskTime('');
+  };
+
+  const resetNoteForm = () => {
+    setNoteTitle('');
+    setNoteContent('');
+  };
+
+  const handleCreateTask = async () => {
+    if (!taskTitle.trim()) return;
+
+    await addTask({
+      title: taskTitle.trim(),
+      description: taskDescription.trim(),
+      priority: taskPriority,
+      date: taskDate,
+      time: taskTime,
+    });
+
+    resetTaskForm();
+    setShowTaskModal(false);
+  };
+
+  const handleCreateNote = async () => {
+    if (!noteTitle.trim()) return;
+
+    await addNote({
+      title: noteTitle.trim(),
+      content: noteContent,
+    });
+
+    resetNoteForm();
+    setShowNoteModal(false);
+  };
+
+  const handleTaskPress = (task) => {
+    setSelectedTask(task);
+    setShowTaskDetailModal(true);
+  };
+
+  const handleDeleteTask = async () => {
+    if (selectedTask) {
+      await deleteTask(selectedTask.id);
+      setShowTaskDetailModal(false);
+      setSelectedTask(null);
+    }
+  };
+
+  const handleCompleteTask = async () => {
+    if (selectedTask) {
+      await toggleTaskCompletion(selectedTask.id);
+      setShowTaskDetailModal(false);
+      setSelectedTask(null);
+    }
+  };
+
+  const handleNotePress = (note) => {
+    setSelectedNote(note);
+    setShowNoteDetailModal(true);
+  };
+
+  const handleDeleteNote = async () => {
+    if (selectedNote) {
+      await deleteNote(selectedNote.id);
+      setShowNoteDetailModal(false);
+      setSelectedNote(null);
+    }
+  };
+
+  const getPriorityColor = (priority) => {
+    switch (priority) {
+      case 'high':
+        return colors.danger;
+      case 'medium':
+        return colors.warning;
+      case 'low':
+        return colors.textLight;
+      default:
+        return colors.textLight;
+    }
+  };
+
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+  };
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Action Buttons */}
+        <View style={styles.actionRow}>
+          <Button
+            title="Add Task"
+            icon="add"
+            onPress={() => setShowTaskModal(true)}
+            style={styles.addTaskButton}
+          />
+          <TouchableOpacity
+            style={styles.quickNoteButton}
+            onPress={() => setShowNoteModal(true)}
+          >
+            <Feather name="edit-3" size={18} color={colors.textSecondary} />
+            <Text style={styles.quickNoteText}>Quick Note</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.calendarButton}
+            onPress={() => navigation.navigate('Calendar')}
+          >
+            <Ionicons name="calendar-outline" size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Tabs */}
+        <View style={styles.tabsRow}>
+          {tabs.map((tab) => (
+            <TouchableOpacity
+              key={tab}
+              style={[styles.tab, activeTab === tab && styles.tabActive]}
+              onPress={() => setActiveTab(tab)}
+            >
+              <Text
+                style={[
+                  styles.tabText,
+                  activeTab === tab && styles.tabTextActive,
+                ]}
+              >
+                {tab}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Filters */}
+        <View style={styles.filterRow}>
+          <Ionicons name="filter-outline" size={18} color={colors.textLight} />
+          {filters.map((filter) => (
+            <TouchableOpacity
+              key={filter}
+              style={[
+                styles.filterChip,
+                filterType === filter && styles.filterChipActive,
+              ]}
+              onPress={() => setFilterType(filter)}
+            >
+              <Text
+                style={[
+                  styles.filterText,
+                  filterType === filter && styles.filterTextActive,
+                ]}
+              >
+                {filter}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Tasks List */}
+        <Card style={styles.tasksCard}>
+          <Text style={styles.sectionTitle}>Tasks</Text>
+          {filteredTasks.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons
+                name="calendar-outline"
+                size={48}
+                color={colors.primaryLight}
+              />
+              <Text style={styles.emptyTitle}>No tasks yet</Text>
+              <Text style={styles.emptySubtitle}>
+                Create your first task to get started
+              </Text>
+            </View>
+          ) : (
+            filteredTasks.map((task) => (
+              <TouchableOpacity
+                key={task.id}
+                style={styles.taskItem}
+                onPress={() => handleTaskPress(task)}
+                activeOpacity={0.7}
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.checkbox,
+                    task.completed && styles.checkboxChecked,
+                  ]}
+                  onPress={() => toggleTaskCompletion(task.id)}
+                >
+                  {task.completed && (
+                    <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                  )}
+                </TouchableOpacity>
+                <View style={styles.taskContent}>
+                  <Text
+                    style={[
+                      styles.taskTitle,
+                      task.completed && styles.taskTitleCompleted,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {task.title}
+                  </Text>
+                  <View style={styles.taskMeta}>
+                    <View
+                      style={[
+                        styles.priorityBadge,
+                        { backgroundColor: `${getPriorityColor(task.priority)}20` },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.priorityText,
+                          { color: getPriorityColor(task.priority) },
+                        ]}
+                      >
+                        {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
+                      </Text>
+                    </View>
+                    <Text style={styles.taskDate}>{formatDate(task.date)}</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            ))
+          )}
+        </Card>
+
+        {/* Notes Section */}
+        {notes.length > 0 && (
+          <Card style={styles.notesCard}>
+            <Text style={styles.sectionTitle}>Quick Notes</Text>
+            {notes.map((note) => (
+              <TouchableOpacity
+                key={note.id}
+                style={styles.noteItem}
+                onPress={() => handleNotePress(note)}
+                activeOpacity={0.7}
+              >
+                <Feather name="file-text" size={18} color={colors.tasks} />
+                <Text style={styles.noteTitle} numberOfLines={1}>
+                  {note.title}
+                </Text>
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color={colors.textLight}
+                />
+              </TouchableOpacity>
+            ))}
+          </Card>
+        )}
+      </ScrollView>
+
+      {/* Add Task Modal */}
+      <Modal
+        visible={showTaskModal}
+        onClose={() => {
+          setShowTaskModal(false);
+          resetTaskForm();
+        }}
+        title="New Task"
+      >
+        <Input
+          label="Task Title"
+          value={taskTitle}
+          onChangeText={setTaskTitle}
+          placeholder="e.g., Complete project proposal"
+        />
+
+        <Input
+          label="Description (Optional)"
+          value={taskDescription}
+          onChangeText={setTaskDescription}
+          placeholder="Add more details..."
+          multiline
+          numberOfLines={3}
+        />
+
+        <Text style={styles.inputLabel}>Priority</Text>
+        <View style={styles.priorityRow}>
+          {priorityLevels.map((level) => (
+            <TouchableOpacity
+              key={level.value}
+              style={[
+                styles.priorityOption,
+                taskPriority === level.value && styles.priorityOptionActive,
+                taskPriority === level.value && {
+                  backgroundColor: level.color,
+                },
+              ]}
+              onPress={() => setTaskPriority(level.value)}
+            >
+              <Text
+                style={[
+                  styles.priorityOptionText,
+                  taskPriority === level.value && styles.priorityOptionTextActive,
+                ]}
+              >
+                {level.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <View style={styles.dateTimeRow}>
+          <View style={styles.dateInput}>
+            <Text style={styles.inputLabel}>Date</Text>
+            <TouchableOpacity style={styles.dateButton}>
+              <Text style={styles.dateButtonText}>{formatDate(taskDate)}</Text>
+              <Ionicons
+                name="calendar-outline"
+                size={18}
+                color={colors.textLight}
+              />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.timeInput}>
+            <Text style={styles.inputLabel}>Time (Optional)</Text>
+            <TouchableOpacity style={styles.dateButton}>
+              <Text
+                style={[
+                  styles.dateButtonText,
+                  !taskTime && styles.placeholderText,
+                ]}
+              >
+                {taskTime || '--:--'}
+              </Text>
+              <Ionicons name="time-outline" size={18} color={colors.textLight} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.modalButtons}>
+          <Button
+            title="Cancel"
+            variant="secondary"
+            onPress={() => {
+              setShowTaskModal(false);
+              resetTaskForm();
+            }}
+            style={styles.modalButton}
+          />
+          <Button
+            title="Create Task"
+            onPress={handleCreateTask}
+            disabled={!taskTitle.trim()}
+            style={styles.modalButton}
+          />
+        </View>
+      </Modal>
+
+      {/* Quick Note Modal */}
+      <Modal
+        visible={showNoteModal}
+        onClose={() => {
+          setShowNoteModal(false);
+          resetNoteForm();
+        }}
+        title="New Note"
+      >
+        <Input
+          label="Title"
+          value={noteTitle}
+          onChangeText={setNoteTitle}
+          placeholder="Title"
+        />
+
+        <Input
+          label="Content"
+          value={noteContent}
+          onChangeText={setNoteContent}
+          placeholder="Start writing..."
+          multiline
+          numberOfLines={6}
+        />
+
+        <View style={styles.modalButtons}>
+          <Button
+            title="Cancel"
+            variant="secondary"
+            onPress={() => {
+              setShowNoteModal(false);
+              resetNoteForm();
+            }}
+            style={styles.modalButton}
+          />
+          <Button
+            title="Create"
+            onPress={handleCreateNote}
+            disabled={!noteTitle.trim()}
+            style={styles.modalButton}
+          />
+        </View>
+      </Modal>
+
+      {/* Task Detail Modal */}
+      <Modal
+        visible={showTaskDetailModal}
+        onClose={() => {
+          setShowTaskDetailModal(false);
+          setSelectedTask(null);
+        }}
+        title="Task Details"
+      >
+        {selectedTask && (
+          <>
+            <Text style={styles.detailTitle}>{selectedTask.title}</Text>
+            <View
+              style={[
+                styles.priorityBadgeLarge,
+                {
+                  backgroundColor: `${getPriorityColor(selectedTask.priority)}20`,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.priorityTextLarge,
+                  { color: getPriorityColor(selectedTask.priority) },
+                ]}
+              >
+                {selectedTask.priority.charAt(0).toUpperCase() +
+                  selectedTask.priority.slice(1)}{' '}
+                Priority
+              </Text>
+            </View>
+
+            {selectedTask.description && (
+              <>
+                <Text style={styles.detailLabel}>Description</Text>
+                <Text style={styles.detailDescription}>
+                  {selectedTask.description}
+                </Text>
+              </>
+            )}
+
+            <View style={styles.scheduleBox}>
+              <Ionicons name="calendar" size={20} color={colors.info} />
+              <View style={styles.scheduleContent}>
+                <Text style={styles.scheduleLabel}>Scheduled</Text>
+                <Text style={styles.scheduleValue}>
+                  {formatDate(selectedTask.date)}
+                  {selectedTask.time && ` at ${selectedTask.time}`}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.detailButtons}>
+              <Button
+                title="Cancel"
+                variant="outline"
+                onPress={() => {
+                  setShowTaskDetailModal(false);
+                  setSelectedTask(null);
+                }}
+                style={styles.detailButton}
+              />
+              <Button
+                title="Delete"
+                variant="danger"
+                icon="trash-outline"
+                onPress={handleDeleteTask}
+                style={styles.detailButton}
+              />
+            </View>
+
+            <Button
+              title="Mark Complete"
+              variant="success"
+              icon="checkmark"
+              onPress={handleCompleteTask}
+              style={styles.completeButton}
+            />
+          </>
+        )}
+      </Modal>
+
+      {/* Note Detail Modal */}
+      <Modal
+        visible={showNoteDetailModal}
+        onClose={() => {
+          setShowNoteDetailModal(false);
+          setSelectedNote(null);
+        }}
+        title="Note"
+      >
+        {selectedNote && (
+          <>
+            <Text style={styles.detailTitle}>{selectedNote.title}</Text>
+            <Text style={styles.noteContentText}>{selectedNote.content}</Text>
+
+            <View style={styles.modalButtons}>
+              <Button
+                title="Close"
+                variant="secondary"
+                onPress={() => {
+                  setShowNoteDetailModal(false);
+                  setSelectedNote(null);
+                }}
+                style={styles.modalButton}
+              />
+              <Button
+                title="Delete"
+                variant="danger"
+                icon="trash-outline"
+                onPress={handleDeleteNote}
+                style={styles.modalButton}
+              />
+            </View>
+          </>
+        )}
+      </Modal>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: spacing.xl,
+    paddingBottom: 100,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.lg,
+    marginBottom: spacing.lg,
+  },
+  addTaskButton: {
+    flex: 0,
+    paddingHorizontal: spacing.xl,
+  },
+  quickNoteButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: spacing.md,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  quickNoteText: {
+    ...typography.body,
+    color: colors.textSecondary,
+    marginLeft: spacing.sm,
+  },
+  calendarButton: {
+    width: 48,
+    height: 48,
+    marginLeft: spacing.md,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabsRow: {
+    flexDirection: 'row',
+    marginBottom: spacing.md,
+  },
+  tab: {
+    marginRight: spacing.lg,
+    paddingBottom: spacing.sm,
+  },
+  tabActive: {
+    borderBottomWidth: 2,
+    borderBottomColor: colors.primary,
+  },
+  tabText: {
+    ...typography.body,
+    color: colors.textSecondary,
+  },
+  tabTextActive: {
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+  },
+  filterChip: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    marginLeft: spacing.sm,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.inputBackground,
+  },
+  filterChipActive: {
+    backgroundColor: colors.primaryLight,
+  },
+  filterText: {
+    ...typography.bodySmall,
+    color: colors.textSecondary,
+  },
+  filterTextActive: {
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  tasksCard: {
+    marginBottom: spacing.lg,
+  },
+  sectionTitle: {
+    ...typography.h3,
+    marginBottom: spacing.md,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: spacing.xxxl,
+  },
+  emptyTitle: {
+    ...typography.h3,
+    color: colors.textSecondary,
+    marginTop: spacing.lg,
+  },
+  emptySubtitle: {
+    ...typography.bodySmall,
+    color: colors.textLight,
+    marginTop: spacing.xs,
+  },
+  taskItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  checkboxChecked: {
+    backgroundColor: colors.success,
+    borderColor: colors.success,
+  },
+  taskContent: {
+    flex: 1,
+  },
+  taskTitle: {
+    ...typography.body,
+    marginBottom: spacing.xs,
+  },
+  taskTitleCompleted: {
+    textDecorationLine: 'line-through',
+    color: colors.textLight,
+  },
+  taskMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  priorityBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: borderRadius.sm,
+    marginRight: spacing.sm,
+  },
+  priorityText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  taskDate: {
+    ...typography.caption,
+  },
+  notesCard: {
+    marginBottom: spacing.xxxl,
+  },
+  noteItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  noteTitle: {
+    flex: 1,
+    ...typography.body,
+    marginLeft: spacing.md,
+  },
+  inputLabel: {
+    ...typography.label,
+    marginBottom: spacing.sm,
+  },
+  priorityRow: {
+    flexDirection: 'row',
+    marginBottom: spacing.lg,
+  },
+  priorityOption: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.inputBackground,
+    marginHorizontal: spacing.xs,
+  },
+  priorityOptionActive: {
+    borderWidth: 0,
+  },
+  priorityOptionText: {
+    ...typography.body,
+    fontWeight: '500',
+    color: colors.textSecondary,
+  },
+  priorityOptionTextActive: {
+    color: colors.text,
+  },
+  dateTimeRow: {
+    flexDirection: 'row',
+    marginBottom: spacing.lg,
+  },
+  dateInput: {
+    flex: 1,
+    marginRight: spacing.md,
+  },
+  timeInput: {
+    flex: 1,
+  },
+  dateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.inputBackground,
+  },
+  dateButtonText: {
+    ...typography.body,
+  },
+  placeholderText: {
+    color: colors.placeholder,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    marginTop: spacing.xl,
+    marginBottom: spacing.lg,
+  },
+  modalButton: {
+    flex: 1,
+    marginHorizontal: spacing.xs,
+  },
+  detailTitle: {
+    ...typography.h2,
+    marginBottom: spacing.sm,
+  },
+  priorityBadgeLarge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.sm,
+    marginBottom: spacing.lg,
+  },
+  priorityTextLarge: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  detailLabel: {
+    ...typography.caption,
+    color: colors.textLight,
+    marginBottom: spacing.xs,
+  },
+  detailDescription: {
+    ...typography.body,
+    marginBottom: spacing.lg,
+  },
+  scheduleBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.inputBackground,
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.lg,
+  },
+  scheduleContent: {
+    marginLeft: spacing.md,
+  },
+  scheduleLabel: {
+    ...typography.caption,
+    color: colors.textLight,
+  },
+  scheduleValue: {
+    ...typography.body,
+    fontWeight: '500',
+  },
+  detailButtons: {
+    flexDirection: 'row',
+    marginBottom: spacing.md,
+  },
+  detailButton: {
+    flex: 1,
+    marginHorizontal: spacing.xs,
+  },
+  completeButton: {
+    marginBottom: spacing.lg,
+  },
+  noteContentText: {
+    ...typography.body,
+    marginVertical: spacing.lg,
+    lineHeight: 24,
+  },
+});
+
+export default TasksScreen;
