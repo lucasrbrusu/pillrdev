@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Platform, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 
 import { colors, shadows, borderRadius } from '../utils/theme';
+import { useApp } from '../context/AppContext';
 
 // Screens
 import HomeScreen from '../screens/HomeScreen';
@@ -18,6 +19,8 @@ import FinanceScreen from '../screens/FinanceScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import CalendarScreen from '../screens/CalendarScreen';
+import OnboardingScreen from '../screens/OnboardingScreen';
+import AuthScreen from '../screens/AuthScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -149,20 +152,46 @@ const TabNavigator = () => {
 };
 
 const Navigation = () => {
+  const { isLoading, authUser, hasOnboarded } = useApp();
+
+  if (isLoading) {
+    return (
+      <NavigationContainer>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      </NavigationContainer>
+    );
+  }
+
   return (
     <NavigationContainer>
-      <Stack.Navigator
-        screenOptions={{
-          headerShown: false,
-          cardStyle: { backgroundColor: colors.background },
-        }}
-      >
-        <Stack.Screen name="Main" component={TabNavigator} />
-        <Stack.Screen name="Profile" component={ProfileScreen} />
-        <Stack.Screen name="EditProfile" component={EditProfileScreen} />
-        <Stack.Screen name="Finance" component={FinanceScreen} />
-        <Stack.Screen name="Calendar" component={CalendarScreen} />
-      </Stack.Navigator>
+      {authUser ? (
+        <Stack.Navigator
+          screenOptions={{
+            headerShown: false,
+            cardStyle: { backgroundColor: colors.background },
+          }}
+        >
+          <Stack.Screen name="Main" component={TabNavigator} />
+          <Stack.Screen name="Profile" component={ProfileScreen} />
+          <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+          <Stack.Screen name="Finance" component={FinanceScreen} />
+          <Stack.Screen name="Calendar" component={CalendarScreen} />
+        </Stack.Navigator>
+      ) : (
+        <Stack.Navigator
+          screenOptions={{
+            headerShown: false,
+            cardStyle: { backgroundColor: colors.background },
+          }}
+        >
+          {!hasOnboarded && (
+            <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+          )}
+          <Stack.Screen name="Auth" component={AuthScreen} />
+        </Stack.Navigator>
+      )}
     </NavigationContainer>
   );
 };
@@ -201,6 +230,12 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.lg,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.background,
   },
 });
 

@@ -50,10 +50,12 @@ const CalendarScreen = () => {
   const weekDays = getWeekDays();
 
   const selectedDateTasks = useMemo(() => {
-    return tasks.filter(
-      (task) =>
-        new Date(task.date).toDateString() === selectedDate.toDateString()
-    );
+    return tasks.filter((task) => {
+      if (!task.date) return false;
+      const dateVal = new Date(task.date);
+      if (isNaN(dateVal)) return false;
+      return dateVal.toDateString() === selectedDate.toDateString();
+    });
   }, [tasks, selectedDate]);
 
   const goToPreviousWeek = () => {
@@ -75,9 +77,12 @@ const CalendarScreen = () => {
   };
 
   const hasTasksOnDate = (date) => {
-    return tasks.some(
-      (task) => new Date(task.date).toDateString() === date.toDateString()
-    );
+    return tasks.some((task) => {
+      if (!task.date) return false;
+      const dateVal = new Date(task.date);
+      if (isNaN(dateVal)) return false;
+      return dateVal.toDateString() === date.toDateString();
+    });
   };
 
   const isToday = (date) => {
@@ -110,6 +115,27 @@ const CalendarScreen = () => {
   for (let i = 6; i <= 22; i++) {
     timeSlots.push(`${i.toString().padStart(2, '0')}:00`);
   }
+
+  const upcomingDatedTasks = useMemo(() => {
+    return tasks
+      .filter((task) => task.date && !isNaN(new Date(task.date)))
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+  }, [tasks]);
+
+  const undatedTasks = useMemo(
+    () => tasks.filter((task) => !task.date || isNaN(new Date(task.date))),
+    [tasks]
+  );
+
+  const formatListDate = (dateStr) => {
+    const dateVal = new Date(dateStr);
+    if (isNaN(dateVal)) return 'No date';
+    return dateVal.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -297,6 +323,60 @@ const CalendarScreen = () => {
             );
           })}
         </Card>
+
+        {/* Upcoming Tasks */}
+        <Card style={styles.tasksCard}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.timelineTitle}>Upcoming Tasks</Text>
+          </View>
+          {upcomingDatedTasks.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="calendar-outline" size={32} color={colors.primaryLight} />
+              <Text style={styles.emptyText}>No upcoming tasks</Text>
+            </View>
+          ) : (
+            upcomingDatedTasks.map((task) => (
+              <View key={task.id} style={styles.listTaskItem}>
+                <View style={styles.listTaskInfo}>
+                  <Text style={styles.taskTitle} numberOfLines={1}>
+                    {task.title}
+                  </Text>
+                  <Text style={styles.listTaskMeta}>
+                    {formatListDate(task.date)}
+                    {task.time ? ` • ${task.time}` : ''}
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    styles.priorityTag,
+                    { backgroundColor: `${colors.primary}15` },
+                  ]}
+                >
+                  <Text style={[styles.priorityText, { color: colors.primary }]}>
+                    {task.priority || '—'}
+                  </Text>
+                </View>
+              </View>
+            ))
+          )}
+        </Card>
+
+        {/* Undated Tasks */}
+        {undatedTasks.length > 0 && (
+          <Card style={styles.tasksCard}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.timelineTitle}>Undated</Text>
+            </View>
+            {undatedTasks.map((task) => (
+              <View key={task.id} style={styles.listTaskItem}>
+                <Text style={styles.taskTitle} numberOfLines={1}>
+                  {task.title}
+                </Text>
+                <Text style={styles.listTaskMeta}>No date</Text>
+              </View>
+            ))}
+          </Card>
+        )}
       </ScrollView>
     </View>
   );
@@ -511,6 +591,22 @@ const styles = StyleSheet.create({
   },
   timeSlotTaskTitle: {
     ...typography.bodySmall,
+  },
+  listTaskItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  listTaskInfo: {
+    flex: 1,
+    marginRight: spacing.md,
+  },
+  listTaskMeta: {
+    ...typography.caption,
+    color: colors.textSecondary,
   },
 });
 

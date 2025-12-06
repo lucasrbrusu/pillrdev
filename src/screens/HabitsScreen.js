@@ -39,6 +39,7 @@ const HabitsScreen = () => {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedHabit, setSelectedHabit] = useState(null);
   const [filterType, setFilterType] = useState('Latest Added');
+  const [isEditingHabit, setIsEditingHabit] = useState(false);
   
   // Form state
   const [habitTitle, setHabitTitle] = useState('');
@@ -88,18 +89,26 @@ const HabitsScreen = () => {
     setHabitRepeat('Daily');
     setRepeatEveryday(true);
     setSelectedDays(daysOfWeek);
+    setIsEditingHabit(false);
+    setSelectedHabit(null);
   };
 
-  const handleCreateHabit = async () => {
+  const handleSubmitHabit = async () => {
     if (!habitTitle.trim()) return;
 
-    await addHabit({
+    const payload = {
       title: habitTitle.trim(),
       category: habitCategory,
       description: habitDescription.trim(),
       repeat: habitRepeat,
       days: repeatEveryday ? daysOfWeek : selectedDays,
-    });
+    };
+
+    if (isEditingHabit && selectedHabit) {
+      await updateHabit(selectedHabit.id, payload);
+    } else {
+      await addHabit(payload);
+    }
 
     resetForm();
     setShowAddModal(false);
@@ -108,6 +117,21 @@ const HabitsScreen = () => {
   const handleHabitPress = (habit) => {
     setSelectedHabit(habit);
     setShowDetailModal(true);
+  };
+
+  const handleEditHabit = () => {
+    if (!selectedHabit) return;
+
+    setHabitTitle(selectedHabit.title || '');
+    setHabitCategory(selectedHabit.category || 'Personal');
+    setHabitDescription(selectedHabit.description || '');
+    setHabitRepeat(selectedHabit.repeat || 'Daily');
+    const days = selectedHabit.days?.length ? selectedHabit.days : daysOfWeek;
+    setSelectedDays(days);
+    setRepeatEveryday(days.length === daysOfWeek.length);
+    setIsEditingHabit(true);
+    setShowDetailModal(false);
+    setShowAddModal(true);
   };
 
   const handleDeleteHabit = async () => {
@@ -273,7 +297,7 @@ const HabitsScreen = () => {
           setShowAddModal(false);
           resetForm();
         }}
-        title="New Habit"
+        title={isEditingHabit ? 'Edit Habit' : 'New Habit'}
         fullScreen
       >
         <Input
@@ -365,8 +389,8 @@ const HabitsScreen = () => {
             style={styles.modalButton}
           />
           <Button
-            title="Create Habit"
-            onPress={handleCreateHabit}
+            title={isEditingHabit ? 'Save Changes' : 'Create Habit'}
+            onPress={handleSubmitHabit}
             disabled={!habitTitle.trim()}
             style={styles.modalButton}
           />
@@ -381,6 +405,7 @@ const HabitsScreen = () => {
           setSelectedHabit(null);
         }}
         title="Habit Details"
+        fullScreen
       >
         {selectedHabit && (
           <>
@@ -422,9 +447,7 @@ const HabitsScreen = () => {
                 title="Edit"
                 variant="outline"
                 icon="create-outline"
-                onPress={() => {
-                  // TODO: Implement edit functionality
-                }}
+                onPress={handleEditHabit}
                 style={styles.detailButton}
               />
               <Button

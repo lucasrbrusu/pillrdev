@@ -24,7 +24,7 @@ import {
 const ProfileScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { profile } = useApp();
+  const { profile, signOut } = useApp();
 
   const settingsOptions = [
     {
@@ -59,7 +59,13 @@ const ProfileScreen = () => {
       'Are you sure you want to sign out?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Sign Out', style: 'destructive', onPress: () => {} },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            await signOut();
+          },
+        },
       ]
     );
   };

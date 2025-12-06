@@ -22,6 +22,9 @@ const STORAGE_KEYS = {
   GROCERIES: '@pillr_groceries',
   FINANCES: '@pillr_finances',
   PROFILE: '@pillr_profile',
+  AUTH_USER: '@pillr_auth_user',
+  AUTH_USERS: '@pillr_auth_users',
+  ONBOARDING: '@pillr_onboarding_complete',
 };
 
 const defaultProfile = {
@@ -31,6 +34,25 @@ const defaultProfile = {
   dailyCalorieGoal: 2000,
   dailyWaterGoal: 8,
   dailySleepGoal: 8,
+};
+
+const defaultAdminUser = {
+  id: 'admin',
+  name: 'Pillr Admin',
+  username: 'admin',
+  email: 'admin@pillr.app',
+  password: 'admin123',
+};
+
+const ensureAdminUser = (users) => {
+  const hasAdmin = users?.some(
+    (user) =>
+      user.username?.toLowerCase() === defaultAdminUser.username ||
+      user.email?.toLowerCase() === defaultAdminUser.email
+  );
+
+  if (hasAdmin) return users;
+  return [...(users || []), defaultAdminUser];
 };
 
 export const AppProvider = ({ children }) => {
@@ -67,6 +89,11 @@ export const AppProvider = ({ children }) => {
   // Profile State
   const [profile, setProfile] = useState(defaultProfile);
 
+  // Auth State
+  const [authUser, setAuthUser] = useState(null);
+  const [authUsers, setAuthUsers] = useState([defaultAdminUser]);
+  const [hasOnboarded, setHasOnboarded] = useState(false);
+
   // Loading State
   const [isLoading, setIsLoading] = useState(true);
 
@@ -88,6 +115,9 @@ export const AppProvider = ({ children }) => {
         storedGroceries,
         storedFinances,
         storedProfile,
+        storedAuthUser,
+        storedAuthUsers,
+        storedOnboarding,
       ] = await Promise.all([
         AsyncStorage.getItem(STORAGE_KEYS.HABITS),
         AsyncStorage.getItem(STORAGE_KEYS.TASKS),
@@ -99,6 +129,9 @@ export const AppProvider = ({ children }) => {
         AsyncStorage.getItem(STORAGE_KEYS.GROCERIES),
         AsyncStorage.getItem(STORAGE_KEYS.FINANCES),
         AsyncStorage.getItem(STORAGE_KEYS.PROFILE),
+        AsyncStorage.getItem(STORAGE_KEYS.AUTH_USER),
+        AsyncStorage.getItem(STORAGE_KEYS.AUTH_USERS),
+        AsyncStorage.getItem(STORAGE_KEYS.ONBOARDING),
       ]);
 
       if (storedHabits) setHabits(JSON.parse(storedHabits));
@@ -118,6 +151,27 @@ export const AppProvider = ({ children }) => {
       if (storedGroceries) setGroceries(JSON.parse(storedGroceries));
       if (storedFinances) setFinances(JSON.parse(storedFinances));
       if (storedProfile) setProfile(JSON.parse(storedProfile));
+
+      const parsedUsers = storedAuthUsers ? JSON.parse(storedAuthUsers) : [];
+      const usersWithAdmin = ensureAdminUser(parsedUsers);
+      setAuthUsers(usersWithAdmin);
+      if (!storedAuthUsers || parsedUsers.length !== usersWithAdmin.length) {
+        await saveToStorage(STORAGE_KEYS.AUTH_USERS, usersWithAdmin);
+      }
+
+      if (storedAuthUser) {
+        const user = JSON.parse(storedAuthUser);
+        setAuthUser(user);
+        setProfile((prev) => ({
+          ...prev,
+          name: user.name || prev.name,
+          email: user.email || prev.email,
+        }));
+      }
+
+      if (storedOnboarding) {
+        setHasOnboarded(storedOnboarding === 'true');
+      }
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -248,6 +302,8 @@ export const AppProvider = ({ children }) => {
       ...note,
       id: Date.now().toString(),
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      password: null,
     };
     const updatedNotes = [...notes, newNote];
     setNotes(updatedNotes);
@@ -257,7 +313,9 @@ export const AppProvider = ({ children }) => {
 
   const updateNote = async (noteId, updates) => {
     const updatedNotes = notes.map((n) =>
-      n.id === noteId ? { ...n, ...updates } : n
+      n.id === noteId
+        ? { ...n, ...updates, updatedAt: new Date().toISOString() }
+        : n
     );
     setNotes(updatedNotes);
     await saveToStorage(STORAGE_KEYS.NOTES, updatedNotes);
@@ -265,6 +323,30 @@ export const AppProvider = ({ children }) => {
 
   const deleteNote = async (noteId) => {
     const updatedNotes = notes.filter((n) => n.id !== noteId);
+    setNotes(updatedNotes);
+    await saveToStorage(STORAGE_KEYS.NOTES, updatedNotes);
+  };
+
+  const verifyNotePassword = (noteId, password) => {
+    const note = notes.find((n) => n.id === noteId);
+    if (!note) return false;
+    if (!note.password) return true;
+    return note.password === password;
+  };
+
+  const setNotePassword = async (noteId, newPassword, currentPassword) => {
+    const note = notes.find((n) => n.id === noteId);
+    if (!note) throw new Error('Note not found');
+
+    if (note.password && note.password !== currentPassword) {
+      throw new Error('Incorrect password');
+    }
+
+    const updatedNotes = notes.map((n) =>
+      n.id === noteId
+        ? { ...n, password: newPassword || null, updatedAt: new Date().toISOString() }
+        : n
+    );
     setNotes(updatedNotes);
     await saveToStorage(STORAGE_KEYS.NOTES, updatedNotes);
   };
@@ -499,6 +581,80 @@ export const AppProvider = ({ children }) => {
     await saveToStorage(STORAGE_KEYS.PROFILE, updatedProfile);
   };
 
+  // AUTH FUNCTIONS
+  const persistOnboarding = async (value) => {
+    setHasOnboarded(value);
+    await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, value ? 'true' : 'false');
+  };
+
+  const setActiveUser = async (user) => {
+    setAuthUser(user);
+    await saveToStorage(STORAGE_KEYS.AUTH_USER, user);
+    setProfile((prev) => ({
+      ...prev,
+      name: user.name || prev.name,
+      email: user.email || prev.email,
+    }));
+    await persistOnboarding(true);
+  };
+
+  const signIn = async ({ identifier, password }) => {
+    const normalized = identifier?.trim().toLowerCase();
+    const user = authUsers.find(
+      (item) =>
+        item.username?.toLowerCase() === normalized ||
+        item.email?.toLowerCase() === normalized
+    );
+
+    if (!user) {
+      throw new Error('Account not found.');
+    }
+
+    if (user.password !== password) {
+      throw new Error('Incorrect password.');
+    }
+
+    await setActiveUser(user);
+    return user;
+  };
+
+  const signUp = async ({ fullName, username, email, password }) => {
+    const normalizedUsername = username?.trim().toLowerCase();
+    const normalizedEmail = email?.trim().toLowerCase();
+
+    const existing = authUsers.find(
+      (user) =>
+        user.username?.toLowerCase() === normalizedUsername ||
+        user.email?.toLowerCase() === normalizedEmail
+    );
+
+    if (existing) {
+      throw new Error('That username or email is already in use.');
+    }
+
+    const newUser = {
+      id: Date.now().toString(),
+      name: fullName?.trim() || 'New Pillr User',
+      username: normalizedUsername,
+      email: normalizedEmail,
+      password,
+    };
+
+    const updatedUsers = [...authUsers, newUser];
+    setAuthUsers(updatedUsers);
+    await saveToStorage(STORAGE_KEYS.AUTH_USERS, updatedUsers);
+    await setActiveUser(newUser);
+    return newUser;
+  };
+
+  const signOut = async () => {
+    setAuthUser(null);
+    await AsyncStorage.removeItem(STORAGE_KEYS.AUTH_USER);
+    await persistOnboarding(false);
+    setProfile(defaultProfile);
+    await saveToStorage(STORAGE_KEYS.PROFILE, defaultProfile);
+  };
+
   // COMPUTED VALUES
   const getBestStreak = () => {
     if (habits.length === 0) return 0;
@@ -556,6 +712,8 @@ export const AppProvider = ({ children }) => {
     addNote,
     updateNote,
     deleteNote,
+    verifyNotePassword,
+    setNotePassword,
 
     // Health
     healthData,
@@ -602,6 +760,15 @@ export const AppProvider = ({ children }) => {
     // Profile
     profile,
     updateProfile,
+
+    // Auth
+    authUser,
+    authUsers,
+    hasOnboarded,
+    signIn,
+    signUp,
+    signOut,
+    persistOnboarding,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

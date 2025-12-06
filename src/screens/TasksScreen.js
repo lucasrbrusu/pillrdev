@@ -21,6 +21,14 @@ import {
   priorityLevels,
 } from '../utils/theme';
 
+const TIME_OPTIONS = Array.from({ length: 48 }).map((_, idx) => {
+  const h = Math.floor(idx / 2);
+  const m = idx % 2 === 0 ? '00' : '30';
+  const hour12 = ((h + 11) % 12) + 1;
+  const suffix = h < 12 ? 'AM' : 'PM';
+  return `${hour12}:${m} ${suffix}`;
+});
+
 const TasksScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -35,6 +43,8 @@ const TasksScreen = () => {
     deleteNote,
     getTodayTasks,
     getUpcomingTasks,
+    verifyNotePassword,
+    setNotePassword,
   } = useApp();
 
   const [activeTab, setActiveTab] = useState('All Tasks');
@@ -43,8 +53,22 @@ const TasksScreen = () => {
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [showTaskDetailModal, setShowTaskDetailModal] = useState(false);
   const [showNoteDetailModal, setShowNoteDetailModal] = useState(false);
+  const [showNoteSecurityModal, setShowNoteSecurityModal] = useState(false);
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [datePickerMonth, setDatePickerMonth] = useState(new Date());
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [timePickerTarget, setTimePickerTarget] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
   const [selectedNote, setSelectedNote] = useState(null);
+  const [noteToUnlock, setNoteToUnlock] = useState(null);
+  const [unlockedNoteIds, setUnlockedNoteIds] = useState([]);
+
+  // Note security state
+  const [currentNotePassword, setCurrentNotePassword] = useState('');
+  const [newNotePassword, setNewNotePassword] = useState('');
+  const [confirmNotePassword, setConfirmNotePassword] = useState('');
+  const [securityError, setSecurityError] = useState('');
 
   // Task form state
   const [taskTitle, setTaskTitle] = useState('');
@@ -59,6 +83,7 @@ const TasksScreen = () => {
 
   const tabs = ['All Tasks', 'Today', 'Upcoming'];
   const filters = ['Date', 'Priority', 'A-Z'];
+  const timeOptions = TIME_OPTIONS;
 
   const filteredTasks = useMemo(() => {
     let filtered = [...tasks];
@@ -106,11 +131,21 @@ const TasksScreen = () => {
     setTaskPriority('medium');
     setTaskDate(new Date().toISOString().split('T')[0]);
     setTaskTime('');
+    setDatePickerMonth(new Date());
+    setShowDatePicker(false);
+    setShowTimePicker(false);
+    setTimePickerTarget(null);
   };
 
   const resetNoteForm = () => {
     setNoteTitle('');
     setNoteContent('');
+  };
+  const resetSecurityForm = () => {
+    setCurrentNotePassword('');
+    setNewNotePassword('');
+    setConfirmNotePassword('');
+    setSecurityError('');
   };
 
   const handleCreateTask = async () => {
@@ -162,6 +197,11 @@ const TasksScreen = () => {
   };
 
   const handleNotePress = (note) => {
+    if (note.password && !unlockedNoteIds.includes(note.id)) {
+      setNoteToUnlock(note);
+      setShowUnlockModal(true);
+      return;
+    }
     setSelectedNote(note);
     setShowNoteDetailModal(true);
   };
@@ -171,6 +211,59 @@ const TasksScreen = () => {
       await deleteNote(selectedNote.id);
       setShowNoteDetailModal(false);
       setSelectedNote(null);
+    }
+  };
+
+  const handleUnlockNote = () => {
+    if (!noteToUnlock) return;
+    setShowUnlockModal(false);
+    setShowNoteDetailModal(true);
+    setSelectedNote(noteToUnlock);
+    setUnlockedNoteIds([...unlockedNoteIds, noteToUnlock.id]);
+    setNoteToUnlock(null);
+  };
+
+  const handleManageSecurity = (note) => {
+    setSelectedNote(note);
+    resetSecurityForm();
+    setShowNoteSecurityModal(true);
+  };
+
+  const handleSaveNotePassword = async () => {
+    if (!selectedNote) return;
+    setSecurityError('');
+
+    try {
+      if (selectedNote.password && !currentNotePassword) {
+        setSecurityError('Enter current password to change it.');
+        return;
+      }
+      if (!newNotePassword) {
+        setSecurityError('Enter a new password.');
+        return;
+      }
+      if (newNotePassword !== confirmNotePassword) {
+        setSecurityError('New passwords do not match.');
+        return;
+      }
+
+      await setNotePassword(selectedNote.id, newNotePassword, currentNotePassword);
+      setShowNoteSecurityModal(false);
+      setUnlockedNoteIds(unlockedNoteIds.filter((id) => id !== selectedNote.id));
+    } catch (err) {
+      setSecurityError(err?.message || 'Unable to update password.');
+    }
+  };
+
+  const handleRemoveNotePassword = async () => {
+    if (!selectedNote) return;
+    setSecurityError('');
+    try {
+      await setNotePassword(selectedNote.id, null, currentNotePassword);
+      setShowNoteSecurityModal(false);
+      setUnlockedNoteIds(unlockedNoteIds.filter((id) => id !== selectedNote.id));
+    } catch (err) {
+      setSecurityError(err?.message || 'Unable to remove password.');
     }
   };
 
@@ -196,6 +289,63 @@ const TasksScreen = () => {
     });
   };
 
+  const formatISODate = (date) => date.toISOString().split('T')[0];
+
+  const getMonthMatrix = (monthDate) => {
+    const start = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+    const end = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
+    const startDay = start.getDay();
+    const daysInMonth = end.getDate();
+    const days = [];
+
+    for (let i = 0; i < startDay; i++) days.push(null);
+    for (let d = 1; d <= daysInMonth; d++) {
+      days.push(new Date(monthDate.getFullYear(), monthDate.getMonth(), d));
+    }
+    while (days.length % 7 !== 0) days.push(null);
+
+    const weeks = [];
+    for (let i = 0; i < days.length; i += 7) {
+      weeks.push(days.slice(i, i + 7));
+    }
+    return weeks;
+  };
+
+  const monthMatrix = useMemo(() => getMonthMatrix(datePickerMonth), [datePickerMonth]);
+
+  const handleSelectDate = (date) => {
+    setTaskDate(formatISODate(date));
+    setShowDatePicker(false);
+  };
+
+  const openDatePicker = () => {
+    setShowTimePicker(false);
+    setTimePickerTarget(null);
+    const base = taskDate ? new Date(taskDate) : new Date();
+    setDatePickerMonth(base);
+    setShowDatePicker(true);
+  };
+
+  const openTimePicker = (target) => {
+    setShowDatePicker(false);
+    setTimePickerTarget(target);
+    setShowTimePicker(true);
+  };
+
+  const handleSelectTime = (value) => {
+    if (timePickerTarget === 'task') {
+      setTaskTime(value);
+    }
+    if (timePickerTarget === 'sleep') {
+      updateTodayHealth({ sleepTime: value });
+    }
+    if (timePickerTarget === 'wake') {
+      updateTodayHealth({ wakeTime: value });
+    }
+    setShowTimePicker(false);
+    setTimePickerTarget(null);
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScrollView
@@ -211,13 +361,13 @@ const TasksScreen = () => {
             onPress={() => setShowTaskModal(true)}
             style={styles.addTaskButton}
           />
-          <TouchableOpacity
-            style={styles.quickNoteButton}
+          <Button
+            title="Create Note"
+            variant="secondary"
+            icon="document-text-outline"
             onPress={() => setShowNoteModal(true)}
-          >
-            <Feather name="edit-3" size={18} color={colors.textSecondary} />
-            <Text style={styles.quickNoteText}>Quick Note</Text>
-          </TouchableOpacity>
+            style={styles.addNoteButton}
+          />
           <TouchableOpacity
             style={styles.calendarButton}
             onPress={() => navigation.navigate('Calendar')}
@@ -339,29 +489,72 @@ const TasksScreen = () => {
         </Card>
 
         {/* Notes Section */}
-        {notes.length > 0 && (
-          <Card style={styles.notesCard}>
-            <Text style={styles.sectionTitle}>Quick Notes</Text>
-            {notes.map((note) => (
-              <TouchableOpacity
-                key={note.id}
-                style={styles.noteItem}
-                onPress={() => handleNotePress(note)}
-                activeOpacity={0.7}
-              >
-                <Feather name="file-text" size={18} color={colors.tasks} />
-                <Text style={styles.noteTitle} numberOfLines={1}>
-                  {note.title}
-                </Text>
-                <Ionicons
-                  name="chevron-forward"
-                  size={18}
-                  color={colors.textLight}
-                />
-              </TouchableOpacity>
-            ))}
-          </Card>
-        )}
+        <Card style={styles.notesCard}>
+          <View style={styles.notesHeader}>
+            <Text style={styles.sectionTitle}>Notes</Text>
+            <TouchableOpacity
+              style={styles.addNewButton}
+              onPress={() => setShowNoteModal(true)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.addNewText}>Add new</Text>
+            </TouchableOpacity>
+          </View>
+
+          {notes.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="document-text-outline" size={48} color={colors.primaryLight} />
+              <Text style={styles.emptyTitle}>No notes yet</Text>
+              <Text style={styles.emptySubtitle}>Create a note to get started</Text>
+              <Button
+                title="Create Note"
+                variant="secondary"
+                icon="document-text-outline"
+                onPress={() => setShowNoteModal(true)}
+                style={styles.createNoteEmptyButton}
+              />
+            </View>
+          ) : (
+            notes.map((note) => (
+              <View key={note.id} style={styles.noteRow}>
+                <TouchableOpacity
+                  style={styles.noteItem}
+                  onPress={() => handleNotePress(note)}
+                  activeOpacity={0.7}
+                >
+                  <Feather name="file-text" size={18} color={colors.tasks} />
+                  <View style={styles.noteInfo}>
+                    <Text style={styles.noteTitle} numberOfLines={1}>
+                      {note.title}
+                    </Text>
+                    {note.password && (
+                      <View style={styles.lockBadge}>
+                        <Ionicons name="lock-closed" size={12} color={colors.primary} />
+                        <Text style={styles.lockBadgeText}>Locked</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={colors.textLight}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.lockButton}
+                  onPress={() => handleManageSecurity(note)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name={note.password ? 'lock-closed' : 'lock-open'}
+                    size={18}
+                    color={note.password ? colors.primary : colors.textSecondary}
+                  />
+                </TouchableOpacity>
+              </View>
+            ))
+          )}
+        </Card>
       </ScrollView>
 
       {/* Add Task Modal */}
@@ -419,7 +612,11 @@ const TasksScreen = () => {
         <View style={styles.dateTimeRow}>
           <View style={styles.dateInput}>
             <Text style={styles.inputLabel}>Date</Text>
-            <TouchableOpacity style={styles.dateButton}>
+            <TouchableOpacity
+              style={styles.dateButton}
+              onPress={openDatePicker}
+              activeOpacity={0.8}
+            >
               <Text style={styles.dateButtonText}>{formatDate(taskDate)}</Text>
               <Ionicons
                 name="calendar-outline"
@@ -430,7 +627,11 @@ const TasksScreen = () => {
           </View>
           <View style={styles.timeInput}>
             <Text style={styles.inputLabel}>Time (Optional)</Text>
-            <TouchableOpacity style={styles.dateButton}>
+            <TouchableOpacity
+              style={styles.dateButton}
+              onPress={() => openTimePicker('task')}
+              activeOpacity={0.8}
+            >
               <Text
                 style={[
                   styles.dateButtonText,
@@ -443,6 +644,110 @@ const TasksScreen = () => {
             </TouchableOpacity>
           </View>
         </View>
+
+        {showDatePicker && (
+          <View style={styles.inlinePicker}>
+            <View style={styles.calendarHeader}>
+              <TouchableOpacity
+                style={styles.calendarNav}
+                onPress={() =>
+                  setDatePickerMonth((prev) => {
+                    const next = new Date(prev);
+                    next.setMonth(prev.getMonth() - 1);
+                    return next;
+                  })
+                }
+              >
+                <Ionicons name="chevron-back" size={20} color={colors.text} />
+              </TouchableOpacity>
+              <Text style={styles.calendarTitle}>
+                {datePickerMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+              </Text>
+              <TouchableOpacity
+                style={styles.calendarNav}
+                onPress={() =>
+                  setDatePickerMonth((prev) => {
+                    const next = new Date(prev);
+                    next.setMonth(prev.getMonth() + 1);
+                    return next;
+                  })
+                }
+              >
+                <Ionicons name="chevron-forward" size={20} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.weekDays}>
+              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, idx) => (
+                <Text key={`${day}-${idx}`} style={styles.weekDayLabel}>
+                  {day}
+                </Text>
+              ))}
+            </View>
+            {monthMatrix.map((week, idx) => (
+              <View key={idx} style={styles.weekRow}>
+                {week.map((day, dayIdx) => {
+                  const isSelected =
+                    day && formatISODate(day) === formatISODate(new Date(taskDate));
+                  return (
+                    <TouchableOpacity
+                      key={dayIdx}
+                      style={[
+                        styles.dayCell,
+                        isSelected && styles.dayCellSelected,
+                        !day && styles.dayCellEmpty,
+                      ]}
+                      disabled={!day}
+                      onPress={() => day && handleSelectDate(day)}
+                      activeOpacity={day ? 0.8 : 1}
+                    >
+                      {day && (
+                        <Text
+                          style={[
+                            styles.dayLabel,
+                            isSelected && styles.dayLabelSelected,
+                          ]}
+                        >
+                          {day.getDate()}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ))}
+            <Button
+              title="Close"
+              variant="secondary"
+              onPress={() => setShowDatePicker(false)}
+              style={styles.pickerCloseButton}
+            />
+          </View>
+        )}
+
+        {showTimePicker && (
+          <View style={styles.inlinePicker}>
+            <Text style={styles.pickerTitle}>Select Time</Text>
+            <ScrollView contentContainerStyle={styles.timeList} style={{ maxHeight: 260 }}>
+              {timeOptions.map((time) => (
+                <TouchableOpacity
+                  key={time}
+                  style={styles.timeOption}
+                  onPress={() => handleSelectTime(time)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="time-outline" size={18} color={colors.textSecondary} />
+                  <Text style={styles.timeOptionText}>{time}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <Button
+              title="Close"
+              variant="secondary"
+              onPress={() => setShowTimePicker(false)}
+              style={styles.pickerCloseButton}
+            />
+          </View>
+        )}
 
         <View style={styles.modalButtons}>
           <Button
@@ -471,39 +776,43 @@ const TasksScreen = () => {
           resetNoteForm();
         }}
         title="New Note"
+        fullScreen
       >
-        <Input
-          label="Title"
-          value={noteTitle}
-          onChangeText={setNoteTitle}
-          placeholder="Title"
-        />
-
-        <Input
-          label="Content"
-          value={noteContent}
-          onChangeText={setNoteContent}
-          placeholder="Start writing..."
-          multiline
-          numberOfLines={6}
-        />
-
-        <View style={styles.modalButtons}>
-          <Button
-            title="Cancel"
-            variant="secondary"
-            onPress={() => {
-              setShowNoteModal(false);
-              resetNoteForm();
-            }}
-            style={styles.modalButton}
+        <View style={styles.noteForm}>
+          <Input
+            label="Title"
+            value={noteTitle}
+            onChangeText={setNoteTitle}
+            placeholder="Title"
           />
-          <Button
-            title="Create"
-            onPress={handleCreateNote}
-            disabled={!noteTitle.trim()}
-            style={styles.modalButton}
+
+          <Input
+            label="Content"
+            value={noteContent}
+            onChangeText={setNoteContent}
+            placeholder="Start writing..."
+            multiline
+            numberOfLines={16}
+            inputStyle={styles.noteContentInput}
           />
+
+          <View style={styles.modalButtons}>
+            <Button
+              title="Cancel"
+              variant="secondary"
+              onPress={() => {
+                setShowNoteModal(false);
+                resetNoteForm();
+              }}
+              style={styles.modalButton}
+            />
+            <Button
+              title="Create"
+              onPress={handleCreateNote}
+              disabled={!noteTitle.trim()}
+              style={styles.modalButton}
+            />
+          </View>
         </View>
       </Modal>
 
@@ -515,6 +824,7 @@ const TasksScreen = () => {
           setSelectedTask(null);
         }}
         title="Task Details"
+        fullScreen
       >
         {selectedTask && (
           <>
@@ -597,6 +907,7 @@ const TasksScreen = () => {
           setSelectedNote(null);
         }}
         title="Note"
+        fullScreen
       >
         {selectedNote && (
           <>
@@ -624,6 +935,130 @@ const TasksScreen = () => {
           </>
         )}
       </Modal>
+
+      {/* Note Security Modal */}
+      <Modal
+        visible={showNoteSecurityModal}
+        onClose={() => {
+          setShowNoteSecurityModal(false);
+          resetSecurityForm();
+        }}
+        title="Note Security"
+        fullScreen
+      >
+        {selectedNote && (
+          <>
+            <Text style={styles.inputLabel}>Note</Text>
+            <Text style={styles.detailTitle}>{selectedNote.title}</Text>
+            <View style={styles.securitySection}>
+              {selectedNote.password && (
+                <Input
+                  label="Current Password"
+                  value={currentNotePassword}
+                  onChangeText={setCurrentNotePassword}
+                  secureTextEntry
+                  placeholder="Enter current password"
+                />
+              )}
+              <Input
+                label="New Password"
+                value={newNotePassword}
+                onChangeText={setNewNotePassword}
+                secureTextEntry
+                placeholder="Enter new password"
+              />
+              <Input
+                label="Confirm New Password"
+                value={confirmNotePassword}
+                onChangeText={setConfirmNotePassword}
+                secureTextEntry
+                placeholder="Re-enter new password"
+              />
+              {securityError ? (
+                <Text style={styles.errorText}>{securityError}</Text>
+              ) : null}
+              <View style={styles.modalButtons}>
+                <Button
+                  title="Cancel"
+                  variant="secondary"
+                  onPress={() => {
+                    setShowNoteSecurityModal(false);
+                    resetSecurityForm();
+                  }}
+                  style={styles.modalButton}
+                />
+                <Button
+                  title="Save Password"
+                  onPress={handleSaveNotePassword}
+                  style={styles.modalButton}
+                />
+              </View>
+              {selectedNote.password && (
+                <Button
+                  title="Remove Password"
+                  variant="outline"
+                  onPress={handleRemoveNotePassword}
+                />
+              )}
+            </View>
+          </>
+        )}
+      </Modal>
+
+      {/* Unlock Modal */}
+      <Modal
+        visible={showUnlockModal}
+        onClose={() => {
+          setShowUnlockModal(false);
+          setNoteToUnlock(null);
+          setCurrentNotePassword('');
+          setSecurityError('');
+        }}
+        title="Unlock Note"
+      >
+        {noteToUnlock && (
+          <>
+            <Text style={styles.detailTitle}>{noteToUnlock.title}</Text>
+            <Input
+              label="Password"
+              value={currentNotePassword}
+              onChangeText={setCurrentNotePassword}
+              secureTextEntry
+              placeholder="Enter password"
+            />
+            {securityError ? (
+              <Text style={styles.errorText}>{securityError}</Text>
+            ) : null}
+            <View style={styles.modalButtons}>
+              <Button
+                title="Cancel"
+                variant="secondary"
+                onPress={() => {
+                  setShowUnlockModal(false);
+                  setNoteToUnlock(null);
+                  setCurrentNotePassword('');
+                  setSecurityError('');
+                }}
+                style={styles.modalButton}
+              />
+              <Button
+                title="Unlock"
+                onPress={() => {
+                  if (!verifyNotePassword(noteToUnlock.id, currentNotePassword)) {
+                    setSecurityError('Incorrect password.');
+                    return;
+                  }
+                  setSecurityError('');
+                  handleUnlockNote();
+                  setCurrentNotePassword('');
+                }}
+                style={styles.modalButton}
+              />
+            </View>
+          </>
+        )}
+      </Modal>
+
     </View>
   );
 };
@@ -645,32 +1080,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: spacing.lg,
     marginBottom: spacing.lg,
+    flexWrap: 'wrap',
   },
   addTaskButton: {
-    flex: 0,
-    paddingHorizontal: spacing.xl,
-  },
-  quickNoteButton: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: spacing.md,
-    paddingVertical: spacing.md,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
+    paddingHorizontal: spacing.xl,
+    marginBottom: spacing.sm,
+    marginRight: spacing.sm,
   },
-  quickNoteText: {
-    ...typography.body,
-    color: colors.textSecondary,
-    marginLeft: spacing.sm,
+  addNoteButton: {
+    flex: 1,
+    marginLeft: 0,
+    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.xl,
+    marginBottom: spacing.sm,
   },
   calendarButton: {
     width: 48,
     height: 48,
     marginLeft: spacing.md,
+    marginTop: spacing.sm,
     borderRadius: borderRadius.md,
     borderWidth: 1,
     borderColor: colors.border,
@@ -727,6 +1156,11 @@ const styles = StyleSheet.create({
   sectionTitle: {
     ...typography.h3,
     marginBottom: spacing.md,
+  },
+  linkText: {
+    ...typography.bodySmall,
+    color: colors.primary,
+    fontWeight: '600',
   },
   emptyState: {
     alignItems: 'center',
@@ -800,11 +1234,55 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.divider,
+    flex: 1,
+  },
+  noteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
   },
   noteTitle: {
     flex: 1,
     ...typography.body,
+  },
+  noteInfo: {
+    flex: 1,
     marginLeft: spacing.md,
+  },
+  lockBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.xs,
+  },
+  lockBadgeText: {
+    ...typography.caption,
+    color: colors.primary,
+    marginLeft: spacing.xs,
+  },
+  createNoteEmptyButton: {
+    marginTop: spacing.lg,
+  },
+  lockButton: {
+    padding: spacing.sm,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.inputBackground,
+    marginLeft: spacing.sm,
+  },
+  noteForm: {
+    flex: 1,
+    justifyContent: 'space-between',
+    paddingBottom: spacing.xl,
+  },
+  addNewButton: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.inputBackground,
+  },
+  addNewText: {
+    ...typography.body,
+    fontWeight: '700',
+    color: colors.primary,
   },
   inputLabel: {
     ...typography.label,
@@ -833,6 +1311,12 @@ const styles = StyleSheet.create({
   },
   priorityOptionTextActive: {
     color: colors.text,
+  },
+  notesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
   },
   dateTimeRow: {
     flexDirection: 'row',
@@ -929,6 +1413,117 @@ const styles = StyleSheet.create({
     ...typography.body,
     marginVertical: spacing.lg,
     lineHeight: 24,
+  },
+  noteContentInput: {
+    minHeight: 320,
+    textAlignVertical: 'top',
+  },
+  securitySection: {
+    marginTop: spacing.md,
+  },
+  errorText: {
+    color: colors.danger,
+    marginBottom: spacing.sm,
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  calendarTitle: {
+    ...typography.h3,
+  },
+  calendarNav: {
+    padding: spacing.sm,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.inputBackground,
+  },
+  weekDays: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  weekDayLabel: {
+    ...typography.caption,
+    width: `${100 / 7}%`,
+    textAlign: 'center',
+    color: colors.textSecondary,
+  },
+  weekRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  dayCell: {
+    width: `${100 / 7 - 2}%`,
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.inputBackground,
+  },
+  dayCellEmpty: {
+    backgroundColor: 'transparent',
+  },
+  dayCellSelected: {
+    backgroundColor: colors.primaryLight,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  dayLabel: {
+    ...typography.body,
+    color: colors.text,
+  },
+  dayLabelSelected: {
+    color: colors.primary,
+    fontWeight: '700',
+  },
+  timeList: {
+    paddingBottom: spacing.xxxl,
+  },
+  timeOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  timeOptionText: {
+    ...typography.body,
+    marginLeft: spacing.sm,
+  },
+  pickerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  overlayBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  pickerSheet: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.xl,
+    padding: spacing.xl,
+    maxHeight: '75%',
+    width: '90%',
+    alignItems: 'stretch',
+  },
+  centerSheet: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.xl,
+    padding: spacing.xl,
+    maxHeight: '75%',
+    width: '90%',
+    alignItems: 'stretch',
+  },
+  pickerTitle: {
+    ...typography.h3,
+    marginBottom: spacing.md,
+  },
+  pickerCloseButton: {
+    marginTop: spacing.md,
   },
 });
 

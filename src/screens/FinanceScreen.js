@@ -9,7 +9,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
 import { Card, Modal, Button, Input, ChipGroup } from '../components';
 import {
@@ -25,7 +24,6 @@ import {
 
 const FinanceScreen = () => {
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
   const {
     finances,
     addTransaction,
@@ -38,6 +36,8 @@ const FinanceScreen = () => {
   const [showIncomeModal, setShowIncomeModal] = useState(false);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [showChartModal, setShowChartModal] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
 
   // Transaction form state
   const [amount, setAmount] = useState('');
@@ -49,22 +49,14 @@ const FinanceScreen = () => {
   );
   const [note, setNote] = useState('');
 
-  const summary = useMemo(() => {
-    const allTransactions = finances;
-    const income = allTransactions
-      .filter((t) => t.type === 'income')
-      .reduce((sum, t) => sum + t.amount, 0);
-    const expenses = allTransactions
-      .filter((t) => t.type === 'expense')
-      .reduce((sum, t) => sum + t.amount, 0);
-    return {
-      income,
-      expenses,
-      balance: income - expenses,
-    };
-  }, [finances]);
+  const formatDateForInput = (date) =>
+    new Date(date).toISOString().split('T')[0];
 
-  const todayTransactions = useMemo(() => {
+  const dailySummary = useMemo(() => {
+    return getFinanceSummaryForDate(selectedDate);
+  }, [finances, selectedDate]);
+
+  const dayTransactions = useMemo(() => {
     return getTransactionsForDate(selectedDate);
   }, [finances, selectedDate]);
 
@@ -73,7 +65,7 @@ const FinanceScreen = () => {
     setCategory('');
     setCustomCategory('');
     setNote('');
-    setTransactionDate(new Date().toISOString().split('T')[0]);
+    setTransactionDate(formatDateForInput(selectedDate));
   };
 
   const handleAddIncome = async () => {
@@ -116,8 +108,8 @@ const FinanceScreen = () => {
     return formatted;
   };
 
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
+  const formatDate = (dateValue) => {
+    const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
     return date.toLocaleDateString('en-US', {
       weekday: 'short',
       day: 'numeric',
@@ -161,6 +153,70 @@ const FinanceScreen = () => {
     1
   );
 
+  const shiftSelectedDate = (days) => {
+    setSelectedDate((prev) => {
+      const next = new Date(prev);
+      next.setDate(next.getDate() + days);
+      return next;
+    });
+    setCalendarMonth((prev) => {
+      const next = new Date(prev);
+      next.setDate(next.getDate() + days);
+      next.setDate(1);
+      return next;
+    });
+  };
+
+  const handleOpenIncome = () => {
+    setTransactionDate(formatDateForInput(selectedDate));
+    setShowIncomeModal(true);
+  };
+
+  const handleOpenExpense = () => {
+    setTransactionDate(formatDateForInput(selectedDate));
+    setShowExpenseModal(true);
+  };
+
+  const handleMonthShift = (delta) => {
+    setCalendarMonth((prev) => {
+      const next = new Date(prev);
+      next.setMonth(next.getMonth() + delta);
+      return next;
+    });
+  };
+
+  const handleSelectFromCalendar = (date) => {
+    setSelectedDate(date);
+    setTransactionDate(formatDateForInput(date));
+    setShowDatePicker(false);
+  };
+
+  const getMonthMatrix = (monthDate) => {
+    const start = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+    const end = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
+    const startDay = start.getDay();
+    const daysInMonth = end.getDate();
+    const days = [];
+
+    // previous month padding
+    for (let i = 0; i < startDay; i++) {
+      days.push(null);
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      days.push(new Date(monthDate.getFullYear(), monthDate.getMonth(), d));
+    }
+    while (days.length % 7 !== 0) {
+      days.push(null);
+    }
+    const weeks = [];
+    for (let i = 0; i < days.length; i += 7) {
+      weeks.push(days.slice(i, i + 7));
+    }
+    return weeks;
+  };
+
+  const monthMatrix = getMonthMatrix(calendarMonth);
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScrollView
@@ -170,35 +226,47 @@ const FinanceScreen = () => {
       >
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Ionicons name="arrow-back" size={24} color={colors.text} />
-          </TouchableOpacity>
           <Text style={styles.headerTitle}>Finances</Text>
           <View style={styles.headerSpacer} />
         </View>
 
         {/* Date Picker */}
-        <TouchableOpacity style={styles.datePicker}>
-          <Ionicons name="calendar-outline" size={18} color={colors.textSecondary} />
-          <Text style={styles.dateText}>{formatDate(selectedDate)}</Text>
-          <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
-        </TouchableOpacity>
+        <View style={styles.dateRow}>
+          <TouchableOpacity
+            style={styles.dateArrow}
+            onPress={() => shiftSelectedDate(-1)}
+          >
+            <Ionicons name="chevron-back" size={20} color={colors.text} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.datePicker}
+            activeOpacity={0.85}
+            onPress={() => setShowDatePicker(true)}
+          >
+            <Ionicons name="calendar-outline" size={18} color={colors.textSecondary} />
+            <Text style={styles.dateText}>{formatDate(selectedDate)}</Text>
+            <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.dateArrow}
+            onPress={() => shiftSelectedDate(1)}
+          >
+            <Ionicons name="chevron-forward" size={20} color={colors.text} />
+          </TouchableOpacity>
+        </View>
 
         {/* Action Buttons */}
         <View style={styles.actionRow}>
           <TouchableOpacity
             style={[styles.actionButton, styles.incomeButton]}
-            onPress={() => setShowIncomeModal(true)}
+            onPress={handleOpenIncome}
           >
             <Ionicons name="add-circle" size={20} color="#FFFFFF" />
             <Text style={styles.actionButtonText}>Record Income</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.actionButton, styles.expenseButton]}
-            onPress={() => setShowExpenseModal(true)}
+            onPress={handleOpenExpense}
           >
             <Ionicons name="remove-circle" size={20} color="#FFFFFF" />
             <Text style={styles.actionButtonText}>Record Expense</Text>
@@ -217,37 +285,36 @@ const FinanceScreen = () => {
           <Text
             style={[
               styles.balanceAmount,
-              summary.balance < 0 && styles.balanceNegative,
+              dailySummary.balance < 0 && styles.balanceNegative,
             ]}
           >
-            {formatCurrency(summary.balance)}
+            {formatCurrency(dailySummary.balance)}
           </Text>
           <View style={styles.balanceSummary}>
             <View style={styles.summaryItem}>
               <View style={[styles.summaryDot, { backgroundColor: colors.income }]} />
               <Text style={styles.summaryLabel}>Income</Text>
-              <Text style={styles.summaryValue}>{formatCurrency(summary.income)}</Text>
+              <Text style={styles.summaryValue}>{formatCurrency(dailySummary.income)}</Text>
             </View>
             <View style={styles.summaryItem}>
               <View style={[styles.summaryDot, { backgroundColor: colors.expense }]} />
               <Text style={styles.summaryLabel}>Expenses</Text>
-              <Text style={styles.summaryValue}>{formatCurrency(summary.expenses)}</Text>
+              <Text style={styles.summaryValue}>{formatCurrency(dailySummary.expenses)}</Text>
             </View>
           </View>
         </Card>
 
         {/* Transactions List */}
         <Card style={styles.transactionsCard}>
-          <Text style={styles.sectionTitle}>Recent Transactions</Text>
-          {finances.length === 0 ? (
+          <Text style={styles.sectionTitle}>Transactions</Text>
+          {dayTransactions.length === 0 ? (
             <View style={styles.emptyState}>
               <Feather name="dollar-sign" size={40} color={colors.primaryLight} />
-              <Text style={styles.emptyText}>No transactions yet</Text>
+              <Text style={styles.emptyText}>No transactions for this date</Text>
             </View>
           ) : (
-            finances
+            dayTransactions
               .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-              .slice(0, 10)
               .map((transaction) => (
                 <TouchableOpacity
                   key={transaction.id}
@@ -488,6 +555,73 @@ const FinanceScreen = () => {
           style={styles.closeChartButton}
         />
       </Modal>
+
+      {/* Date Picker Modal */}
+      <Modal
+        visible={showDatePicker}
+        onClose={() => setShowDatePicker(false)}
+        title="Select Date"
+      >
+        <View style={styles.calendarHeader}>
+          <TouchableOpacity
+            style={styles.calendarNav}
+            onPress={() => handleMonthShift(-1)}
+          >
+            <Ionicons name="chevron-back" size={20} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.calendarTitle}>
+            {calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+          </Text>
+          <TouchableOpacity
+            style={styles.calendarNav}
+            onPress={() => handleMonthShift(1)}
+          >
+            <Ionicons name="chevron-forward" size={20} color={colors.text} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.weekDays}>
+          {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, idx) => (
+            <Text key={`${day}-${idx}`} style={styles.weekDayLabel}>
+              {day}
+            </Text>
+          ))}
+        </View>
+
+        {monthMatrix.map((week, idx) => (
+          <View key={idx} style={styles.weekRow}>
+            {week.map((day, dayIdx) => {
+              const isSelected =
+                day &&
+                day.toDateString() === new Date(selectedDate).toDateString();
+              return (
+                <TouchableOpacity
+                  key={dayIdx}
+                  style={[
+                    styles.dayCell,
+                    isSelected && styles.dayCellSelected,
+                    !day && styles.dayCellEmpty,
+                  ]}
+                  disabled={!day}
+                  onPress={() => day && handleSelectFromCalendar(day)}
+                  activeOpacity={day ? 0.8 : 1}
+                >
+                  {day && (
+                    <Text
+                      style={[
+                        styles.dayLabel,
+                        isSelected && styles.dayLabelSelected,
+                      ]}
+                    >
+                      {day.getDate()}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ))}
+      </Modal>
     </View>
   );
 };
@@ -507,27 +641,38 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     paddingVertical: spacing.lg,
-  },
-  backButton: {
-    padding: spacing.xs,
   },
   headerTitle: {
     ...typography.h2,
+    textAlign: 'center',
+    flex: 1,
   },
   headerSpacer: {
     width: 32,
   },
+  dateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+    justifyContent: 'center',
+    columnGap: spacing.sm,
+  },
+  dateArrow: {
+    padding: spacing.sm,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.inputBackground,
+  },
   datePicker: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     borderRadius: borderRadius.md,
     backgroundColor: colors.inputBackground,
-    marginBottom: spacing.lg,
+    marginHorizontal: spacing.md,
+    justifyContent: 'center',
   },
   dateText: {
     ...typography.body,
@@ -773,6 +918,60 @@ const styles = StyleSheet.create({
   },
   closeChartButton: {
     marginBottom: spacing.lg,
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  calendarTitle: {
+    ...typography.h3,
+  },
+  calendarNav: {
+    padding: spacing.sm,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.inputBackground,
+  },
+  weekDays: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  weekDayLabel: {
+    ...typography.caption,
+    width: `${100 / 7}%`,
+    textAlign: 'center',
+    color: colors.textSecondary,
+  },
+  weekRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  dayCell: {
+    width: `${100 / 7 - 2}%`,
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.inputBackground,
+  },
+  dayCellEmpty: {
+    backgroundColor: 'transparent',
+  },
+  dayCellSelected: {
+    backgroundColor: colors.primaryLight,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  dayLabel: {
+    ...typography.body,
+    color: colors.text,
+  },
+  dayLabelSelected: {
+    color: colors.primary,
+    fontWeight: '700',
   },
 });
 

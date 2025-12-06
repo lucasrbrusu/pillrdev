@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,14 @@ import {
   typography,
   moodEmojis,
 } from '../utils/theme';
+
+const TIME_OPTIONS = Array.from({ length: 48 }).map((_, idx) => {
+  const h = Math.floor(idx / 2);
+  const m = idx % 2 === 0 ? '00' : '30';
+  const hour12 = ((h + 11) % 12) + 1;
+  const suffix = h < 12 ? 'AM' : 'PM';
+  return `${hour12}:${m} ${suffix}`;
+});
 
 const HealthScreen = () => {
   const insets = useSafeAreaInsets();
@@ -51,6 +59,27 @@ const HealthScreen = () => {
 
   const handleSleepQualitySelect = (quality) => {
     updateTodayHealth({ sleepQuality: quality });
+  };
+
+  const timeOptions = TIME_OPTIONS;
+
+  const [showSleepTimePicker, setShowSleepTimePicker] = useState(false);
+  const [sleepTimeTarget, setSleepTimeTarget] = useState(null);
+
+  const openSleepTimePicker = (target) => {
+    setSleepTimeTarget(target);
+    setShowSleepTimePicker(true);
+  };
+
+  const handleSelectSleepTime = (value) => {
+    if (sleepTimeTarget === 'sleep') {
+      updateTodayHealth({ sleepTime: value });
+    }
+    if (sleepTimeTarget === 'wake') {
+      updateTodayHealth({ wakeTime: value });
+    }
+    setShowSleepTimePicker(false);
+    setSleepTimeTarget(null);
   };
 
   const handleLogFood = async () => {
@@ -184,7 +213,10 @@ const HealthScreen = () => {
           <View style={styles.sleepInputRow}>
             <View style={styles.sleepInput}>
               <Text style={styles.sleepLabel}>Sleep Time</Text>
-              <TouchableOpacity style={styles.timeButton}>
+              <TouchableOpacity
+                style={styles.timeButton}
+                onPress={() => openSleepTimePicker('sleep')}
+              >
                 <Text style={styles.timeButtonText}>
                   {todayHealth.sleepTime || '--:--'}
                 </Text>
@@ -193,7 +225,10 @@ const HealthScreen = () => {
             </View>
             <View style={styles.sleepInput}>
               <Text style={styles.sleepLabel}>Wake Time</Text>
-              <TouchableOpacity style={styles.timeButton}>
+              <TouchableOpacity
+                style={styles.timeButton}
+                onPress={() => openSleepTimePicker('wake')}
+              >
                 <Text style={styles.timeButtonText}>
                   {todayHealth.wakeTime || '--:--'}
                 </Text>
@@ -222,10 +257,10 @@ const HealthScreen = () => {
               </TouchableOpacity>
             ))}
           </View>
-        </Card>
+      </Card>
 
-        {/* Calorie Tracker Section */}
-        <Card style={[styles.sectionCard, styles.lastCard]}>
+      {/* Calorie Tracker Section */}
+      <Card style={[styles.sectionCard, styles.lastCard]}>
           <Text style={styles.sectionTitle}>Calorie Tracker</Text>
           <View style={styles.calorieStats}>
             <View style={styles.calorieStat}>
@@ -315,6 +350,39 @@ const HealthScreen = () => {
           />
         </View>
       </Modal>
+
+      {/* Sleep Time Picker */}
+      {showSleepTimePicker && (
+        <View style={styles.pickerOverlay} pointerEvents="box-none">
+          <TouchableOpacity
+            style={styles.overlayBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowSleepTimePicker(false)}
+          />
+          <View style={[styles.pickerSheet, styles.pickerSheetLower]}>
+            <Text style={styles.pickerTitle}>Select Time</Text>
+            <ScrollView contentContainerStyle={styles.timeList} style={{ maxHeight: 420 }}>
+              {timeOptions.map((time) => (
+                <TouchableOpacity
+                  key={time}
+                  style={styles.timeOption}
+                  onPress={() => handleSelectSleepTime(time)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="time-outline" size={18} color={colors.textSecondary} />
+                  <Text style={styles.timeOptionText}>{time}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <Button
+              title="Cancel"
+              variant="secondary"
+              onPress={() => setShowSleepTimePicker(false)}
+              style={styles.pickerCloseButton}
+            />
+          </View>
+        </View>
+      )}
     </View>
   );
 };
@@ -560,6 +628,46 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: colors.textSecondary,
     marginLeft: spacing.sm,
+  },
+  timeList: {
+    paddingBottom: spacing.xxxl,
+  },
+  timeOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  timeOptionText: {
+    ...typography.body,
+    marginLeft: spacing.sm,
+  },
+  pickerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-start',
+  },
+  overlayBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  pickerSheet: {
+    backgroundColor: colors.card,
+    borderTopLeftRadius: borderRadius.xl,
+    borderTopRightRadius: borderRadius.xl,
+    padding: spacing.xl,
+    maxHeight: '75%',
+    width: '92%',
+    alignSelf: 'center',
+    marginTop: spacing.xxxl,
+    marginBottom: spacing.xl,
+  },
+  pickerTitle: {
+    ...typography.h3,
+    marginBottom: spacing.md,
+  },
+  pickerCloseButton: {
+    marginTop: spacing.md,
   },
   modalButtons: {
     flexDirection: 'row',

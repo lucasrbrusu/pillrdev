@@ -38,7 +38,18 @@ const HomeScreen = () => {
   const todayTasks = getTodayTasks();
   const recentHabits = habits.slice(-5).reverse();
   const upcomingChores = chores.filter((c) => !c.completed).slice(0, 3);
-  const upcomingReminders = reminders.slice(0, 3);
+  const getReminderDate = (reminder) => {
+    if (!reminder?.date) return new Date(reminder?.createdAt || Date.now());
+    const dateString = reminder.time
+      ? `${reminder.date}T${reminder.time}`
+      : reminder.date;
+    return new Date(dateString);
+  };
+
+  const upcomingReminders = reminders
+    .slice()
+    .sort((a, b) => getReminderDate(a) - getReminderDate(b))
+    .slice(0, 3);
   const groceryPreview = groceries.filter((g) => !g.completed).slice(0, 3);
 
   const currentMood = todayHealth.mood
@@ -145,6 +156,41 @@ const HomeScreen = () => {
             </TouchableOpacity>
           ))}
         </View>
+
+        {/* Upcoming Reminders */}
+        <Card
+          style={styles.sectionCard}
+          onPress={() => navigation.navigate('Routine')}
+        >
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Reminders</Text>
+            <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
+          </View>
+          {upcomingReminders.length === 0 ? (
+            <Text style={styles.emptyText}>No reminders available</Text>
+          ) : (
+            <View style={styles.reminderList}>
+              {upcomingReminders.map((reminder) => (
+                <View key={reminder.id} style={styles.reminderItem}>
+                  <View style={styles.reminderIcon}>
+                    <Ionicons name="notifications-outline" size={18} color={colors.routine} />
+                  </View>
+                  <View style={styles.reminderContent}>
+                    <Text style={styles.reminderTitle} numberOfLines={1}>
+                      {reminder.title}
+                    </Text>
+                    {(reminder.date || reminder.time) && (
+                      <Text style={styles.reminderMeta}>
+                        {reminder.date}
+                        {reminder.time ? ` • ${reminder.time}` : ''}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+        </Card>
 
         {/* Today's Overview */}
         <Card
@@ -426,6 +472,37 @@ const styles = StyleSheet.create({
     ...typography.body,
     marginLeft: spacing.sm,
     flex: 1,
+  },
+  reminderList: {
+    marginTop: spacing.xs,
+  },
+  reminderItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  reminderIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: borderRadius.full,
+    backgroundColor: `${colors.routine}15`,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+  },
+  reminderContent: {
+    flex: 1,
+  },
+  reminderTitle: {
+    ...typography.body,
+    fontWeight: '600',
+  },
+  reminderMeta: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   groceryPreview: {
     flexDirection: 'row',

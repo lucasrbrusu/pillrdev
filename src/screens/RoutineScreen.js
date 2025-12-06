@@ -375,6 +375,7 @@ const RoutineScreen = () => {
           setRoutineName('');
         }}
         title="Create Routine"
+        fullScreen
       >
         <Input
           label="Routine Name"
@@ -409,6 +410,7 @@ const RoutineScreen = () => {
           setChoreName('');
         }}
         title="Add Chore"
+        fullScreen
       >
         <Input
           label="Chore Name"
@@ -449,6 +451,7 @@ const RoutineScreen = () => {
           setReminderDescription('');
         }}
         title="Add Reminder"
+        fullScreen
       >
         <Input
           label="Reminder Name"
