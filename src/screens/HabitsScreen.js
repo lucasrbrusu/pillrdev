@@ -274,6 +274,7 @@ const HabitsScreen = () => {
           resetForm();
         }}
         title="New Habit"
+        fullScreen
       >
         <Input
           label="Habit Title"

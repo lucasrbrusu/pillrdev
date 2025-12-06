@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import { View, StyleSheet, Platform, TouchableOpacity } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -37,7 +37,12 @@ const CustomTabBar = ({ state, descriptors, navigation }) => {
   const insets = useSafeAreaInsets();
   
   return (
-    <View style={[styles.tabBarContainer, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]}>
+    <View
+      style={[
+        styles.tabBarContainer,
+        { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 },
+      ]}
+    >
       <View style={styles.tabBar}>
         {state.routes.map((route, index) => {
           const { options } = descriptors[route.key];
@@ -82,17 +87,25 @@ const CustomTabBar = ({ state, descriptors, navigation }) => {
               iconType = 'material';
               iconColor = isFocused ? colors.routine : colors.navInactive;
               break;
+            case 'Finance' :
+              iconName = 'trending-up';
+              iconType = 'feather';
+              iconColor = isFocused ? colors.finance : colors.navInactive;
+              break;
             default:
               iconName = 'circle';
+            
           }
 
           return (
-            <View
+            <TouchableOpacity
               key={route.key}
+              onPress={onPress}
               style={[
                 styles.tabItem,
                 isFocused && styles.tabItemFocused,
               ]}
+              activeOpacity={0.9}
             >
               <View
                 style={[
@@ -108,13 +121,14 @@ const CustomTabBar = ({ state, descriptors, navigation }) => {
                   size={24}
                 />
               </View>
-            </View>
+            </TouchableOpacity>
           );
         })}
       </View>
     </View>
   );
 };
+
 
 const TabNavigator = () => {
   return (
@@ -129,6 +143,7 @@ const TabNavigator = () => {
       <Tab.Screen name="Tasks" component={TasksScreen} />
       <Tab.Screen name="Health" component={HealthScreen} />
       <Tab.Screen name="Routine" component={RoutineScreen} />
+      <Tab.Screen name="Finance" component={FinanceScreen} />
     </Tab.Navigator>
   );
 };

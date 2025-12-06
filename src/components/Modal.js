@@ -23,6 +23,10 @@ const Modal = ({
   fullScreen = false,
 }) => {
   const insets = useSafeAreaInsets();
+  const bottomInset = insets.bottom > 0 ? insets.bottom : spacing.lg;
+  const contentBottomPadding = bottomInset + spacing.xl;
+  const headerTopOffset = fullScreen ? '8%' : 0;
+  const contentTopPadding = 0;
 
   return (
     <RNModal
@@ -39,10 +43,15 @@ const Modal = ({
               style={[
                 styles.modalContainer,
                 fullScreen && styles.fullScreen,
-                { paddingBottom: insets.bottom > 0 ? insets.bottom : spacing.lg },
+                { paddingBottom: bottomInset },
               ]}
             >
-              <View style={styles.header}>
+              <View
+                style={[
+                  styles.header,
+                  fullScreen && { marginTop: headerTopOffset },
+                ]}
+              >
                 <Text style={styles.title}>{title}</Text>
                 {showCloseButton && (
                   <TouchableOpacity
@@ -56,6 +65,10 @@ const Modal = ({
               </View>
               <ScrollView
                 style={styles.content}
+                contentContainerStyle={{
+                  paddingBottom: contentBottomPadding,
+                  paddingTop: contentTopPadding,
+                }}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
               >

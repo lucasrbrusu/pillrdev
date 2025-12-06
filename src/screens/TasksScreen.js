@@ -372,6 +372,7 @@ const TasksScreen = () => {
           resetTaskForm();
         }}
         title="New Task"
+        fullScreen
       >
         <Input
           label="Task Title"
