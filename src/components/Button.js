@@ -2,6 +2,7 @@ import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, borderRadius, spacing } from '../utils/theme';
+import { supabase } from '../utils/supabaseClient';
 
 const Button = ({
   title,

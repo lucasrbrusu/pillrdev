@@ -8,6 +8,7 @@ import {
   Image,
   Alert,
 } from 'react-native';
+import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';

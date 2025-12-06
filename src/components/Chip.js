@@ -1,6 +1,7 @@
 import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, View } from 'react-native';
 import { colors, borderRadius, spacing } from '../utils/theme';
+import { supabase } from '../utils/supabaseClient';
 
 const Chip = ({
   label,

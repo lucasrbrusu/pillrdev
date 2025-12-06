@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, typography } from '../utils/theme';
 import themePresets from '../utils/themePresets.json';
+import { supabase } from '../utils/supabaseClient';
 
 const AppContext = createContext();
 
@@ -39,24 +40,6 @@ const defaultProfile = {
   dailySleepGoal: 8,
 };
 
-const defaultAdminUser = {
-  id: 'admin',
-  name: 'Pillr Admin',
-  username: 'admin',
-  email: 'admin@pillr.app',
-  password: 'admin123',
-};
-
-const ensureAdminUser = (users) => {
-  const hasAdmin = users?.some(
-    (user) =>
-      user.username?.toLowerCase() === defaultAdminUser.username ||
-      user.email?.toLowerCase() === defaultAdminUser.email
-  );
-
-  if (hasAdmin) return users;
-  return [...(users || []), defaultAdminUser];
-};
 
 export const AppProvider = ({ children }) => {
   // Habits State
@@ -94,7 +77,6 @@ export const AppProvider = ({ children }) => {
 
   // Auth State
   const [authUser, setAuthUser] = useState(null);
-  const [authUsers, setAuthUsers] = useState([defaultAdminUser]);
   const [hasOnboarded, setHasOnboarded] = useState(false);
   const [themeName, setThemeName] = useState('default');
   const [themeColors, setThemeColors] = useState({ ...colors });
@@ -140,87 +122,81 @@ export const AppProvider = ({ children }) => {
   }, []);
 
   const loadAllData = async () => {
-    try {
-      const [
-        storedHabits,
-        storedTasks,
-        storedNotes,
-        storedHealth,
-        storedRoutines,
-        storedChores,
-        storedReminders,
-        storedGroceries,
-        storedFinances,
-        storedProfile,
-        storedAuthUser,
-        storedAuthUsers,
-        storedOnboarding,
-        storedTheme,
-      ] = await Promise.all([
-        AsyncStorage.getItem(STORAGE_KEYS.HABITS),
-        AsyncStorage.getItem(STORAGE_KEYS.TASKS),
-        AsyncStorage.getItem(STORAGE_KEYS.NOTES),
-        AsyncStorage.getItem(STORAGE_KEYS.HEALTH),
-        AsyncStorage.getItem(STORAGE_KEYS.ROUTINES),
-        AsyncStorage.getItem(STORAGE_KEYS.CHORES),
-        AsyncStorage.getItem(STORAGE_KEYS.REMINDERS),
-        AsyncStorage.getItem(STORAGE_KEYS.GROCERIES),
-        AsyncStorage.getItem(STORAGE_KEYS.FINANCES),
-        AsyncStorage.getItem(STORAGE_KEYS.PROFILE),
-        AsyncStorage.getItem(STORAGE_KEYS.AUTH_USER),
-        AsyncStorage.getItem(STORAGE_KEYS.AUTH_USERS),
-        AsyncStorage.getItem(STORAGE_KEYS.ONBOARDING),
-        AsyncStorage.getItem(STORAGE_KEYS.THEME),
-      ]);
+  try {
+    const [
+      storedHabits,
+      storedTasks,
+      storedNotes,
+      storedHealth,
+      storedRoutines,
+      storedChores,
+      storedReminders,
+      storedGroceries,
+      storedFinances,
+      storedProfile,
+      storedOnboarding,
+      storedTheme,
+    ] = await Promise.all([
+      AsyncStorage.getItem(STORAGE_KEYS.HABITS),
+      AsyncStorage.getItem(STORAGE_KEYS.TASKS),
+      AsyncStorage.getItem(STORAGE_KEYS.NOTES),
+      AsyncStorage.getItem(STORAGE_KEYS.HEALTH),
+      AsyncStorage.getItem(STORAGE_KEYS.ROUTINES),
+      AsyncStorage.getItem(STORAGE_KEYS.CHORES),
+      AsyncStorage.getItem(STORAGE_KEYS.REMINDERS),
+      AsyncStorage.getItem(STORAGE_KEYS.GROCERIES),
+      AsyncStorage.getItem(STORAGE_KEYS.FINANCES),
+      AsyncStorage.getItem(STORAGE_KEYS.PROFILE),
+      AsyncStorage.getItem(STORAGE_KEYS.ONBOARDING),
+      AsyncStorage.getItem(STORAGE_KEYS.THEME),
+    ]);
 
-      if (storedHabits) setHabits(JSON.parse(storedHabits));
-      if (storedTasks) setTasks(JSON.parse(storedTasks));
-      if (storedNotes) setNotes(JSON.parse(storedNotes));
-      if (storedHealth) {
-        const healthParsed = JSON.parse(storedHealth);
-        setHealthData(healthParsed);
-        const today = new Date().toDateString();
-        if (healthParsed[today]) {
-          setTodayHealth(healthParsed[today]);
-        }
+    if (storedHabits) setHabits(JSON.parse(storedHabits));
+    if (storedTasks) setTasks(JSON.parse(storedTasks));
+    if (storedNotes) setNotes(JSON.parse(storedNotes));
+
+    if (storedHealth) {
+      const healthParsed = JSON.parse(storedHealth);
+      setHealthData(healthParsed);
+      const todayKey = new Date().toDateString();
+      if (healthParsed[todayKey]) {
+        setTodayHealth(healthParsed[todayKey]);
       }
-      if (storedRoutines) setRoutines(JSON.parse(storedRoutines));
-      if (storedChores) setChores(JSON.parse(storedChores));
-      if (storedReminders) setReminders(JSON.parse(storedReminders));
-      if (storedGroceries) setGroceries(JSON.parse(storedGroceries));
-      if (storedFinances) setFinances(JSON.parse(storedFinances));
-      if (storedProfile) setProfile(JSON.parse(storedProfile));
-
-      const parsedUsers = storedAuthUsers ? JSON.parse(storedAuthUsers) : [];
-      const usersWithAdmin = ensureAdminUser(parsedUsers);
-      setAuthUsers(usersWithAdmin);
-      if (!storedAuthUsers || parsedUsers.length !== usersWithAdmin.length) {
-        await saveToStorage(STORAGE_KEYS.AUTH_USERS, usersWithAdmin);
-      }
-
-      if (storedAuthUser) {
-        const user = JSON.parse(storedAuthUser);
-        setAuthUser(user);
-        setProfile((prev) => ({
-          ...prev,
-          name: user.name || prev.name,
-          email: user.email || prev.email,
-        }));
-      }
-
-      if (storedOnboarding) {
-        setHasOnboarded(storedOnboarding === 'true');
-      }
-
-      const chosenTheme = storedTheme ? storedTheme : 'default';
-      setThemeName(chosenTheme);
-      applyTheme(chosenTheme);
-    } catch (error) {
-      console.error('Error loading data:', error);
-    } finally {
-      setIsLoading(false);
     }
-  };
+
+    if (storedRoutines) setRoutines(JSON.parse(storedRoutines));
+    if (storedChores) setChores(JSON.parse(storedChores));
+    if (storedReminders) setReminders(JSON.parse(storedReminders));
+    if (storedGroceries) setGroceries(JSON.parse(storedGroceries));
+    if (storedFinances) setFinances(JSON.parse(storedFinances));
+    if (storedProfile) setProfile(JSON.parse(storedProfile));
+
+    if (storedOnboarding) {
+      setHasOnboarded(storedOnboarding === 'true');
+    }
+
+    const chosenTheme = storedTheme ? storedTheme : 'default';
+    setThemeName(chosenTheme);
+    applyTheme(chosenTheme);
+
+    // 🔐 NEW: restore Supabase auth session if one exists
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError) {
+      console.log('Error getting Supabase session:', sessionError);
+    } else if (session?.user) {
+      await setActiveUser(session.user);
+    }
+  } catch (error) {
+    console.error('Error loading data:', error);
+  } finally {
+    setIsLoading(false);
+  }
+};
+
 
   // Save helpers
   const saveToStorage = async (key, data) => {
@@ -625,78 +601,91 @@ export const AppProvider = ({ children }) => {
   };
 
   // AUTH FUNCTIONS
-  const persistOnboarding = async (value) => {
-    setHasOnboarded(value);
-    await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, value ? 'true' : 'false');
-  };
+const persistOnboarding = async (value) => {
+  setHasOnboarded(value);
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.ONBOARDING,
+    value ? 'true' : 'false'
+  );
+};
 
-  const setActiveUser = async (user) => {
-    setAuthUser(user);
-    await saveToStorage(STORAGE_KEYS.AUTH_USER, user);
-    setProfile((prev) => ({
-      ...prev,
-      name: user.name || prev.name,
-      email: user.email || prev.email,
-    }));
-    await persistOnboarding(true);
-  };
+const setActiveUser = async (user) => {
+  // `user` is a Supabase auth user object
+  setAuthUser(user);
 
-  const signIn = async ({ identifier, password }) => {
-    const normalized = identifier?.trim().toLowerCase();
-    const user = authUsers.find(
-      (item) =>
-        item.username?.toLowerCase() === normalized ||
-        item.email?.toLowerCase() === normalized
-    );
+  // optional: keep a copy of the user object if you ever want it offline
+  await saveToStorage(STORAGE_KEYS.AUTH_USER, user);
 
-    if (!user) {
-      throw new Error('Account not found.');
-    }
+  setProfile((prev) => ({
+    ...prev,
+    name:
+      user.user_metadata?.full_name ||
+      user.user_metadata?.name ||
+      user.email ||
+      prev.name,
+    email: user.email || prev.email,
+  }));
 
-    if (user.password !== password) {
-      throw new Error('Incorrect password.');
-    }
+  await persistOnboarding(true);
+};
 
+const signIn = async ({ identifier, password }) => {
+  // `identifier` is now the EMAIL the user signed up with
+  const email = identifier?.trim().toLowerCase();
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Unable to sign in.');
+  }
+
+  const { user } = data;
+  await setActiveUser(user);
+  return user;
+};
+
+const signUp = async ({ fullName, username, email, password }) => {
+  const trimmedEmail = email?.trim().toLowerCase();
+
+  const { data, error } = await supabase.auth.signUp({
+    email: trimmedEmail,
+    password,
+    options: {
+      data: {
+        full_name: fullName,
+        username,
+      },
+    },
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Unable to create account.');
+  }
+
+  const { user } = data;
+
+  // Depending on your email confirmation settings,
+  // user may be null until they confirm – but your UI will still show a success.
+  if (user) {
     await setActiveUser(user);
-    return user;
-  };
+  }
 
-  const signUp = async ({ fullName, username, email, password }) => {
-    const normalizedUsername = username?.trim().toLowerCase();
-    const normalizedEmail = email?.trim().toLowerCase();
+  return user;
+};
 
-    const existing = authUsers.find(
-      (user) =>
-        user.username?.toLowerCase() === normalizedUsername ||
-        user.email?.toLowerCase() === normalizedEmail
-    );
+const signOut = async () => {
+  await supabase.auth.signOut();
+  setAuthUser(null);
+  await AsyncStorage.removeItem(STORAGE_KEYS.AUTH_USER);
 
-    if (existing) {
-      throw new Error('That username or email is already in use.');
-    }
+  await persistOnboarding(false);
+  setProfile(defaultProfile);
+  await saveToStorage(STORAGE_KEYS.PROFILE, defaultProfile);
+};
 
-    const newUser = {
-      id: Date.now().toString(),
-      name: fullName?.trim() || 'New Pillr User',
-      username: normalizedUsername,
-      email: normalizedEmail,
-      password,
-    };
-
-    const updatedUsers = [...authUsers, newUser];
-    setAuthUsers(updatedUsers);
-    await saveToStorage(STORAGE_KEYS.AUTH_USERS, updatedUsers);
-    await setActiveUser(newUser);
-    return newUser;
-  };
-
-  const signOut = async () => {
-    setAuthUser(null);
-    await AsyncStorage.removeItem(STORAGE_KEYS.AUTH_USER);
-    await persistOnboarding(false);
-    setProfile(defaultProfile);
-    await saveToStorage(STORAGE_KEYS.PROFILE, defaultProfile);
-  };
 
   const changeTheme = async (name) => {
     setThemeName(name);

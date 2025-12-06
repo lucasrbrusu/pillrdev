@@ -2,6 +2,7 @@ import React from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { colors, shadows, borderRadius, spacing } from '../utils/theme';
 import { useApp } from '../context/AppContext';
+import { supabase } from '../utils/supabaseClient';
 
 const Card = ({
   children,

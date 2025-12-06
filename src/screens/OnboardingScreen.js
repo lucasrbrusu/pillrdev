@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Button from '../components/Button';
 import { colors, borderRadius, spacing, typography, shadows } from '../utils/theme';
+import { supabase } from '../utils/supabaseClient';
 
 const pillars = [
   {

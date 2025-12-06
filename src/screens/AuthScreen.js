@@ -13,6 +13,7 @@ import Button from '../components/Button';
 import Input from '../components/Input';
 import { useApp } from '../context/AppContext';
 import { colors, borderRadius, spacing, typography, shadows } from '../utils/theme';
+import { supabase } from '../utils/supabaseClient';
 
 const AuthScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
@@ -41,14 +42,15 @@ const AuthScreen = ({ navigation }) => {
 
       if (mode === 'login') {
         if (!form.identifier || !form.password) {
-          setError('Please enter your username or email and password.');
+          setError('Please enter your email and password.');
           return;
         }
         await signIn({
           identifier: form.identifier,
           password: form.password,
         });
-      } else {
+      }
+       else {
         if (!form.fullName || !form.username || !form.email || !form.password) {
           setError('Please fill in all fields to create your account.');
           return;
@@ -167,7 +169,7 @@ const AuthScreen = ({ navigation }) => {
         {mode === 'login' ? (
           <>
             <Input
-              placeholder="Username or Email"
+              placeholder="Email"
               icon="person-outline"
               value={form.identifier}
               onChangeText={(text) => updateField('identifier', text)}
