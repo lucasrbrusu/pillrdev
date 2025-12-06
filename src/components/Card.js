@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { colors, shadows, borderRadius, spacing } from '../utils/theme';
+import { useApp } from '../context/AppContext';
 
 const Card = ({
   children,
@@ -9,9 +10,11 @@ const Card = ({
   disabled = false,
   variant = 'default',
 }) => {
+  const { themeColors } = useApp();
   const cardStyle = [
     styles.card,
     variant === 'elevated' && styles.elevated,
+    { backgroundColor: themeColors.card, borderColor: themeColors.border },
     style,
   ];
 

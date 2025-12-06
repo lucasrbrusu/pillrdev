@@ -17,6 +17,7 @@ import { colors, shadows, borderRadius, spacing, typography, moodEmojis } from '
 const HomeScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const { themeColors } = useApp();
   const {
     habits,
     tasks,
@@ -111,7 +112,7 @@ const HomeScreen = () => {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: themeColors.background }]}>
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}

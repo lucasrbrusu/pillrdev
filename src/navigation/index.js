@@ -21,6 +21,7 @@ import EditProfileScreen from '../screens/EditProfileScreen';
 import CalendarScreen from '../screens/CalendarScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import AuthScreen from '../screens/AuthScreen';
+import AppearanceScreen from '../screens/AppearanceScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -152,12 +153,12 @@ const TabNavigator = () => {
 };
 
 const Navigation = () => {
-  const { isLoading, authUser, hasOnboarded } = useApp();
+  const { isLoading, authUser, hasOnboarded, themeColors } = useApp();
 
   if (isLoading) {
     return (
       <NavigationContainer>
-        <View style={styles.loadingContainer}>
+        <View style={[styles.loadingContainer, { backgroundColor: themeColors.background }]}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
       </NavigationContainer>
@@ -170,7 +171,7 @@ const Navigation = () => {
         <Stack.Navigator
           screenOptions={{
             headerShown: false,
-            cardStyle: { backgroundColor: colors.background },
+            cardStyle: { backgroundColor: themeColors.background },
           }}
         >
           <Stack.Screen name="Main" component={TabNavigator} />
@@ -178,12 +179,13 @@ const Navigation = () => {
           <Stack.Screen name="EditProfile" component={EditProfileScreen} />
           <Stack.Screen name="Finance" component={FinanceScreen} />
           <Stack.Screen name="Calendar" component={CalendarScreen} />
+          <Stack.Screen name="Appearance" component={AppearanceScreen} />
         </Stack.Navigator>
       ) : (
         <Stack.Navigator
           screenOptions={{
             headerShown: false,
-            cardStyle: { backgroundColor: colors.background },
+            cardStyle: { backgroundColor: themeColors.background },
           }}
         >
           {!hasOnboarded && (

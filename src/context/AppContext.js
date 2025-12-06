@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { colors, typography } from '../utils/theme';
+import themePresets from '../utils/themePresets.json';
 
 const AppContext = createContext();
 
@@ -22,6 +24,7 @@ const STORAGE_KEYS = {
   GROCERIES: '@pillr_groceries',
   FINANCES: '@pillr_finances',
   PROFILE: '@pillr_profile',
+  THEME: '@pillr_theme',
   AUTH_USER: '@pillr_auth_user',
   AUTH_USERS: '@pillr_auth_users',
   ONBOARDING: '@pillr_onboarding_complete',
@@ -93,9 +96,43 @@ export const AppProvider = ({ children }) => {
   const [authUser, setAuthUser] = useState(null);
   const [authUsers, setAuthUsers] = useState([defaultAdminUser]);
   const [hasOnboarded, setHasOnboarded] = useState(false);
+  const [themeName, setThemeName] = useState('default');
+  const [themeColors, setThemeColors] = useState({ ...colors });
 
   // Loading State
   const [isLoading, setIsLoading] = useState(true);
+
+  // Immutable snapshots of the original palettes and typography
+  const defaultPaletteRef = useRef(
+    JSON.parse(JSON.stringify(themePresets?.default?.colors || colors))
+  );
+  const darkPaletteRef = useRef(
+    JSON.parse(JSON.stringify(themePresets?.dark?.colors || colors))
+  );
+  const baseTypographySnapshot = useRef(JSON.parse(JSON.stringify(typography)));
+
+  const applyTheme = (name) => {
+    const palette =
+      name === 'dark' ? darkPaletteRef.current : defaultPaletteRef.current;
+
+    // Reset shared colors to pristine default, then apply chosen palette
+    Object.entries(defaultPaletteRef.current).forEach(([key, value]) => {
+      colors[key] = value;
+    });
+    Object.entries(palette).forEach(([key, value]) => {
+      colors[key] = value;
+    });
+    setThemeColors({ ...palette });
+
+    // Reset typography and apply palette text colors
+    Object.entries(baseTypographySnapshot.current).forEach(([key, value]) => {
+      const isMuted = key === 'bodySmall' || key === 'caption';
+      typography[key] = {
+        ...value,
+        color: isMuted ? (palette.textSecondary || palette.text) : palette.text,
+      };
+    });
+  };
 
   // Load data from AsyncStorage on mount
   useEffect(() => {
@@ -118,6 +155,7 @@ export const AppProvider = ({ children }) => {
         storedAuthUser,
         storedAuthUsers,
         storedOnboarding,
+        storedTheme,
       ] = await Promise.all([
         AsyncStorage.getItem(STORAGE_KEYS.HABITS),
         AsyncStorage.getItem(STORAGE_KEYS.TASKS),
@@ -132,6 +170,7 @@ export const AppProvider = ({ children }) => {
         AsyncStorage.getItem(STORAGE_KEYS.AUTH_USER),
         AsyncStorage.getItem(STORAGE_KEYS.AUTH_USERS),
         AsyncStorage.getItem(STORAGE_KEYS.ONBOARDING),
+        AsyncStorage.getItem(STORAGE_KEYS.THEME),
       ]);
 
       if (storedHabits) setHabits(JSON.parse(storedHabits));
@@ -172,6 +211,10 @@ export const AppProvider = ({ children }) => {
       if (storedOnboarding) {
         setHasOnboarded(storedOnboarding === 'true');
       }
+
+      const chosenTheme = storedTheme ? storedTheme : 'default';
+      setThemeName(chosenTheme);
+      applyTheme(chosenTheme);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -655,6 +698,12 @@ export const AppProvider = ({ children }) => {
     await saveToStorage(STORAGE_KEYS.PROFILE, defaultProfile);
   };
 
+  const changeTheme = async (name) => {
+    setThemeName(name);
+    applyTheme(name);
+    await AsyncStorage.setItem(STORAGE_KEYS.THEME, name);
+  };
+
   // COMPUTED VALUES
   const getBestStreak = () => {
     if (habits.length === 0) return 0;
@@ -769,6 +818,11 @@ export const AppProvider = ({ children }) => {
     signUp,
     signOut,
     persistOnboarding,
+
+    // Theme
+    themeName,
+    themeColors,
+    changeTheme,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

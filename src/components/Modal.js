@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, shadows, borderRadius, spacing, typography } from '../utils/theme';
+import { useApp } from '../context/AppContext';
 
 const Modal = ({
   visible,
@@ -22,6 +23,7 @@ const Modal = ({
   showCloseButton = true,
   fullScreen = false,
 }) => {
+  const { themeColors } = useApp();
   const insets = useSafeAreaInsets();
   const bottomInset = insets.bottom > 0 ? insets.bottom : spacing.lg;
   const contentBottomPadding = bottomInset + spacing.xl;
@@ -43,7 +45,7 @@ const Modal = ({
               style={[
                 styles.modalContainer,
                 fullScreen && styles.fullScreen,
-                { paddingBottom: bottomInset },
+                { paddingBottom: bottomInset, backgroundColor: themeColors.card },
               ]}
             >
               <View

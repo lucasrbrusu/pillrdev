@@ -45,6 +45,7 @@ const TasksScreen = () => {
     getUpcomingTasks,
     verifyNotePassword,
     setNotePassword,
+    themeColors,
   } = useApp();
 
   const [activeTab, setActiveTab] = useState('All Tasks');
@@ -347,7 +348,7 @@ const TasksScreen = () => {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: themeColors.background }]}>
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}

@@ -24,31 +24,31 @@ import {
 const ProfileScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { profile, signOut } = useApp();
+  const { profile, signOut, themeColors } = useApp();
 
   const settingsOptions = [
     {
       id: 'notifications',
       label: 'Notifications',
-      icon: '🔔',
+      icon: 'notifications-outline',
       onPress: () => {},
     },
     {
       id: 'appearance',
       label: 'Appearance',
-      icon: '🎨',
-      onPress: () => {},
+      icon: 'color-palette-outline',
+      onPress: () => navigation.navigate('Appearance'),
     },
     {
       id: 'privacy',
       label: 'Privacy & Security',
-      icon: '🔒',
+      icon: 'shield-checkmark-outline',
       onPress: () => {},
     },
     {
       id: 'help',
       label: 'Help & Support',
-      icon: '❓',
+      icon: 'help-circle-outline',
       onPress: () => {},
     },
   ];
@@ -71,7 +71,7 @@ const ProfileScreen = () => {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: themeColors.background }]}>
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -122,7 +122,12 @@ const ProfileScreen = () => {
               ]}
               onPress={option.onPress}
             >
-              <Text style={styles.settingIcon}>{option.icon}</Text>
+              <Ionicons
+                name={option.icon}
+                size={22}
+                color={colors.text}
+                style={styles.settingIcon}
+              />
               <Text style={styles.settingLabel}>{option.label}</Text>
               <Ionicons
                 name="chevron-forward"
@@ -259,3 +264,4 @@ const styles = StyleSheet.create({
 });
 
 export default ProfileScreen;
+
