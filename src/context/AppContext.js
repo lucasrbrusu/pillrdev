@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, typography } from '../utils/theme';
-import themePresets from '../utils/themePresets.json';
+import themePresets from '../utils/themePresets';
 import { supabase } from '../utils/supabaseClient';
 
 const AppContext = createContext();
@@ -72,7 +72,7 @@ export const AppProvider = ({ children }) => {
   // Finance State
   const [finances, setFinances] = useState([]);
 
-  // Profile State
+ // Profile State
   const [profile, setProfile] = useState(defaultProfile);
 
   // Auth State
@@ -116,60 +116,24 @@ export const AppProvider = ({ children }) => {
     });
   };
 
-  // Load data from AsyncStorage on mount
+  // Load basic cached data and restore Supabase session on mount
   useEffect(() => {
     loadAllData();
   }, []);
 
   const loadAllData = async () => {
   try {
-    const [
-      storedHabits,
-      storedTasks,
-      storedNotes,
-      storedHealth,
-      storedRoutines,
-      storedChores,
-      storedReminders,
-      storedGroceries,
-      storedFinances,
-      storedProfile,
-      storedOnboarding,
-      storedTheme,
-    ] = await Promise.all([
-      AsyncStorage.getItem(STORAGE_KEYS.HABITS),
-      AsyncStorage.getItem(STORAGE_KEYS.TASKS),
-      AsyncStorage.getItem(STORAGE_KEYS.NOTES),
-      AsyncStorage.getItem(STORAGE_KEYS.HEALTH),
-      AsyncStorage.getItem(STORAGE_KEYS.ROUTINES),
-      AsyncStorage.getItem(STORAGE_KEYS.CHORES),
-      AsyncStorage.getItem(STORAGE_KEYS.REMINDERS),
-      AsyncStorage.getItem(STORAGE_KEYS.GROCERIES),
-      AsyncStorage.getItem(STORAGE_KEYS.FINANCES),
+    // Only load things we still keep in AsyncStorage:
+    // profile, onboarding flag, theme
+    const [storedProfile, storedOnboarding, storedTheme] = await Promise.all([
       AsyncStorage.getItem(STORAGE_KEYS.PROFILE),
       AsyncStorage.getItem(STORAGE_KEYS.ONBOARDING),
       AsyncStorage.getItem(STORAGE_KEYS.THEME),
     ]);
 
-    if (storedHabits) setHabits(JSON.parse(storedHabits));
-    if (storedTasks) setTasks(JSON.parse(storedTasks));
-    if (storedNotes) setNotes(JSON.parse(storedNotes));
-
-    if (storedHealth) {
-      const healthParsed = JSON.parse(storedHealth);
-      setHealthData(healthParsed);
-      const todayKey = new Date().toDateString();
-      if (healthParsed[todayKey]) {
-        setTodayHealth(healthParsed[todayKey]);
-      }
+    if (storedProfile) {
+      setProfile(JSON.parse(storedProfile));
     }
-
-    if (storedRoutines) setRoutines(JSON.parse(storedRoutines));
-    if (storedChores) setChores(JSON.parse(storedChores));
-    if (storedReminders) setReminders(JSON.parse(storedReminders));
-    if (storedGroceries) setGroceries(JSON.parse(storedGroceries));
-    if (storedFinances) setFinances(JSON.parse(storedFinances));
-    if (storedProfile) setProfile(JSON.parse(storedProfile));
 
     if (storedOnboarding) {
       setHasOnboarded(storedOnboarding === 'true');
@@ -179,14 +143,14 @@ export const AppProvider = ({ children }) => {
     setThemeName(chosenTheme);
     applyTheme(chosenTheme);
 
-    // 🔐 NEW: restore Supabase auth session if one exists
+    // 🔐 Restore Supabase session (if user was logged in before)
     const {
       data: { session },
-      error: sessionError,
+      error,
     } = await supabase.auth.getSession();
 
-    if (sessionError) {
-      console.log('Error getting Supabase session:', sessionError);
+    if (error) {
+      console.log('Error getting Supabase session:', error);
     } else if (session?.user) {
       await setActiveUser(session.user);
     }
@@ -197,6 +161,51 @@ export const AppProvider = ({ children }) => {
   }
 };
 
+const loadUserDataFromSupabase = async (userId) => {
+  try {
+    await Promise.all([
+      fetchHabitsFromSupabase(userId),
+      fetchTasksFromSupabase(userId),
+      fetchNotesFromSupabase(userId),
+      fetchHealthFromSupabase(userId),
+      fetchRoutinesFromSupabase(userId),
+      fetchChoresFromSupabase(userId),
+      fetchRemindersFromSupabase(userId),
+      fetchGroceriesFromSupabase(userId),
+      fetchFinancesFromSupabase(userId),
+    ]);
+  } catch (error) {
+    console.error('Error loading user data from Supabase:', error);
+  }
+};
+
+ useEffect(() => {
+    if (authUser?.id) {
+      // User logged in → load their data from Supabase
+      loadUserDataFromSupabase(authUser.id);
+    } else {
+      // User logged out → clear in-memory state
+      setHabits([]);
+      setTasks([]);
+      setNotes([]);
+      setHealthData({});
+      setTodayHealth({
+        mood: null,
+        energy: 3,
+        waterIntake: 0,
+        sleepTime: null,
+        wakeTime: null,
+        sleepQuality: null,
+        calories: 0,
+        foods: [],
+      });
+      setRoutines([]);
+      setChores([]);
+      setReminders([]);
+      setGroceries([]);
+      setFinances([]);
+    }
+  }, [authUser]);
 
   // Save helpers
   const saveToStorage = async (key, data) => {
@@ -207,196 +216,635 @@ export const AppProvider = ({ children }) => {
     }
   };
 
+const fetchHabitsFromSupabase = async (userId) => {
+  // Get all habits
+  const { data: habitRows, error: habitError } = await supabase
+    .from('habits')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true });
+
+  if (habitError) {
+    console.log('Error fetching habits:', habitError);
+    return;
+  }
+
+  // Get all completions for this user
+  const { data: completionRows, error: completionError } = await supabase
+    .from('habit_completions')
+    .select('habit_id, date')
+    .eq('user_id', userId);
+
+  if (completionError) {
+    console.log('Error fetching habit completions:', completionError);
+  }
+
+  const completedByHabit = {};
+  (completionRows || []).forEach((row) => {
+    const key = row.habit_id;
+    const dateString = new Date(row.date).toDateString();
+    if (!completedByHabit[key]) completedByHabit[key] = [];
+    completedByHabit[key].push(dateString);
+  });
+
+  const mappedHabits = (habitRows || []).map((h) => ({
+    id: h.id,
+    title: h.title,
+    category: h.category,
+    description: h.description,
+    repeat: h.repeat,
+    days: h.days || [],
+    streak: h.streak || 0,
+    createdAt: h.created_at,
+    completedDates: completedByHabit[h.id] || [],
+  }));
+
+  setHabits(mappedHabits);
+};
+
+
+
   // HABIT FUNCTIONS
-  const addHabit = async (habit) => {
-    const newHabit = {
-      ...habit,
-      id: Date.now().toString(),
-      createdAt: new Date().toISOString(),
+const addHabit = async (habit) => {
+  if (!authUser?.id) {
+    throw new Error('You must be logged in to create a habit.');
+  }
+
+  const { data, error } = await supabase
+    .from('habits')
+    .insert({
+      user_id: authUser.id,
+      title: habit.title,
+      category: habit.category || 'Personal',
+      description: habit.description || null,
+      repeat: habit.repeat || 'Daily',
+      days: habit.days || [],
       streak: 0,
-      completedDates: [],
-    };
-    const updatedHabits = [...habits, newHabit];
-    setHabits(updatedHabits);
-    await saveToStorage(STORAGE_KEYS.HABITS, updatedHabits);
-    return newHabit;
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.log('Error adding habit:', error);
+    throw error;
+  }
+
+  const newHabit = {
+    ...habit,
+    id: data.id,
+    createdAt: data.created_at,
+    streak: data.streak || 0,
+    completedDates: [],
   };
 
-  const updateHabit = async (habitId, updates) => {
-    const updatedHabits = habits.map((h) =>
-      h.id === habitId ? { ...h, ...updates } : h
-    );
-    setHabits(updatedHabits);
-    await saveToStorage(STORAGE_KEYS.HABITS, updatedHabits);
-  };
+  setHabits((prev) => [...prev, newHabit]);
+  return newHabit;
+};
 
-  const deleteHabit = async (habitId) => {
-    const updatedHabits = habits.filter((h) => h.id !== habitId);
-    setHabits(updatedHabits);
-    await saveToStorage(STORAGE_KEYS.HABITS, updatedHabits);
-  };
+const updateHabit = async (habitId, updates) => {
+  if (!authUser?.id) return;
 
-  const toggleHabitCompletion = async (habitId) => {
-    const today = new Date().toDateString();
-    const habit = habits.find((h) => h.id === habitId);
-    if (!habit) return;
+  const updateData = {};
+  ['title', 'category', 'description', 'repeat', 'days', 'streak'].forEach(
+    (key) => {
+      if (updates[key] !== undefined) {
+        updateData[key] = updates[key];
+      }
+    }
+  );
 
-    const isCompletedToday = habit.completedDates?.includes(today);
-    let updatedHabit;
+  if (Object.keys(updateData).length > 0) {
+    const { error } = await supabase
+      .from('habits')
+      .update(updateData)
+      .eq('id', habitId)
+      .eq('user_id', authUser.id);
 
-    if (isCompletedToday) {
-      // Unmark completion
-      updatedHabit = {
-        ...habit,
-        completedDates: habit.completedDates.filter((d) => d !== today),
-        streak: Math.max(0, habit.streak - 1),
-      };
-    } else {
-      // Mark as complete
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const wasCompletedYesterday = habit.completedDates?.includes(
-        yesterday.toDateString()
-      );
+    if (error) {
+      console.log('Error updating habit:', error);
+    }
+  }
 
-      updatedHabit = {
-        ...habit,
-        completedDates: [...(habit.completedDates || []), today],
-        streak: wasCompletedYesterday ? habit.streak + 1 : 1,
-      };
+  setHabits((prev) =>
+    prev.map((h) => (h.id === habitId ? { ...h, ...updates } : h))
+  );
+};
+
+const deleteHabit = async (habitId) => {
+  if (!authUser?.id) return;
+
+  const { error } = await supabase
+    .from('habits')
+    .delete()
+    .eq('id', habitId)
+    .eq('user_id', authUser.id);
+
+  if (error) {
+    console.log('Error deleting habit:', error);
+  }
+
+  setHabits((prev) => prev.filter((h) => h.id !== habitId));
+};
+
+const toggleHabitCompletion = async (habitId) => {
+  if (!authUser?.id) return;
+
+  const today = new Date();
+  const todayKey = today.toDateString();
+  const todayISO = today.toISOString().slice(0, 10);
+
+  const habit = habits.find((h) => h.id === habitId);
+  if (!habit) return;
+
+  const isCompletedToday = habit.completedDates?.includes(todayKey);
+
+  if (isCompletedToday) {
+    // Remove completion for today
+    const { error } = await supabase
+      .from('habit_completions')
+      .delete()
+      .eq('habit_id', habitId)
+      .eq('user_id', authUser.id)
+      .eq('date', todayISO);
+
+    if (error) {
+      console.log('Error removing habit completion:', error);
+      return;
     }
 
-    const updatedHabits = habits.map((h) =>
-      h.id === habitId ? updatedHabit : h
+    const newCompletedDates = habit.completedDates.filter(
+      (d) => d !== todayKey
     );
-    setHabits(updatedHabits);
-    await saveToStorage(STORAGE_KEYS.HABITS, updatedHabits);
+
+    const updatedHabit = {
+      ...habit,
+      completedDates: newCompletedDates,
+      streak: Math.max((habit.streak || 0) - 1, 0),
+    };
+
+    setHabits((prev) =>
+      prev.map((h) => (h.id === habitId ? updatedHabit : h))
+    );
+
+    await supabase
+      .from('habits')
+      .update({ streak: updatedHabit.streak })
+      .eq('id', habitId)
+      .eq('user_id', authUser.id);
+
+    return;
+  }
+
+  // Mark as completed for today
+  const { error } = await supabase
+    .from('habit_completions')
+    .insert({
+      habit_id: habitId,
+      user_id: authUser.id,
+      date: todayISO,
+    });
+
+  if (error) {
+    console.log('Error adding habit completion:', error);
+    return;
+  }
+
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayKey = yesterday.toDateString();
+  const wasCompletedYesterday = habit.completedDates?.includes(yesterdayKey);
+
+  const newStreak = wasCompletedYesterday ? (habit.streak || 0) + 1 : 1;
+  const newCompletedDates = [...(habit.completedDates || []), todayKey];
+
+  const updatedHabit = {
+    ...habit,
+    completedDates: newCompletedDates,
+    streak: newStreak,
   };
 
-  const isHabitCompletedToday = (habitId) => {
-    const habit = habits.find((h) => h.id === habitId);
-    const today = new Date().toDateString();
-    return habit?.completedDates?.includes(today) || false;
-  };
+  setHabits((prev) =>
+    prev.map((h) => (h.id === habitId ? updatedHabit : h))
+  );
+
+  await supabase
+    .from('habits')
+    .update({ streak: newStreak })
+    .eq('id', habitId)
+    .eq('user_id', authUser.id);
+};
+
+const isHabitCompletedToday = (habitId) => {
+  const habit = habits.find((h) => h.id === habitId);
+  if (!habit) return false;
+  const today = new Date().toDateString();
+  return habit.completedDates?.includes(today) || false;
+};
+
+const fetchTasksFromSupabase = async (userId) => {
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*')
+    .eq('user_id', userId)
+    .order('date', { ascending: true });
+
+  if (error) {
+    console.log('Error fetching tasks:', error);
+    return;
+  }
+
+  const mappedTasks = (data || []).map((t) => ({
+    id: t.id,
+    title: t.title,
+    description: t.description,
+    priority: t.priority || 'medium',
+    date: t.date, // stored as date string YYYY-MM-DD
+    time: t.time,
+    completed: t.completed,
+    createdAt: t.created_at,
+  }));
+
+  setTasks(mappedTasks);
+};
+
+
 
   // TASK FUNCTIONS
   const addTask = async (task) => {
-    const newTask = {
-      ...task,
-      id: Date.now().toString(),
-      createdAt: new Date().toISOString(),
+  if (!authUser?.id) {
+    throw new Error('You must be logged in to create a task.');
+  }
+
+  const { data, error } = await supabase
+    .from('tasks')
+    .insert({
+      user_id: authUser.id,
+      title: task.title,
+      description: task.description || null,
+      priority: task.priority || 'medium',
+      date: task.date || null,
+      time: task.time || null,
       completed: false,
-    };
-    const updatedTasks = [...tasks, newTask];
-    setTasks(updatedTasks);
-    await saveToStorage(STORAGE_KEYS.TASKS, updatedTasks);
-    return newTask;
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.log('Error adding task:', error);
+    throw error;
+  }
+
+  const newTask = {
+    id: data.id,
+    title: data.title,
+    description: data.description,
+    priority: data.priority,
+    date: data.date,
+    time: data.time,
+    completed: data.completed,
+    createdAt: data.created_at,
   };
 
+  setTasks((prev) => [...prev, newTask]);
+  return newTask;
+};
+
+
+//Updates task
   const updateTask = async (taskId, updates) => {
-    const updatedTasks = tasks.map((t) =>
-      t.id === taskId ? { ...t, ...updates } : t
-    );
-    setTasks(updatedTasks);
-    await saveToStorage(STORAGE_KEYS.TASKS, updatedTasks);
-  };
+  if (!authUser?.id) return;
+
+  const updateData = {};
+  ['title', 'description', 'priority', 'date', 'time', 'completed'].forEach(
+    (key) => {
+      if (updates[key] !== undefined) {
+        updateData[key] = updates[key];
+      }
+    }
+  );
+
+  if (Object.keys(updateData).length > 0) {
+    const { error } = await supabase
+      .from('tasks')
+      .update(updateData)
+      .eq('id', taskId)
+      .eq('user_id', authUser.id);
+
+    if (error) {
+      console.log('Error updating task:', error);
+    }
+  }
+
+  setTasks((prev) =>
+    prev.map((t) => (t.id === taskId ? { ...t, ...updates } : t))
+  );
+};
+
+
+
+
+//Deletes task
 
   const deleteTask = async (taskId) => {
-    const updatedTasks = tasks.filter((t) => t.id !== taskId);
-    setTasks(updatedTasks);
-    await saveToStorage(STORAGE_KEYS.TASKS, updatedTasks);
-  };
+  if (!authUser?.id) return;
 
+  const { error } = await supabase
+    .from('tasks')
+    .delete()
+    .eq('id', taskId)
+    .eq('user_id', authUser.id);
+
+  if (error) {
+    console.log('Error deleting task:', error);
+  }
+
+  setTasks((prev) => prev.filter((t) => t.id !== taskId));
+};
+
+
+
+  //Completes task
   const toggleTaskCompletion = async (taskId) => {
-    const updatedTasks = tasks.map((t) =>
-      t.id === taskId ? { ...t, completed: !t.completed } : t
-    );
-    setTasks(updatedTasks);
-    await saveToStorage(STORAGE_KEYS.TASKS, updatedTasks);
-  };
+  const task = tasks.find((t) => t.id === taskId);
+  if (!task || !authUser?.id) return;
+
+  const newCompleted = !task.completed;
+
+  const { error } = await supabase
+    .from('tasks')
+    .update({ completed: newCompleted })
+    .eq('id', taskId)
+    .eq('user_id', authUser.id);
+
+  if (error) {
+    console.log('Error toggling task completion:', error);
+    return;
+  }
+
+  setTasks((prev) =>
+    prev.map((t) =>
+      t.id === taskId ? { ...t, completed: newCompleted } : t
+    )
+  );
+};
+
+//Fetch Notes
+const fetchNotesFromSupabase = async (userId) => {
+  const { data, error } = await supabase
+    .from('notes')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.log('Error fetching notes:', error);
+    return;
+  }
+
+  const mappedNotes = (data || []).map((n) => ({
+    id: n.id,
+    title: n.title,
+    content: n.content,
+    password: n.password_hash || null, // not secure yet, but matches your existing shape
+    createdAt: n.created_at,
+    updatedAt: n.updated_at || n.created_at,
+  }));
+
+  setNotes(mappedNotes);
+};
+
+
+
+
 
   // NOTE FUNCTIONS
-  const addNote = async (note) => {
-    const newNote = {
-      ...note,
-      id: Date.now().toString(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      password: null,
-    };
-    const updatedNotes = [...notes, newNote];
-    setNotes(updatedNotes);
-    await saveToStorage(STORAGE_KEYS.NOTES, updatedNotes);
-    return newNote;
+  // NOTE FUNCTIONS
+const addNote = async (note) => {
+  if (!authUser?.id) {
+    throw new Error('You must be logged in to create a note.');
+  }
+
+  const { data, error } = await supabase
+    .from('notes')
+    .insert({
+      user_id: authUser.id,
+      title: note.title,
+      content: note.content || '',
+      password_hash: null,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.log('Error adding note:', error);
+    throw error;
+  }
+
+  const newNote = {
+    id: data.id,
+    title: data.title,
+    content: data.content,
+    password: data.password_hash || null,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at || data.created_at,
   };
 
-  const updateNote = async (noteId, updates) => {
-    const updatedNotes = notes.map((n) =>
+  setNotes((prev) => [...prev, newNote]);
+  return newNote;
+};
+
+const updateNote = async (noteId, updates) => {
+  if (!authUser?.id) return;
+
+  const updateData = {};
+  ['title', 'content'].forEach((key) => {
+    if (updates[key] !== undefined) {
+      updateData[key] = updates[key];
+    }
+  });
+
+  if (Object.keys(updateData).length > 0) {
+    const { error } = await supabase
+      .from('notes')
+      .update(updateData)
+      .eq('id', noteId)
+      .eq('user_id', authUser.id);
+
+    if (error) {
+      console.log('Error updating note:', error);
+    }
+  }
+
+  setNotes((prev) =>
+    prev.map((n) =>
       n.id === noteId
         ? { ...n, ...updates, updatedAt: new Date().toISOString() }
         : n
-    );
-    setNotes(updatedNotes);
-    await saveToStorage(STORAGE_KEYS.NOTES, updatedNotes);
-  };
+    )
+  );
+};
 
-  const deleteNote = async (noteId) => {
-    const updatedNotes = notes.filter((n) => n.id !== noteId);
-    setNotes(updatedNotes);
-    await saveToStorage(STORAGE_KEYS.NOTES, updatedNotes);
-  };
+const deleteNote = async (noteId) => {
+  if (!authUser?.id) return;
 
-  const verifyNotePassword = (noteId, password) => {
-    const note = notes.find((n) => n.id === noteId);
-    if (!note) return false;
-    if (!note.password) return true;
-    return note.password === password;
-  };
+  const { error } = await supabase
+    .from('notes')
+    .delete()
+    .eq('id', noteId)
+    .eq('user_id', authUser.id);
 
-  const setNotePassword = async (noteId, newPassword, currentPassword) => {
-    const note = notes.find((n) => n.id === noteId);
-    if (!note) throw new Error('Note not found');
+  if (error) {
+    console.log('Error deleting note:', error);
+  }
 
-    if (note.password && note.password !== currentPassword) {
-      throw new Error('Incorrect password');
-    }
+  setNotes((prev) => prev.filter((n) => n.id !== noteId));
+};
 
-    const updatedNotes = notes.map((n) =>
-      n.id === noteId
-        ? { ...n, password: newPassword || null, updatedAt: new Date().toISOString() }
-        : n
-    );
-    setNotes(updatedNotes);
-    await saveToStorage(STORAGE_KEYS.NOTES, updatedNotes);
-  };
+const verifyNotePassword = (noteId, password) => {
+  const note = notes.find((n) => n.id === noteId);
+  if (!note) return false;
+  if (!note.password) return true;
+  return note.password === password;
+};
+
+const setNotePassword = async (noteId, newPassword, currentPassword) => {
+  const note = notes.find((n) => n.id === noteId);
+  if (!note) throw new Error('Note not found');
+
+  if (note.password && note.password !== currentPassword) {
+    throw new Error('Incorrect password');
+  }
+
+  if (!authUser?.id) return;
+
+  const { error } = await supabase
+    .from('notes')
+    .update({
+      password_hash: newPassword || null,
+    })
+    .eq('id', noteId)
+    .eq('user_id', authUser.id);
+
+  if (error) {
+    console.log('Error updating note password:', error);
+  }
+
+  const updatedNotes = notes.map((n) =>
+    n.id === noteId
+      ? { ...n, password: newPassword || null, updatedAt: new Date().toISOString() }
+      : n
+  );
+  setNotes(updatedNotes);
+};
+
+
+
+const fetchHealthFromSupabase = async (userId) => {
+  const { data, error } = await supabase
+    .from('health_daily')
+    .select('*')
+    .eq('user_id', userId)
+    .order('date', { ascending: true });
+
+  if (error) {
+    console.log('Error fetching health data:', error);
+    return;
+  }
+
+  const healthMap = {};
+  (data || []).forEach((row) => {
+    const key = new Date(row.date).toDateString();
+    healthMap[key] = {
+      mood: row.mood,
+      energy: row.energy ?? 3,
+      waterIntake: row.water_intake ?? 0,
+      sleepTime: row.sleep_time,
+      wakeTime: row.wake_time,
+      sleepQuality: row.sleep_quality,
+      calories: row.calories ?? 0,
+      foods: row.foods || [],
+    };
+  });
+
+  setHealthData(healthMap);
+
+  const todayKey = new Date().toDateString();
+  if (healthMap[todayKey]) {
+    setTodayHealth(healthMap[todayKey]);
+  } else {
+    setTodayHealth({
+      mood: null,
+      energy: 3,
+      waterIntake: 0,
+      sleepTime: null,
+      wakeTime: null,
+      sleepQuality: null,
+      calories: 0,
+      foods: [],
+    });
+  }
+};
+
+
 
   // HEALTH FUNCTIONS
-  const updateTodayHealth = async (updates) => {
-    const today = new Date().toDateString();
-    const newTodayHealth = { ...todayHealth, ...updates };
-    setTodayHealth(newTodayHealth);
+  // HEALTH FUNCTIONS
+const updateTodayHealth = async (updates) => {
+  if (!authUser?.id) {
+    throw new Error('You must be logged in to update health data.');
+  }
 
-    const updatedHealthData = {
-      ...healthData,
-      [today]: newTodayHealth,
-    };
-    setHealthData(updatedHealthData);
-    await saveToStorage(STORAGE_KEYS.HEALTH, updatedHealthData);
+  const today = new Date();
+  const todayKey = today.toDateString();
+  const todayISO = today.toISOString().slice(0, 10);
+
+  const newTodayHealth = { ...todayHealth, ...updates };
+  setTodayHealth(newTodayHealth);
+
+  const updatedHealthData = {
+    ...healthData,
+    [todayKey]: newTodayHealth,
+  };
+  setHealthData(updatedHealthData);
+
+  const payload = {
+    user_id: authUser.id,
+    date: todayISO,
+    mood: newTodayHealth.mood,
+    energy: newTodayHealth.energy,
+    water_intake: newTodayHealth.waterIntake,
+    sleep_time: newTodayHealth.sleepTime,
+    wake_time: newTodayHealth.wakeTime,
+    sleep_quality: newTodayHealth.sleepQuality,
+    calories: newTodayHealth.calories,
+    foods: newTodayHealth.foods,
   };
 
-  const addFoodEntry = async (food) => {
-    const newFood = {
-      ...food,
-      id: Date.now().toString(),
-      timestamp: new Date().toISOString(),
-    };
-    const updatedFoods = [...(todayHealth.foods || []), newFood];
-    const totalCalories = updatedFoods.reduce((sum, f) => sum + (f.calories || 0), 0);
-    await updateTodayHealth({
-      foods: updatedFoods,
-      calories: totalCalories,
-    });
+  const { error } = await supabase
+    .from('health_daily')
+    .upsert(payload, { onConflict: 'user_id,date' });
+
+  if (error) {
+    console.log('Error saving health data:', error);
+  }
+};
+
+const addFoodEntry = async (food) => {
+  const newFood = {
+    ...food,
+    id: Date.now().toString(),
+    timestamp: new Date().toISOString(),
   };
+  const updatedFoods = [...(todayHealth.foods || []), newFood];
+  const totalCalories = updatedFoods.reduce(
+    (sum, f) => sum + (f.calories || 0),
+    0
+  );
+  await updateTodayHealth({
+    foods: updatedFoods,
+    calories: totalCalories,
+  });
+};
 
   const getAverageWater = () => {
     const entries = Object.values(healthData);
@@ -414,184 +862,552 @@ export const AppProvider = ({ children }) => {
     return 7.5; // Placeholder
   };
 
+
+
+
+
+  const fetchRoutinesFromSupabase = async (userId) => {
+  const { data, error } = await supabase
+    .from('routines')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.log('Error fetching routines:', error);
+    return;
+  }
+
+  const mapped = (data || []).map((r) => ({
+    id: r.id,
+    name: r.name,
+    createdAt: r.created_at,
+    tasks: r.tasks || [],
+  }));
+
+  setRoutines(mapped);
+};
+
+
+
   // ROUTINE FUNCTIONS
-  const addRoutine = async (routine) => {
-    const newRoutine = {
-      ...routine,
-      id: Date.now().toString(),
-      createdAt: new Date().toISOString(),
-      tasks: [],
-    };
-    const updatedRoutines = [...routines, newRoutine];
-    setRoutines(updatedRoutines);
-    await saveToStorage(STORAGE_KEYS.ROUTINES, updatedRoutines);
-    return newRoutine;
+const addRoutine = async (routine) => {
+  if (!authUser?.id) {
+    throw new Error('You must be logged in to create a routine.');
+  }
+
+  const { data, error } = await supabase
+    .from('routines')
+    .insert({
+      user_id: authUser.id,
+      name: routine.name,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.log('Error adding routine:', error);
+    throw error;
+  }
+
+  const newRoutine = {
+    id: data.id,
+    name: data.name,
+    createdAt: data.created_at,
+    tasks: [],
   };
 
-  const updateRoutine = async (routineId, updates) => {
-    const updatedRoutines = routines.map((r) =>
-      r.id === routineId ? { ...r, ...updates } : r
-    );
-    setRoutines(updatedRoutines);
-    await saveToStorage(STORAGE_KEYS.ROUTINES, updatedRoutines);
+  setRoutines((prev) => [...prev, newRoutine]);
+  return newRoutine;
+};
+
+const updateRoutine = async (routineId, updates) => {
+  if (!authUser?.id) return;
+
+  const routine = routines.find((r) => r.id === routineId);
+  if (!routine) return;
+
+  const updated = { ...routine, ...updates };
+
+  const { error } = await supabase
+    .from('routines')
+    .update({
+      name: updated.name,
+    })
+    .eq('id', routineId)
+    .eq('user_id', authUser.id);
+
+  if (error) {
+    console.log('Error updating routine:', error);
+  }
+
+  setRoutines((prev) =>
+    prev.map((r) => (r.id === routineId ? updated : r))
+  );
+};
+
+const deleteRoutine = async (routineId) => {
+  if (!authUser?.id) return;
+
+  const { error } = await supabase
+    .from('routines')
+    .delete()
+    .eq('id', routineId)
+    .eq('user_id', authUser.id);
+
+  if (error) {
+    console.log('Error deleting routine:', error);
+  }
+
+  setRoutines((prev) => prev.filter((r) => r.id !== routineId));
+};
+
+const addTaskToRoutine = async (routineId, task) => {
+  if (!authUser?.id) return;
+
+  const routine = routines.find((r) => r.id === routineId);
+  if (!routine) return;
+
+  const newTask = {
+    ...task,
+    id: Date.now().toString(),
   };
 
-  const deleteRoutine = async (routineId) => {
-    const updatedRoutines = routines.filter((r) => r.id !== routineId);
-    setRoutines(updatedRoutines);
-    await saveToStorage(STORAGE_KEYS.ROUTINES, updatedRoutines);
-  };
+  const updatedTasks = [...(routine.tasks || []), newTask];
+  const updatedRoutine = { ...routine, tasks: updatedTasks };
 
-  const addTaskToRoutine = async (routineId, task) => {
-    const newTask = {
-      ...task,
-      id: Date.now().toString(),
-    };
-    const updatedRoutines = routines.map((r) =>
-      r.id === routineId ? { ...r, tasks: [...r.tasks, newTask] } : r
-    );
-    setRoutines(updatedRoutines);
-    await saveToStorage(STORAGE_KEYS.ROUTINES, updatedRoutines);
-  };
+  setRoutines((prev) =>
+    prev.map((r) => (r.id === routineId ? updatedRoutine : r))
+  );
+};
 
-  const removeTaskFromRoutine = async (routineId, taskId) => {
-    const updatedRoutines = routines.map((r) =>
-      r.id === routineId
-        ? { ...r, tasks: r.tasks.filter((t) => t.id !== taskId) }
-        : r
-    );
-    setRoutines(updatedRoutines);
-    await saveToStorage(STORAGE_KEYS.ROUTINES, updatedRoutines);
-  };
+const removeTaskFromRoutine = async (routineId, taskId) => {
+  if (!authUser?.id) return;
 
-  const reorderRoutineTasks = async (routineId, newTaskOrder) => {
-    const updatedRoutines = routines.map((r) =>
-      r.id === routineId ? { ...r, tasks: newTaskOrder } : r
-    );
-    setRoutines(updatedRoutines);
-    await saveToStorage(STORAGE_KEYS.ROUTINES, updatedRoutines);
-  };
+  const routine = routines.find((r) => r.id === routineId);
+  if (!routine) return;
+
+  const updatedTasks = (routine.tasks || []).filter((t) => t.id !== taskId);
+  const updatedRoutine = { ...routine, tasks: updatedTasks };
+
+  setRoutines((prev) =>
+    prev.map((r) => (r.id === routineId ? updatedRoutine : r))
+  );
+};
+
+const reorderRoutineTasks = async (routineId, newTaskOrder) => {
+  if (!authUser?.id) return;
+
+  const routine = routines.find((r) => r.id === routineId);
+  if (!routine) return;
+
+  const updatedRoutine = { ...routine, tasks: newTaskOrder };
+
+  setRoutines((prev) =>
+    prev.map((r) => (r.id === routineId ? updatedRoutine : r))
+  );
+};
+
+
+
+const fetchChoresFromSupabase = async (userId) => {
+  const { data, error } = await supabase
+    .from('chores')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.log('Error fetching chores:', error);
+    return;
+  }
+
+  const mapped = (data || []).map((c) => ({
+    id: c.id,
+    title: c.title,
+    date: c.date,
+    completed: c.completed,
+    createdAt: c.created_at,
+  }));
+
+  setChores(mapped);
+};
 
   // CHORE FUNCTIONS
-  const addChore = async (chore) => {
-    const newChore = {
-      ...chore,
-      id: Date.now().toString(),
-      createdAt: new Date().toISOString(),
+const addChore = async (chore) => {
+  if (!authUser?.id) {
+    throw new Error('You must be logged in to add a chore.');
+  }
+
+  const { data, error } = await supabase
+    .from('chores')
+    .insert({
+      user_id: authUser.id,
+      title: chore.title,
+      date: chore.date || null,
       completed: false,
-    };
-    const updatedChores = [...chores, newChore];
-    setChores(updatedChores);
-    await saveToStorage(STORAGE_KEYS.CHORES, updatedChores);
-    return newChore;
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.log('Error adding chore:', error);
+    throw error;
+  }
+
+  const newChore = {
+    id: data.id,
+    title: data.title,
+    date: data.date,
+    completed: data.completed,
+    createdAt: data.created_at,
   };
 
-  const updateChore = async (choreId, updates) => {
-    const updatedChores = chores.map((c) =>
-      c.id === choreId ? { ...c, ...updates } : c
-    );
-    setChores(updatedChores);
-    await saveToStorage(STORAGE_KEYS.CHORES, updatedChores);
-  };
+  setChores((prev) => [...prev, newChore]);
+  return newChore;
+};
 
-  const deleteChore = async (choreId) => {
-    const updatedChores = chores.filter((c) => c.id !== choreId);
-    setChores(updatedChores);
-    await saveToStorage(STORAGE_KEYS.CHORES, updatedChores);
-  };
+const updateChore = async (choreId, updates) => {
+  if (!authUser?.id) return;
+
+  const updateData = {};
+  ['title', 'date', 'completed'].forEach((key) => {
+    if (updates[key] !== undefined) {
+      updateData[key] = updates[key];
+    }
+  });
+
+  if (Object.keys(updateData).length > 0) {
+    const { error } = await supabase
+      .from('chores')
+      .update(updateData)
+      .eq('id', choreId)
+      .eq('user_id', authUser.id);
+
+    if (error) {
+      console.log('Error updating chore:', error);
+    }
+  }
+
+  setChores((prev) =>
+    prev.map((c) => (c.id === choreId ? { ...c, ...updates } : c))
+  );
+};
+
+const deleteChore = async (choreId) => {
+  if (!authUser?.id) return;
+
+  const { error } = await supabase
+    .from('chores')
+    .delete()
+    .eq('id', choreId)
+    .eq('user_id', authUser.id);
+
+  if (error) {
+    console.log('Error deleting chore:', error);
+  }
+
+  setChores((prev) => prev.filter((c) => c.id !== choreId));
+};
+
+const fetchRemindersFromSupabase = async (userId) => {
+  const { data, error } = await supabase
+    .from('reminders')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.log('Error fetching reminders:', error);
+    return;
+  }
+
+  const mapped = (data || []).map((r) => ({
+    id: r.id,
+    title: r.title,
+    dateTime: r.date_time || r.date || null,
+    createdAt: r.created_at,
+  }));
+
+  setReminders(mapped);
+};
 
   // REMINDER FUNCTIONS
-  const addReminder = async (reminder) => {
-    const newReminder = {
-      ...reminder,
-      id: Date.now().toString(),
-      createdAt: new Date().toISOString(),
-    };
-    const updatedReminders = [...reminders, newReminder];
-    setReminders(updatedReminders);
-    await saveToStorage(STORAGE_KEYS.REMINDERS, updatedReminders);
-    return newReminder;
+const addReminder = async (reminder) => {
+  if (!authUser?.id) {
+    throw new Error('You must be logged in to add a reminder.');
+  }
+
+  const { data, error } = await supabase
+    .from('reminders')
+    .insert({
+      user_id: authUser.id,
+      title: reminder.title,
+      // use 'date' column (or fallback) since date_time may not exist in schema
+      date: reminder.dateTime || reminder.date || null,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.log('Error adding reminder:', error);
+    throw error;
+  }
+
+  const newReminder = {
+    id: data.id,
+    title: data.title,
+    dateTime: data.date_time,
+    createdAt: data.created_at,
   };
 
-  const deleteReminder = async (reminderId) => {
-    const updatedReminders = reminders.filter((r) => r.id !== reminderId);
-    setReminders(updatedReminders);
-    await saveToStorage(STORAGE_KEYS.REMINDERS, updatedReminders);
-  };
+  setReminders((prev) => [...prev, newReminder]);
+  return newReminder;
+};
 
-  // GROCERY FUNCTIONS
+const deleteReminder = async (reminderId) => {
+  if (!authUser?.id) return;
+
+  const { error } = await supabase
+    .from('reminders')
+    .delete()
+    .eq('id', reminderId)
+    .eq('user_id', authUser.id);
+
+  if (error) {
+    console.log('Error deleting reminder:', error);
+  }
+
+  setReminders((prev) => prev.filter((r) => r.id !== reminderId));
+};
+
+
+
+const fetchGroceriesFromSupabase = async (userId) => {
+  const { data, error } = await supabase
+    .from('groceries')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.log('Error fetching groceries:', error);
+    return;
+  }
+
+  const mapped = (data || []).map((g) => ({
+    id: g.id,
+    name: g.name,
+    completed: g.completed,
+    createdAt: g.created_at,
+  }));
+
+  setGroceries(mapped);
+};
+
+
   const addGroceryItem = async (item) => {
-    const newItem = {
+  if (!authUser?.id) {
+    throw new Error('You must be logged in to add groceries.');
+  }
+
+  const { data, error } = await supabase
+    .from('groceries')
+    .insert({
+      user_id: authUser.id,
       name: item,
-      id: Date.now().toString(),
       completed: false,
-    };
-    const updatedGroceries = [...groceries, newItem];
-    setGroceries(updatedGroceries);
-    await saveToStorage(STORAGE_KEYS.GROCERIES, updatedGroceries);
-    return newItem;
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.log('Error adding grocery item:', error);
+    throw error;
+  }
+
+  const newItem = {
+    id: data.id,
+    name: data.name,
+    completed: data.completed,
+    createdAt: data.created_at,
   };
 
-  const toggleGroceryItem = async (itemId) => {
-    const updatedGroceries = groceries.map((g) =>
-      g.id === itemId ? { ...g, completed: !g.completed } : g
-    );
-    setGroceries(updatedGroceries);
-    await saveToStorage(STORAGE_KEYS.GROCERIES, updatedGroceries);
-  };
+  setGroceries((prev) => [...prev, newItem]);
+  return newItem;
+};
 
-  const deleteGroceryItem = async (itemId) => {
-    const updatedGroceries = groceries.filter((g) => g.id !== itemId);
-    setGroceries(updatedGroceries);
-    await saveToStorage(STORAGE_KEYS.GROCERIES, updatedGroceries);
-  };
+const toggleGroceryItem = async (itemId) => {
+  if (!authUser?.id) return;
 
-  const clearCompletedGroceries = async () => {
-    const updatedGroceries = groceries.filter((g) => !g.completed);
-    setGroceries(updatedGroceries);
-    await saveToStorage(STORAGE_KEYS.GROCERIES, updatedGroceries);
-  };
+  const item = groceries.find((g) => g.id === itemId);
+  if (!item) return;
+
+  const newCompleted = !item.completed;
+
+  const { error } = await supabase
+    .from('groceries')
+    .update({ completed: newCompleted })
+    .eq('id', itemId)
+    .eq('user_id', authUser.id);
+
+  if (error) {
+    console.log('Error toggling grocery item:', error);
+    return;
+  }
+
+  setGroceries((prev) =>
+    prev.map((g) =>
+      g.id === itemId ? { ...g, completed: newCompleted } : g
+    )
+  );
+};
+
+const deleteGroceryItem = async (itemId) => {
+  if (!authUser?.id) return;
+
+  const { error } = await supabase
+    .from('groceries')
+    .delete()
+    .eq('id', itemId)
+    .eq('user_id', authUser.id);
+
+  if (error) {
+    console.log('Error deleting grocery item:', error);
+  }
+
+  setGroceries((prev) => prev.filter((g) => g.id !== itemId));
+};
+
+const clearCompletedGroceries = async () => {
+  if (!authUser?.id) return;
+
+  const completedIds = groceries.filter((g) => g.completed).map((g) => g.id);
+
+  if (completedIds.length > 0) {
+    const { error } = await supabase
+      .from('groceries')
+      .delete()
+      .in('id', completedIds)
+      .eq('user_id', authUser.id);
+
+    if (error) {
+      console.log('Error clearing completed groceries:', error);
+    }
+  }
+
+  setGroceries((prev) => prev.filter((g) => !g.completed));
+};
+
+
+
+
+
+const fetchFinancesFromSupabase = async (userId) => {
+  const { data, error } = await supabase
+    .from('finance_transactions')
+    .select('*')
+    .eq('user_id', userId)
+    .order('date', { ascending: true });
+
+  if (error) {
+    console.log('Error fetching finances:', error);
+    return;
+  }
+
+  const mapped = (data || []).map((t) => ({
+    id: t.id,
+    type: t.type,
+    amount: Number(t.amount),
+    category: t.category,
+    currency: t.currency,
+    date: t.date,
+    note: t.note,
+    createdAt: t.created_at,
+  }));
+
+  setFinances(mapped);
+};
+
+
 
   // FINANCE FUNCTIONS
-  const addTransaction = async (transaction) => {
-    const newTransaction = {
-      ...transaction,
-      id: Date.now().toString(),
-      createdAt: new Date().toISOString(),
-    };
-    const updatedFinances = [...finances, newTransaction];
-    setFinances(updatedFinances);
-    await saveToStorage(STORAGE_KEYS.FINANCES, updatedFinances);
-    return newTransaction;
+const addTransaction = async (transaction) => {
+  if (!authUser?.id) {
+    throw new Error('You must be logged in to add a transaction.');
+  }
+
+  const { data, error } = await supabase
+    .from('finance_transactions')
+    .insert({
+      user_id: authUser.id,
+      type: transaction.type, // 'income' or 'expense'
+      amount: transaction.amount,
+      category: transaction.category || null,
+      currency: transaction.currency || 'GBP',
+      date: transaction.date,
+      note: transaction.note || null,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.log('Error adding transaction:', error);
+    throw error;
+  }
+
+  const newTransaction = {
+    id: data.id,
+    type: data.type,
+    amount: Number(data.amount),
+    category: data.category,
+    currency: data.currency,
+    date: data.date,
+    note: data.note,
+    createdAt: data.created_at,
   };
 
-  const deleteTransaction = async (transactionId) => {
-    const updatedFinances = finances.filter((f) => f.id !== transactionId);
-    setFinances(updatedFinances);
-    await saveToStorage(STORAGE_KEYS.FINANCES, updatedFinances);
-  };
+  setFinances((prev) => [...prev, newTransaction]);
+  return newTransaction;
+};
 
-  const getTransactionsForDate = (date) => {
-    const dateString = new Date(date).toDateString();
-    return finances.filter(
-      (f) => new Date(f.date).toDateString() === dateString
-    );
-  };
+const deleteTransaction = async (transactionId) => {
+  if (!authUser?.id) return;
 
-  const getFinanceSummaryForDate = (date) => {
-    const transactions = getTransactionsForDate(date);
-    const income = transactions
-      .filter((t) => t.type === 'income')
-      .reduce((sum, t) => sum + t.amount, 0);
-    const expenses = transactions
-      .filter((t) => t.type === 'expense')
-      .reduce((sum, t) => sum + t.amount, 0);
-    return {
-      income,
-      expenses,
-      balance: income - expenses,
-    };
+  const { error } = await supabase
+    .from('finance_transactions')
+    .delete()
+    .eq('id', transactionId)
+    .eq('user_id', authUser.id);
+
+  if (error) {
+    console.log('Error deleting transaction:', error);
+  }
+
+  setFinances((prev) => prev.filter((f) => f.id !== transactionId));
+};
+
+const getTransactionsForDate = (date) => {
+  const dateString = new Date(date).toDateString();
+  return finances.filter(
+    (f) => new Date(f.date).toDateString() === dateString
+  );
+};
+
+const getFinanceSummaryForDate = (date) => {
+  const transactions = getTransactionsForDate(date);
+  const income = transactions
+    .filter((t) => t.type === 'income')
+    .reduce((sum, t) => sum + t.amount, 0);
+  const expenses = transactions
+    .filter((t) => t.type === 'expense')
+    .reduce((sum, t) => sum + t.amount, 0);
+  return {
+    income,
+    expenses,
+    balance: income - expenses,
   };
+};
 
   // PROFILE FUNCTIONS
   const updateProfile = async (updates) => {
@@ -613,7 +1429,7 @@ const setActiveUser = async (user) => {
   // `user` is a Supabase auth user object
   setAuthUser(user);
 
-  // optional: keep a copy of the user object if you ever want it offline
+  // Optional: keep a local copy (offline cache)
   await saveToStorage(STORAGE_KEYS.AUTH_USER, user);
 
   setProfile((prev) => ({
@@ -630,7 +1446,7 @@ const setActiveUser = async (user) => {
 };
 
 const signIn = async ({ identifier, password }) => {
-  // `identifier` is now the EMAIL the user signed up with
+  // We now sign in with EMAIL (identifier is email)
   const email = identifier?.trim().toLowerCase();
 
   const { data, error } = await supabase.auth.signInWithPassword({
@@ -667,8 +1483,7 @@ const signUp = async ({ fullName, username, email, password }) => {
 
   const { user } = data;
 
-  // Depending on your email confirmation settings,
-  // user may be null until they confirm – but your UI will still show a success.
+  // Depending on email confirmation settings, user may be null until they confirm
   if (user) {
     await setActiveUser(user);
   }
@@ -685,7 +1500,6 @@ const signOut = async () => {
   setProfile(defaultProfile);
   await saveToStorage(STORAGE_KEYS.PROFILE, defaultProfile);
 };
-
 
   const changeTheme = async (name) => {
     setThemeName(name);
@@ -801,7 +1615,6 @@ const signOut = async () => {
 
     // Auth
     authUser,
-    authUsers,
     hasOnboarded,
     signIn,
     signUp,
