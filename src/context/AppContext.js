@@ -34,11 +34,13 @@ const STORAGE_KEYS = {
 
 const defaultProfile = {
   name: 'User',
+  username: '',
   email: 'user@pillr.app',
   photo: null,
   dailyCalorieGoal: 2000,
   dailyWaterGoal: 8,
   dailySleepGoal: 8,
+  profileId: null,
 };
 
 const defaultHealthDay = () => ({
@@ -54,6 +56,16 @@ const defaultHealthDay = () => ({
   createdAt: null,
   updatedAt: null,
 });
+
+const defaultUserSettings = {
+  id: null,
+  themeName: 'default',
+  notificationsEnabled: true,
+  habitRemindersEnabled: true,
+  taskRemindersEnabled: true,
+  healthRemindersEnabled: true,
+  defaultCurrencyCode: 'USD',
+};
 
 
 export const AppProvider = ({ children }) => {
@@ -81,6 +93,7 @@ export const AppProvider = ({ children }) => {
 
  // Profile State
   const [profile, setProfile] = useState(defaultProfile);
+  const [userSettings, setUserSettings] = useState(defaultUserSettings);
 
   // Auth State
   const [authUser, setAuthUser] = useState(null);
@@ -130,26 +143,7 @@ export const AppProvider = ({ children }) => {
 
   const loadAllData = async () => {
   try {
-    // Only load things we still keep in AsyncStorage:
-    // profile, onboarding flag, theme, local food logs
-    const [storedProfile, storedOnboarding, storedTheme, storedFoodLogs] = await Promise.all([
-      AsyncStorage.getItem(STORAGE_KEYS.PROFILE),
-      AsyncStorage.getItem(STORAGE_KEYS.ONBOARDING),
-      AsyncStorage.getItem(STORAGE_KEYS.THEME),
-      AsyncStorage.getItem(STORAGE_KEYS.HEALTH_FOOD_LOGS),
-    ]);
-
-    if (storedProfile) {
-      setProfile(JSON.parse(storedProfile));
-    }
-
-    if (storedOnboarding) {
-      setHasOnboarded(storedOnboarding === 'true');
-    }
-
-    const chosenTheme = storedTheme ? storedTheme : 'default';
-    setThemeName(chosenTheme);
-    applyTheme(chosenTheme);
+    const storedFoodLogs = await AsyncStorage.getItem(STORAGE_KEYS.HEALTH_FOOD_LOGS);
 
     if (storedFoodLogs) {
       try {
@@ -169,6 +163,8 @@ export const AppProvider = ({ children }) => {
       console.log('Error getting Supabase session:', error);
     } else if (session?.user) {
       await setActiveUser(session.user);
+    } else {
+      applyTheme('default');
     }
   } catch (error) {
     console.error('Error loading data:', error);
@@ -180,6 +176,8 @@ export const AppProvider = ({ children }) => {
 const loadUserDataFromSupabase = async (userId) => {
   try {
     await Promise.all([
+      fetchProfileFromSupabase(userId),
+      fetchUserSettings(userId),
       fetchHabitsFromSupabase(userId),
       fetchTasksFromSupabase(userId),
       fetchNotesFromSupabase(userId),
@@ -211,6 +209,11 @@ const loadUserDataFromSupabase = async (userId) => {
       setReminders([]);
       setGroceries([]);
       setFinances([]);
+      setProfile(defaultProfile);
+      setUserSettings(defaultUserSettings);
+      setHasOnboarded(false);
+      setThemeName('default');
+      applyTheme('default');
     }
   }, [authUser]);
 
@@ -1584,101 +1587,269 @@ const getFinanceSummaryForDate = (date) => {
 };
 
   // PROFILE FUNCTIONS
+  const mapProfileRow = (row) => ({
+    profileId: row?.id || null,
+    name: row?.full_name || defaultProfile.name,
+    username: row?.username || '',
+    email: row?.email || profile.email || defaultProfile.email,
+    photo: row?.avatar_url || null,
+    dailyCalorieGoal: row?.daily_calorie_goal ?? defaultProfile.dailyCalorieGoal,
+    dailyWaterGoal: row?.daily_water_goal ?? defaultProfile.dailyWaterGoal,
+    dailySleepGoal: row?.daily_sleep_goal ?? defaultProfile.dailySleepGoal,
+  });
+
+  const fetchProfileFromSupabase = async (userId) => {
+    if (!userId) return null;
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      console.log('Error fetching profile:', error);
+      return null;
+    }
+
+    let row = data;
+
+    if (!row) {
+      row = await upsertProfileRow({
+        id: userId,
+        full_name: profile.name,
+        email: profile.email,
+      });
+    }
+
+    if (row) {
+      const mapped = mapProfileRow(row);
+      setProfile(mapped);
+      setHasOnboarded(!!row.has_onboarded);
+    }
+
+    return row;
+  };
+
+  const upsertProfileRow = async (fields = {}) => {
+    const userId = authUser?.id || fields.id;
+    if (!userId) return null;
+    const nowISO = new Date().toISOString();
+    const payload = {
+      id: userId,
+      full_name: fields.full_name ?? fields.name ?? profile.name,
+      username: fields.username ?? profile.username ?? null,
+      email: fields.email ?? profile.email ?? authUser?.email,
+      avatar_url: fields.avatar_url ?? fields.photo ?? profile.photo,
+      has_onboarded: fields.has_onboarded ?? hasOnboarded,
+      daily_calorie_goal: fields.daily_calorie_goal ?? fields.dailyCalorieGoal ?? profile.dailyCalorieGoal,
+      daily_water_goal: fields.daily_water_goal ?? fields.dailyWaterGoal ?? profile.dailyWaterGoal,
+      daily_sleep_goal: fields.daily_sleep_goal ?? fields.dailySleepGoal ?? profile.dailySleepGoal,
+      updated_at: nowISO,
+    };
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .upsert(payload, { onConflict: 'id' })
+      .select()
+      .single();
+
+    if (error) {
+      console.log('Error saving profile:', error);
+      return null;
+    }
+
+    const mapped = mapProfileRow(data);
+    setProfile(mapped);
+    setHasOnboarded(!!data.has_onboarded);
+    return data;
+  };
+
   const updateProfile = async (updates) => {
-    const updatedProfile = { ...profile, ...updates };
-    setProfile(updatedProfile);
-    await saveToStorage(STORAGE_KEYS.PROFILE, updatedProfile);
+    const merged = { ...profile, ...updates };
+    setProfile(merged);
+    return upsertProfileRow({
+      ...updates,
+      name: merged.name,
+      username: merged.username,
+      email: merged.email,
+      photo: merged.photo,
+      dailyCalorieGoal: merged.dailyCalorieGoal,
+      dailyWaterGoal: merged.dailyWaterGoal,
+      dailySleepGoal: merged.dailySleepGoal,
+    });
+  };
+
+  // USER SETTINGS FUNCTIONS
+  const mapSettingsRow = (row) => ({
+    id: row?.id || null,
+    themeName: row?.theme_name || 'default',
+    notificationsEnabled: row?.notifications_enabled ?? defaultUserSettings.notificationsEnabled,
+    habitRemindersEnabled: row?.habit_reminders_enabled ?? defaultUserSettings.habitRemindersEnabled,
+    taskRemindersEnabled: row?.task_reminders_enabled ?? defaultUserSettings.taskRemindersEnabled,
+    healthRemindersEnabled: row?.health_reminders_enabled ?? defaultUserSettings.healthRemindersEnabled,
+    defaultCurrencyCode: row?.default_currency_code || defaultUserSettings.defaultCurrencyCode,
+  });
+
+  const fetchUserSettings = async (userId) => {
+    if (!userId) return null;
+    const { data, error } = await supabase
+      .from('user_settings')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      console.log('Error fetching user settings:', error);
+      return null;
+    }
+
+    let row = data;
+
+    if (!row) {
+      row = await upsertUserSettings({ ...defaultUserSettings }, userId);
+    }
+
+    if (row) {
+      const mapped = mapSettingsRow(row);
+      setUserSettings(mapped);
+      const themeToApply = mapped.themeName || 'default';
+      setThemeName(themeToApply);
+      applyTheme(themeToApply);
+    }
+
+    return row;
+  };
+
+  const upsertUserSettings = async (overrides = {}, userIdParam) => {
+    const userId = userIdParam || authUser?.id;
+    if (!userId) return null;
+    const nowISO = new Date().toISOString();
+    const payload = {
+      id: overrides.id || userSettings.id || undefined,
+      user_id: userId,
+      theme_name: overrides.themeName ?? userSettings.themeName ?? defaultUserSettings.themeName,
+      notifications_enabled: overrides.notificationsEnabled ?? userSettings.notificationsEnabled ?? defaultUserSettings.notificationsEnabled,
+      habit_reminders_enabled: overrides.habitRemindersEnabled ?? userSettings.habitRemindersEnabled ?? defaultUserSettings.habitRemindersEnabled,
+      task_reminders_enabled: overrides.taskRemindersEnabled ?? userSettings.taskRemindersEnabled ?? defaultUserSettings.taskRemindersEnabled,
+      health_reminders_enabled: overrides.healthRemindersEnabled ?? userSettings.healthRemindersEnabled ?? defaultUserSettings.healthRemindersEnabled,
+      default_currency_code: overrides.defaultCurrencyCode ?? userSettings.defaultCurrencyCode ?? defaultUserSettings.defaultCurrencyCode,
+      updated_at: nowISO,
+    };
+
+    if (!payload.id) {
+      delete payload.id;
+    }
+
+    const { data, error } = await supabase
+      .from('user_settings')
+      .upsert(payload, { onConflict: 'user_id' })
+      .select()
+      .single();
+
+    if (error) {
+      console.log('Error saving user settings:', error);
+      return null;
+    }
+
+    const mapped = mapSettingsRow(data);
+    setUserSettings(mapped);
+    return data;
+  };
+
+  const updateUserSettings = async (updates) => {
+    const merged = { ...userSettings, ...updates };
+    setUserSettings(merged);
+    return upsertUserSettings(merged);
   };
 
   // AUTH FUNCTIONS
-const persistOnboarding = async (value) => {
-  setHasOnboarded(value);
-  await AsyncStorage.setItem(
-    STORAGE_KEYS.ONBOARDING,
-    value ? 'true' : 'false'
-  );
-};
+  const persistOnboarding = async (value) => {
+    setHasOnboarded(value);
+    await upsertProfileRow({ has_onboarded: value });
+  };
 
-const setActiveUser = async (user) => {
-  // `user` is a Supabase auth user object
-  setAuthUser(user);
+  const setActiveUser = async (user) => {
+    // `user` is a Supabase auth user object
+    setAuthUser(user);
 
-  // Optional: keep a local copy (offline cache)
-  await saveToStorage(STORAGE_KEYS.AUTH_USER, user);
+    // Optional: keep a local copy (offline cache)
+    await saveToStorage(STORAGE_KEYS.AUTH_USER, user);
 
-  setProfile((prev) => ({
-    ...prev,
-    name:
-      user.user_metadata?.full_name ||
-      user.user_metadata?.name ||
-      user.email ||
-      prev.name,
-    email: user.email || prev.email,
-  }));
+    setProfile((prev) => ({
+      ...prev,
+      name:
+        user.user_metadata?.full_name ||
+        user.user_metadata?.name ||
+        user.user_metadata?.username ||
+        user.email ||
+        prev.name,
+      username: user.user_metadata?.username || prev.username,
+      email: user.email || prev.email,
+    }));
+  };
 
-  await persistOnboarding(true);
-};
+  const signIn = async ({ identifier, password }) => {
+    // We now sign in with EMAIL (identifier is email)
+    const email = identifier?.trim().toLowerCase();
 
-const signIn = async ({ identifier, password }) => {
-  // We now sign in with EMAIL (identifier is email)
-  const email = identifier?.trim().toLowerCase();
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+    if (error) {
+      throw new Error(error.message || 'Unable to sign in.');
+    }
 
-  if (error) {
-    throw new Error(error.message || 'Unable to sign in.');
-  }
-
-  const { user } = data;
-  await setActiveUser(user);
-  return user;
-};
-
-const signUp = async ({ fullName, username, email, password }) => {
-  const trimmedEmail = email?.trim().toLowerCase();
-
-  const { data, error } = await supabase.auth.signUp({
-    email: trimmedEmail,
-    password,
-    options: {
-      data: {
-        full_name: fullName,
-        username,
-      },
-    },
-  });
-
-  if (error) {
-    throw new Error(error.message || 'Unable to create account.');
-  }
-
-  const { user } = data;
-
-  // Depending on email confirmation settings, user may be null until they confirm
-  if (user) {
+    const { user } = data;
     await setActiveUser(user);
-  }
+    return user;
+  };
 
-  return user;
-};
+  const signUp = async ({ fullName, username, email, password }) => {
+    const trimmedEmail = email?.trim().toLowerCase();
 
-const signOut = async () => {
-  await supabase.auth.signOut();
-  setAuthUser(null);
-  await AsyncStorage.removeItem(STORAGE_KEYS.AUTH_USER);
+    const { data, error } = await supabase.auth.signUp({
+      email: trimmedEmail,
+      password,
+      options: {
+        data: {
+          full_name: fullName,
+          username,
+        },
+      },
+    });
 
-  await persistOnboarding(false);
-  setProfile(defaultProfile);
-  await saveToStorage(STORAGE_KEYS.PROFILE, defaultProfile);
-};
+    if (error) {
+      throw new Error(error.message || 'Unable to create account.');
+    }
+
+    const { user } = data;
+
+    // Depending on email confirmation settings, user may be null until they confirm
+    if (user) {
+      await setActiveUser(user);
+    }
+
+    return user;
+  };
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    setAuthUser(null);
+    await AsyncStorage.removeItem(STORAGE_KEYS.AUTH_USER);
+
+    setHasOnboarded(false);
+    setProfile(defaultProfile);
+    setUserSettings(defaultUserSettings);
+    setThemeName('default');
+    applyTheme('default');
+  };
 
   const changeTheme = async (name) => {
     setThemeName(name);
     applyTheme(name);
-    await AsyncStorage.setItem(STORAGE_KEYS.THEME, name);
+    await upsertUserSettings({ ...userSettings, themeName: name });
   };
 
   // COMPUTED VALUES
@@ -1789,6 +1960,8 @@ const signOut = async () => {
     // Profile
     profile,
     updateProfile,
+    userSettings,
+    updateUserSettings,
 
     // Auth
     authUser,
