@@ -12,6 +12,7 @@ const Card = ({
   variant = 'default',
 }) => {
   const { themeColors } = useApp();
+  const styles = React.useMemo(() => createStyles(), [themeColors]);
   const cardStyle = [
     styles.card,
     variant === 'elevated' && styles.elevated,
@@ -35,18 +36,19 @@ const Card = ({
   return <View style={cardStyle}>{children}</View>;
 };
 
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    ...shadows.medium,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.04)',
-  },
-  elevated: {
-    ...shadows.large,
-  },
-});
+const createStyles = () =>
+  StyleSheet.create({
+    card: {
+      backgroundColor: colors.card,
+      borderRadius: borderRadius.lg,
+      padding: spacing.lg,
+      ...shadows.medium,
+      borderWidth: 1,
+      borderColor: 'rgba(0,0,0,0.04)',
+    },
+    elevated: {
+      ...shadows.large,
+    },
+  });
 
 export default Card;

@@ -3,6 +3,7 @@ import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, View } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 import { colors, borderRadius, spacing } from '../utils/theme';
 import { supabase } from '../utils/supabaseClient';
+import { useApp } from '../context/AppContext';
 
 const Button = ({
   title,
@@ -17,6 +18,8 @@ const Button = ({
   textStyle,
   fullWidth = true,
 }) => {
+  const { themeColors } = useApp();
+  const styles = React.useMemo(() => createStyles(), [themeColors]);
   const getVariantStyles = () => {
     switch (variant) {
       case 'primary':
@@ -138,100 +141,101 @@ const Button = ({
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    borderRadius: borderRadius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  contentContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fullWidth: {
-    width: '100%',
-  },
-  text: {
-    fontWeight: '600',
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-  disabledText: {
-    color: colors.textLight,
-  },
+const createStyles = () =>
+  StyleSheet.create({
+    container: {
+      borderRadius: borderRadius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    contentContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    fullWidth: {
+      width: '100%',
+    },
+    text: {
+      fontWeight: '600',
+    },
+    disabled: {
+      opacity: 0.5,
+    },
+    disabledText: {
+      color: colors.textLight,
+    },
 
-  // Variants
-  primaryContainer: {
-    backgroundColor: colors.primary,
-  },
-  primaryText: {
-    color: '#FFFFFF',
-  },
-  secondaryContainer: {
-    backgroundColor: colors.inputBackground,
-  },
-  secondaryText: {
-    color: colors.text,
-  },
-  outlineContainer: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  outlineText: {
-    color: colors.text,
-  },
-  dangerContainer: {
-    backgroundColor: colors.danger,
-  },
-  dangerText: {
-    color: '#FFFFFF',
-  },
-  successContainer: {
-    backgroundColor: colors.success,
-  },
-  successText: {
-    color: '#FFFFFF',
-  },
-  ghostContainer: {
-    backgroundColor: 'transparent',
-  },
-  ghostText: {
-    color: colors.primary,
-  },
+    // Variants
+    primaryContainer: {
+      backgroundColor: colors.primary,
+    },
+    primaryText: {
+      color: '#FFFFFF',
+    },
+    secondaryContainer: {
+      backgroundColor: colors.inputBackground,
+    },
+    secondaryText: {
+      color: colors.text,
+    },
+    outlineContainer: {
+      backgroundColor: 'transparent',
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    outlineText: {
+      color: colors.text,
+    },
+    dangerContainer: {
+      backgroundColor: colors.danger,
+    },
+    dangerText: {
+      color: '#FFFFFF',
+    },
+    successContainer: {
+      backgroundColor: colors.success,
+    },
+    successText: {
+      color: '#FFFFFF',
+    },
+    ghostContainer: {
+      backgroundColor: 'transparent',
+    },
+    ghostText: {
+      color: colors.primary,
+    },
 
-  // Sizes
-  smallContainer: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  smallText: {
-    fontSize: 14,
-  },
-  mediumContainer: {
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-  },
-  mediumText: {
-    fontSize: 16,
-  },
-  largeContainer: {
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.xl,
-  },
-  largeText: {
-    fontSize: 18,
-  },
+    // Sizes
+    smallContainer: {
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+    },
+    smallText: {
+      fontSize: 14,
+    },
+    mediumContainer: {
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.lg,
+    },
+    mediumText: {
+      fontSize: 16,
+    },
+    largeContainer: {
+      paddingVertical: spacing.lg,
+      paddingHorizontal: spacing.xl,
+    },
+    largeText: {
+      fontSize: 18,
+    },
 
-  // Icons
-  iconLeft: {
-    marginRight: spacing.sm,
-  },
-  iconRight: {
-    marginLeft: spacing.sm,
-  },
-});
+    // Icons
+    iconLeft: {
+      marginRight: spacing.sm,
+    },
+    iconRight: {
+      marginLeft: spacing.sm,
+    },
+  });
 
 export default Button;

@@ -23,7 +23,8 @@ import {
 const CalendarScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { tasks, toggleTaskCompletion } = useApp();
+  const { tasks, toggleTaskCompletion, themeColors } = useApp();
+  const styles = useMemo(() => createStyles(), [themeColors]);
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -383,7 +384,7 @@ const CalendarScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,

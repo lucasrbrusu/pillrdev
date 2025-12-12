@@ -48,6 +48,7 @@ const TasksScreen = () => {
     setNotePassword,
     themeColors,
   } = useApp();
+  const styles = useMemo(() => createStyles(), [themeColors]);
 
   const [activeTab, setActiveTab] = useState('All Tasks');
   const [filterType, setFilterType] = useState('Date');
@@ -1065,7 +1066,7 @@ const TasksScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -1494,6 +1495,14 @@ const styles = StyleSheet.create({
   timeOptionText: {
     ...typography.body,
     marginLeft: spacing.sm,
+  },
+  inlinePicker: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    marginTop: spacing.md,
+    marginBottom: spacing.xxl,
+    ...shadows.small,
   },
   pickerOverlay: {
     ...StyleSheet.absoluteFillObject,

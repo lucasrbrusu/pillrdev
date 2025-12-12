@@ -37,7 +37,7 @@ const TabBarIcon = ({ name, type, focused, color, size }) => {
   return <Ionicons name={name} size={size} color={color} />;
 };
 
-const CustomTabBar = ({ state, descriptors, navigation }) => {
+const CustomTabBar = ({ state, descriptors, navigation, styles }) => {
   const insets = useSafeAreaInsets();
   
   return (
@@ -134,10 +134,10 @@ const CustomTabBar = ({ state, descriptors, navigation }) => {
 };
 
 
-const TabNavigator = () => {
+const TabNavigator = ({ styles }) => {
   return (
     <Tab.Navigator
-      tabBar={(props) => <CustomTabBar {...props} />}
+      tabBar={(props) => <CustomTabBar {...props} styles={styles} />}
       screenOptions={{
         headerShown: false,
       }}
@@ -154,6 +154,7 @@ const TabNavigator = () => {
 
 const Navigation = () => {
   const { isLoading, authUser, hasOnboarded, themeColors } = useApp();
+  const styles = React.useMemo(() => createStyles(), [themeColors]);
 
   if (isLoading) {
     return (
@@ -174,7 +175,9 @@ const Navigation = () => {
             cardStyle: { backgroundColor: themeColors.background },
           }}
         >
-          <Stack.Screen name="Main" component={TabNavigator} />
+          <Stack.Screen name="Main">
+            {() => <TabNavigator styles={styles} />}
+          </Stack.Screen>
           <Stack.Screen name="Profile" component={ProfileScreen} />
           <Stack.Screen name="EditProfile" component={EditProfileScreen} />
           <Stack.Screen name="Finance" component={FinanceScreen} />
@@ -198,47 +201,48 @@ const Navigation = () => {
   );
 };
 
-const styles = StyleSheet.create({
-  tabBarContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    backgroundColor: 'transparent',
-  },
-  tabBar: {
-    flexDirection: 'row',
-    backgroundColor: colors.navBackground,
-    borderRadius: borderRadius.xxl,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    ...shadows.medium,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.04)',
-  },
-  tabItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 4,
-  },
-  tabItemFocused: {},
-  tabIconContainer: {
-    width: 48,
-    height: 40,
-    borderRadius: borderRadius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loadingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.background,
-  },
-});
+const createStyles = () =>
+  StyleSheet.create({
+    tabBarContainer: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      alignItems: 'center',
+      paddingHorizontal: 20,
+      paddingTop: 8,
+      backgroundColor: 'transparent',
+    },
+    tabBar: {
+      flexDirection: 'row',
+      backgroundColor: colors.navBackground,
+      borderRadius: borderRadius.xxl,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      ...shadows.medium,
+      borderWidth: 1,
+      borderColor: 'rgba(0,0,0,0.04)',
+    },
+    tabItem: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 4,
+    },
+    tabItemFocused: {},
+    tabIconContainer: {
+      width: 48,
+      height: 40,
+      borderRadius: borderRadius.lg,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    loadingContainer: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.background,
+    },
+  });
 
 export default Navigation;

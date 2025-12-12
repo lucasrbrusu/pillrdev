@@ -31,7 +31,9 @@ const FinanceScreen = () => {
     deleteTransaction,
     getTransactionsForDate,
     getFinanceSummaryForDate,
+    themeColors,
   } = useApp();
+  const styles = useMemo(() => createStyles(), [themeColors]);
 
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showIncomeModal, setShowIncomeModal] = useState(false);
@@ -627,7 +629,7 @@ const FinanceScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,

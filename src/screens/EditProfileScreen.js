@@ -25,7 +25,8 @@ import {
 const EditProfileScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { profile, updateProfile } = useApp();
+  const { profile, updateProfile, themeColors } = useApp();
+  const styles = React.useMemo(() => createStyles(), [themeColors]);
 
   const [name, setName] = useState(profile.name);
   const [email, setEmail] = useState(profile.email);
@@ -194,106 +195,107 @@ const EditProfileScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.xxxl,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.lg,
-  },
-  backButton: {
-    padding: spacing.xs,
-  },
-  headerTitle: {
-    ...typography.h3,
-  },
-  saveButton: {
-    padding: spacing.xs,
-  },
-  saveText: {
-    ...typography.body,
-    color: colors.primary,
-    fontWeight: '600',
-  },
-  photoSection: {
-    alignItems: 'center',
-    paddingVertical: spacing.xl,
-  },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-  },
-  avatarPlaceholder: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: colors.inputBackground,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cameraIcon: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  changePhotoText: {
-    ...typography.bodySmall,
-    color: colors.primary,
-    marginTop: spacing.sm,
-  },
-  sectionCard: {
-    marginBottom: spacing.lg,
-  },
-  sectionTitle: {
-    ...typography.h3,
-    marginBottom: spacing.md,
-  },
-  changePasswordButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-  },
-  changePasswordText: {
-    ...typography.body,
-    color: colors.primary,
-    marginLeft: spacing.sm,
-  },
-  actionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
-  },
-  actionText: {
-    flex: 1,
-    ...typography.body,
-    marginLeft: spacing.md,
-  },
-  dangerItem: {
-    borderBottomWidth: 0,
-  },
-  dangerText: {
-    color: colors.danger,
-  },
-});
+const createStyles = () =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    scrollView: {
+      flex: 1,
+    },
+    scrollContent: {
+      paddingHorizontal: spacing.xl,
+      paddingBottom: spacing.xxxl,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: spacing.lg,
+    },
+    backButton: {
+      padding: spacing.xs,
+    },
+    headerTitle: {
+      ...typography.h3,
+    },
+    saveButton: {
+      padding: spacing.xs,
+    },
+    saveText: {
+      ...typography.body,
+      color: colors.primary,
+      fontWeight: '600',
+    },
+    photoSection: {
+      alignItems: 'center',
+      paddingVertical: spacing.xl,
+    },
+    avatar: {
+      width: 100,
+      height: 100,
+      borderRadius: 50,
+    },
+    avatarPlaceholder: {
+      width: 100,
+      height: 100,
+      borderRadius: 50,
+      backgroundColor: colors.inputBackground,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    cameraIcon: {
+      position: 'absolute',
+      bottom: 0,
+      right: 0,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    changePhotoText: {
+      ...typography.bodySmall,
+      color: colors.primary,
+      marginTop: spacing.sm,
+    },
+    sectionCard: {
+      marginBottom: spacing.lg,
+    },
+    sectionTitle: {
+      ...typography.h3,
+      marginBottom: spacing.md,
+    },
+    changePasswordButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: spacing.md,
+    },
+    changePasswordText: {
+      ...typography.body,
+      color: colors.primary,
+      marginLeft: spacing.sm,
+    },
+    actionItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.divider,
+    },
+    actionText: {
+      flex: 1,
+      ...typography.body,
+      marginLeft: spacing.md,
+    },
+    dangerItem: {
+      borderBottomWidth: 0,
+    },
+    dangerText: {
+      color: colors.danger,
+    },
+  });
 
 export default EditProfileScreen;

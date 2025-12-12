@@ -15,6 +15,7 @@ const AppearanceScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { themeName, changeTheme, themeColors } = useApp();
+  const styles = React.useMemo(() => createStyles(), [themeColors]);
 
   const handleSelect = async (id) => {
     await changeTheme(id);
@@ -78,101 +79,102 @@ const AppearanceScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.lg,
-  },
-  backButton: {
-    padding: spacing.xs,
-  },
-  headerTitle: {
-    ...typography.h2,
-  },
-  content: {
-    paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.xxxl,
-  },
-  sectionTitle: {
-    ...typography.h3,
-    marginBottom: spacing.xs,
-  },
-  sectionSubtitle: {
-    ...typography.bodySmall,
-    color: colors.textSecondary,
-    marginBottom: spacing.lg,
-  },
-  optionCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: spacing.lg,
-    borderRadius: borderRadius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    marginBottom: spacing.md,
-    ...shadows.small,
-  },
-  optionCardSelected: {
-    borderColor: colors.primary,
-  },
-  optionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  swatch: {
-    width: 42,
-    height: 42,
-    borderRadius: borderRadius.md,
-    marginRight: spacing.md,
-  },
-  swatchLight: {
-    backgroundColor: '#F1F5F9',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  swatchDark: {
-    backgroundColor: '#0B1220',
-    borderWidth: 1,
-    borderColor: '#1F2937',
-  },
-  optionLabel: {
-    ...typography.body,
-    fontWeight: '600',
-  },
-  optionHint: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
-  radio: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 2,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: spacing.md,
-  },
-  radioSelected: {
-    borderColor: colors.primary,
-  },
-  radioDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.primary,
-  },
-});
+const createStyles = () =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.xl,
+      paddingVertical: spacing.lg,
+    },
+    backButton: {
+      padding: spacing.xs,
+    },
+    headerTitle: {
+      ...typography.h2,
+    },
+    content: {
+      paddingHorizontal: spacing.xl,
+      paddingBottom: spacing.xxxl,
+    },
+    sectionTitle: {
+      ...typography.h3,
+      marginBottom: spacing.xs,
+    },
+    sectionSubtitle: {
+      ...typography.bodySmall,
+      color: colors.textSecondary,
+      marginBottom: spacing.lg,
+    },
+    optionCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: spacing.lg,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      marginBottom: spacing.md,
+      ...shadows.small,
+    },
+    optionCardSelected: {
+      borderColor: colors.primary,
+    },
+    optionLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
+    },
+    swatch: {
+      width: 42,
+      height: 42,
+      borderRadius: borderRadius.md,
+      marginRight: spacing.md,
+    },
+    swatchLight: {
+      backgroundColor: '#F1F5F9',
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    swatchDark: {
+      backgroundColor: '#0B1220',
+      borderWidth: 1,
+      borderColor: '#1F2937',
+    },
+    optionLabel: {
+      ...typography.body,
+      fontWeight: '600',
+    },
+    optionHint: {
+      ...typography.caption,
+      color: colors.textSecondary,
+      marginTop: spacing.xs,
+    },
+    radio: {
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      borderWidth: 2,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginLeft: spacing.md,
+    },
+    radioSelected: {
+      borderColor: colors.primary,
+    },
+    radioDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      backgroundColor: colors.primary,
+    },
+  });
 
 export default AppearanceScreen;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,8 @@ import { supabase } from '../utils/supabaseClient';
 
 const AuthScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
-  const { signIn, signUp, hasOnboarded } = useApp();
+  const { signIn, signUp, hasOnboarded, themeColors } = useApp();
+  const styles = useMemo(() => createStyles(), [themeColors]);
 
   const [mode, setMode] = useState('login');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -269,7 +270,7 @@ const AuthScreen = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,

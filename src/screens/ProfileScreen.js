@@ -26,6 +26,7 @@ const ProfileScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { profile, signOut, themeColors } = useApp();
+  const styles = React.useMemo(() => createStyles(), [themeColors]);
 
   const settingsOptions = [
     {
@@ -152,117 +153,117 @@ const ProfileScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.xxxl,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.lg,
-  },
-  backButton: {
-    padding: spacing.xs,
-  },
-  headerTitle: {
-    ...typography.h2,
-  },
-  headerSpacer: {
-    width: 32,
-  },
-  profileSection: {
-    alignItems: 'center',
-    paddingVertical: spacing.xl,
-  },
-  avatarContainer: {
-    marginBottom: spacing.lg,
-  },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-  },
-  avatarPlaceholder: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: colors.inputBackground,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  profileName: {
-    ...typography.h2,
-    marginBottom: spacing.xs,
-  },
-  profileEmail: {
-    ...typography.bodySmall,
-    color: colors.textSecondary,
-    marginBottom: spacing.lg,
-  },
-  editProfileButton: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.xl,
-    borderRadius: borderRadius.full,
-    backgroundColor: colors.primary,
-  },
-  editProfileText: {
-    ...typography.body,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  settingsCard: {
-    marginTop: spacing.lg,
-    marginBottom: spacing.xl,
-  },
-  sectionTitle: {
-    ...typography.h3,
-    marginBottom: spacing.md,
-  },
-  settingItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-  },
-  settingItemBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
-  },
-  settingIcon: {
-    fontSize: 20,
-    marginRight: spacing.md,
-  },
-  settingLabel: {
-    flex: 1,
-    ...typography.body,
-  },
-  signOutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.md,
-    marginBottom: spacing.xl,
-  },
-  signOutText: {
-    ...typography.body,
-    color: colors.danger,
-    fontWeight: '600',
-    marginLeft: spacing.sm,
-  },
-  versionText: {
-    ...typography.caption,
-    color: colors.textLight,
-    textAlign: 'center',
-  },
-});
+const createStyles = () =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    scrollView: {
+      flex: 1,
+    },
+    scrollContent: {
+      paddingHorizontal: spacing.xl,
+      paddingBottom: spacing.xxxl,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: spacing.lg,
+    },
+    backButton: {
+      padding: spacing.xs,
+    },
+    headerTitle: {
+      ...typography.h2,
+    },
+    headerSpacer: {
+      width: 32,
+    },
+    profileSection: {
+      alignItems: 'center',
+      paddingVertical: spacing.xl,
+    },
+    avatarContainer: {
+      marginBottom: spacing.lg,
+    },
+    avatar: {
+      width: 100,
+      height: 100,
+      borderRadius: 50,
+    },
+    avatarPlaceholder: {
+      width: 100,
+      height: 100,
+      borderRadius: 50,
+      backgroundColor: colors.inputBackground,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    profileName: {
+      ...typography.h2,
+      marginBottom: spacing.xs,
+    },
+    profileEmail: {
+      ...typography.bodySmall,
+      color: colors.textSecondary,
+      marginBottom: spacing.lg,
+    },
+    editProfileButton: {
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.xl,
+      borderRadius: borderRadius.full,
+      backgroundColor: colors.primary,
+    },
+    editProfileText: {
+      ...typography.body,
+      color: '#FFFFFF',
+      fontWeight: '600',
+    },
+    settingsCard: {
+      marginTop: spacing.lg,
+      marginBottom: spacing.xl,
+    },
+    sectionTitle: {
+      ...typography.h3,
+      marginBottom: spacing.md,
+    },
+    settingItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: spacing.md,
+    },
+    settingItemBorder: {
+      borderBottomWidth: 1,
+      borderBottomColor: colors.divider,
+    },
+    settingIcon: {
+      fontSize: 20,
+      marginRight: spacing.md,
+    },
+    settingLabel: {
+      flex: 1,
+      ...typography.body,
+    },
+    signOutButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: spacing.md,
+      marginBottom: spacing.xl,
+    },
+    signOutText: {
+      ...typography.body,
+      color: colors.danger,
+      fontWeight: '600',
+      marginLeft: spacing.sm,
+    },
+    versionText: {
+      ...typography.caption,
+      color: colors.textLight,
+      textAlign: 'center',
+    },
+  });
 
 export default ProfileScreen;
-

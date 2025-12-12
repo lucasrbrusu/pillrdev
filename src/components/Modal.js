@@ -25,6 +25,7 @@ const Modal = ({
   fullScreen = false,
 }) => {
   const { themeColors } = useApp();
+  const styles = React.useMemo(() => createStyles(), [themeColors]);
   const insets = useSafeAreaInsets();
   const bottomInset = insets.bottom > 0 ? insets.bottom : spacing.lg;
   const contentBottomPadding = bottomInset + spacing.xl;
@@ -66,17 +67,23 @@ const Modal = ({
                   </TouchableOpacity>
                 )}
               </View>
-              <ScrollView
-                style={styles.content}
-                contentContainerStyle={{
-                  paddingBottom: contentBottomPadding,
-                  paddingTop: contentTopPadding,
-                }}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                {children}
-              </ScrollView>
+              {fullScreen ? (
+                <View style={[styles.content, { flex: 1, paddingBottom: contentBottomPadding, paddingTop: contentTopPadding }]}>
+                  {children}
+                </View>
+              ) : (
+                <ScrollView
+                  style={styles.content}
+                  contentContainerStyle={{
+                    paddingBottom: contentBottomPadding,
+                    paddingTop: contentTopPadding,
+                  }}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {children}
+                </ScrollView>
+              )}
             </KeyboardAvoidingView>
           </TouchableWithoutFeedback>
         </View>
@@ -85,42 +92,43 @@ const Modal = ({
   );
 };
 
-const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    justifyContent: 'flex-end',
-  },
-  modalContainer: {
-    backgroundColor: colors.card,
-    borderTopLeftRadius: borderRadius.xl,
-    borderTopRightRadius: borderRadius.xl,
-    maxHeight: '90%',
-    ...shadows.large,
-  },
-  fullScreen: {
-    flex: 1,
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
-    maxHeight: '100%',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.md,
-  },
-  title: {
-    ...typography.h3,
-  },
-  closeButton: {
-    padding: spacing.xs,
-  },
-  content: {
-    paddingHorizontal: spacing.xl,
-  },
-});
+const createStyles = () =>
+  StyleSheet.create({
+    overlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.4)',
+      justifyContent: 'flex-end',
+    },
+    modalContainer: {
+      backgroundColor: colors.card,
+      borderTopLeftRadius: borderRadius.xl,
+      borderTopRightRadius: borderRadius.xl,
+      maxHeight: '90%',
+      ...shadows.large,
+    },
+    fullScreen: {
+      flex: 1,
+      borderTopLeftRadius: 0,
+      borderTopRightRadius: 0,
+      maxHeight: '100%',
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.xl,
+      paddingTop: spacing.xl,
+      paddingBottom: spacing.md,
+    },
+    title: {
+      ...typography.h3,
+    },
+    closeButton: {
+      padding: spacing.xs,
+    },
+    content: {
+      paddingHorizontal: spacing.xl,
+    },
+  });
 
 export default Modal;

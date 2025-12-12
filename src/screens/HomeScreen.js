@@ -13,12 +13,28 @@ import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
 import { Card } from '../components';
-import { colors, shadows, borderRadius, spacing, typography, moodEmojis } from '../utils/theme';
+import { colors, shadows, borderRadius, spacing, typography } from '../utils/theme';
+
+const MOOD_OPTIONS = [
+  { label: 'Depressed', emoji: '😞' },
+  { label: 'Extremely Sad', emoji: '😢' },
+  { label: 'Very Sad', emoji: '😔' },
+  { label: 'Quite Sad', emoji: '🙁' },
+  { label: 'Sad', emoji: '😟' },
+  { label: 'Little Sad', emoji: '😕' },
+  { label: 'Neutral', emoji: '😐' },
+  { label: 'A Bit Happy', emoji: '🙂' },
+  { label: 'Happy', emoji: '😊' },
+  { label: 'Very Happy', emoji: '😄' },
+  { label: 'Extremely Happy', emoji: '😁' },
+  { label: 'Overjoyed', emoji: '🤩' },
+];
 
 const HomeScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { themeColors } = useApp();
+  const styles = React.useMemo(() => createStyles(), [themeColors]);
   const {
     habits,
     tasks,
@@ -55,7 +71,7 @@ const HomeScreen = () => {
   const groceryPreview = groceries.filter((g) => !g.completed).slice(0, 3);
 
   const currentMood = todayHealth.mood
-    ? moodEmojis.find((m) => m.value === todayHealth.mood)
+    ? MOOD_OPTIONS[Math.max(0, Math.min(MOOD_OPTIONS.length - 1, todayHealth.mood - 1))]
     : null;
 
   const sectionButtons = [
@@ -247,6 +263,12 @@ const HomeScreen = () => {
           )}
         </Card>
 
+        {!currentMood && (
+          <Card style={styles.sectionCard}>
+            <Text style={styles.cardTitle}>Check in with your mood today!</Text>
+          </Card>
+        )}
+
         {/* Your Habits */}
         <Card
           style={styles.sectionCard}
@@ -309,125 +331,126 @@ const HomeScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: spacing.xl,
-    paddingBottom: 100,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing.lg,
-  },
-  logoContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  logoIcon: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    width: 28,
-    height: 28,
-    marginRight: spacing.sm,
-  },
-  logoDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 3,
-    margin: 1,
-  },
-  logoText: {
-    ...typography.h2,
-    color: colors.text,
-  },
-  profileButton: {
-    width: 40,
-    height: 40,
-    borderRadius: borderRadius.full,
-    backgroundColor: colors.inputBackground,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...shadows.small,
-  },
-  profileImage: {
-    width: 40,
-    height: 40,
-    borderRadius: borderRadius.full,
-  },
-  sectionButtonsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: spacing.xl,
-  },
-  sectionButton: {
-    alignItems: 'center',
-  },
-  sectionIconContainer: {
-    width: 52,
-    height: 52,
-    borderRadius: borderRadius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.xs,
-  },
-  sectionLabel: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    fontWeight: '500',
-  },
-  sectionCard: {
-    marginBottom: spacing.lg,
-  },
-  lastCard: {
-    marginBottom: spacing.xxxl,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  cardTitle: {
-    ...typography.h3,
-  },
-  dateText: {
-    ...typography.bodySmall,
-    marginBottom: spacing.md,
-  },
-  emptyText: {
-    ...typography.bodySmall,
-    color: colors.textLight,
-  },
-  tasksList: {
-    marginTop: spacing.sm,
-  },
-  taskItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  taskDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: spacing.sm,
-  },
-  taskText: {
-    flex: 1,
-    ...typography.body,
-  },
-  taskTime: {
-    ...typography.caption,
-    marginLeft: spacing.sm,
-  },
+const createStyles = () =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    scrollView: {
+      flex: 1,
+    },
+    scrollContent: {
+      paddingHorizontal: spacing.xl,
+      paddingBottom: 100,
+    },
+    header: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: spacing.lg,
+    },
+    logoContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    logoIcon: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      width: 28,
+      height: 28,
+      marginRight: spacing.sm,
+    },
+    logoDot: {
+      width: 12,
+      height: 12,
+      borderRadius: 3,
+      margin: 1,
+    },
+    logoText: {
+      ...typography.h2,
+      color: colors.text,
+    },
+    profileButton: {
+      width: 40,
+      height: 40,
+      borderRadius: borderRadius.full,
+      backgroundColor: colors.inputBackground,
+      alignItems: 'center',
+      justifyContent: 'center',
+      ...shadows.small,
+    },
+    profileImage: {
+      width: 40,
+      height: 40,
+      borderRadius: borderRadius.full,
+    },
+    sectionButtonsContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: spacing.xl,
+    },
+    sectionButton: {
+      alignItems: 'center',
+    },
+    sectionIconContainer: {
+      width: 52,
+      height: 52,
+      borderRadius: borderRadius.lg,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: spacing.xs,
+    },
+    sectionLabel: {
+      fontSize: 12,
+      color: colors.textSecondary,
+      fontWeight: '500',
+    },
+    sectionCard: {
+      marginBottom: spacing.lg,
+    },
+    lastCard: {
+      marginBottom: spacing.xxxl,
+    },
+    cardHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: spacing.sm,
+    },
+    cardTitle: {
+      ...typography.h3,
+    },
+    dateText: {
+      ...typography.bodySmall,
+      marginBottom: spacing.md,
+    },
+    emptyText: {
+      ...typography.bodySmall,
+      color: colors.textLight,
+    },
+    tasksList: {
+      marginTop: spacing.sm,
+    },
+    taskItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: spacing.sm,
+    },
+    taskDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      marginRight: spacing.sm,
+    },
+    taskText: {
+      flex: 1,
+      ...typography.body,
+    },
+    taskTime: {
+      ...typography.caption,
+      marginLeft: spacing.sm,
+    },
   healthContent: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -439,85 +462,98 @@ const styles = StyleSheet.create({
   moodLabel: {
     ...typography.body,
   },
-  healthPrompt: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  healthPromptText: {
-    ...typography.bodySmall,
-    color: colors.health,
-    marginLeft: spacing.sm,
-  },
-  habitsList: {
-    marginTop: spacing.xs,
-  },
-  habitItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  habitDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: spacing.sm,
-  },
-  habitText: {
-    ...typography.body,
-  },
-  choreItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  choreText: {
-    ...typography.body,
-    marginLeft: spacing.sm,
-    flex: 1,
-  },
-  reminderList: {
-    marginTop: spacing.xs,
-  },
-  reminderItem: {
+  moodSummaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
   },
-  reminderIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: borderRadius.full,
-    backgroundColor: `${colors.routine}15`,
-    alignItems: 'center',
-    justifyContent: 'center',
+  moodSummaryEmoji: {
+    fontSize: 32,
     marginRight: spacing.sm,
   },
-  reminderContent: {
-    flex: 1,
-  },
-  reminderTitle: {
+  moodSummaryText: {
     ...typography.body,
     fontWeight: '600',
   },
-  reminderMeta: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  groceryPreview: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: spacing.sm,
-    paddingTop: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.divider,
-  },
-  groceryText: {
-    ...typography.bodySmall,
-    marginLeft: spacing.sm,
-  },
-});
+    healthPrompt: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    healthPromptText: {
+      ...typography.bodySmall,
+      color: colors.health,
+      marginLeft: spacing.sm,
+    },
+    habitsList: {
+      marginTop: spacing.xs,
+    },
+    habitItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: spacing.sm,
+    },
+    habitDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      marginRight: spacing.sm,
+    },
+    habitText: {
+      ...typography.body,
+    },
+    choreItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: spacing.sm,
+    },
+    choreText: {
+      ...typography.body,
+      marginLeft: spacing.sm,
+      flex: 1,
+    },
+    reminderList: {
+      marginTop: spacing.xs,
+    },
+    reminderItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.divider,
+    },
+    reminderIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: borderRadius.full,
+      backgroundColor: `${colors.routine}15`,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.sm,
+    },
+    reminderContent: {
+      flex: 1,
+    },
+    reminderTitle: {
+      ...typography.body,
+      fontWeight: '600',
+    },
+    reminderMeta: {
+      ...typography.caption,
+      color: colors.textSecondary,
+      marginTop: 2,
+    },
+    groceryPreview: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: spacing.sm,
+      paddingTop: spacing.sm,
+      borderTopWidth: 1,
+      borderTopColor: colors.divider,
+    },
+    groceryText: {
+      ...typography.bodySmall,
+      marginLeft: spacing.sm,
+    },
+  });
 
 export default HomeScreen;

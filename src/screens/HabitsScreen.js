@@ -34,7 +34,9 @@ const HabitsScreen = () => {
     isHabitCompletedToday,
     getBestStreak,
     getTodayHabitsCount,
+    themeColors,
   } = useApp();
+  const styles = useMemo(() => createStyles(), [themeColors]);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -474,7 +476,7 @@ const HabitsScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,

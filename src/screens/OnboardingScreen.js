@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Button from '../components/Button';
+import { useApp } from '../context/AppContext';
 import { colors, borderRadius, spacing, typography, shadows } from '../utils/theme';
 import { supabase } from '../utils/supabaseClient';
 
@@ -39,6 +40,8 @@ const pillars = [
 
 const OnboardingScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
+  const { themeColors } = useApp();
+  const styles = React.useMemo(() => createStyles(), [themeColors]);
 
   const handleGetStarted = () => {
     navigation.navigate('Auth');
@@ -98,7 +101,7 @@ const OnboardingScreen = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,

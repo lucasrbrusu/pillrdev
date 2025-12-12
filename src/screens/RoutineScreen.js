@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,14 @@ import {
   typography,
 } from '../utils/theme';
 
+const REMINDER_TIME_OPTIONS = Array.from({ length: 48 }).map((_, idx) => {
+  const h = Math.floor(idx / 2);
+  const m = idx % 2 === 0 ? '00' : '30';
+  const hour12 = ((h + 11) % 12) + 1;
+  const suffix = h < 12 ? 'AM' : 'PM';
+  return `${hour12}:${m} ${suffix}`;
+});
+
 const RoutineScreen = () => {
   const insets = useSafeAreaInsets();
   const {
@@ -40,7 +48,9 @@ const RoutineScreen = () => {
     toggleGroceryItem,
     deleteGroceryItem,
     clearCompletedGroceries,
+    themeColors,
   } = useApp();
+  const styles = useMemo(() => createStyles(), [themeColors]);
 
   const [showRoutineModal, setShowRoutineModal] = useState(false);
   const [showChoreModal, setShowChoreModal] = useState(false);
@@ -55,6 +65,9 @@ const RoutineScreen = () => {
   const [reminderDescription, setReminderDescription] = useState('');
   const [reminderDate, setReminderDate] = useState(new Date().toISOString().split('T')[0]);
   const [reminderTime, setReminderTime] = useState('');
+  const [showReminderDatePicker, setShowReminderDatePicker] = useState(false);
+  const [showReminderTimePicker, setShowReminderTimePicker] = useState(false);
+  const [reminderDatePickerMonth, setReminderDatePickerMonth] = useState(new Date());
   const [taskName, setTaskName] = useState('');
   const [groceryInput, setGroceryInput] = useState('');
 
@@ -88,6 +101,9 @@ const RoutineScreen = () => {
     setReminderDescription('');
     setReminderDate(new Date().toISOString().split('T')[0]);
     setReminderTime('');
+    setReminderDatePickerMonth(new Date());
+    setShowReminderDatePicker(false);
+    setShowReminderTimePicker(false);
     setShowReminderModal(false);
   };
 
@@ -116,6 +132,56 @@ const RoutineScreen = () => {
       month: 'short',
       day: 'numeric',
     });
+  };
+
+  const formatISODate = (date) => date.toISOString().split('T')[0];
+
+  const getMonthMatrix = (monthDate) => {
+    const start = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+    const end = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
+    const startDay = start.getDay();
+    const daysInMonth = end.getDate();
+    const days = [];
+
+    for (let i = 0; i < startDay; i++) days.push(null);
+    for (let d = 1; d <= daysInMonth; d++) {
+      days.push(new Date(monthDate.getFullYear(), monthDate.getMonth(), d));
+    }
+    while (days.length % 7 !== 0) days.push(null);
+
+    const weeks = [];
+    for (let i = 0; i < days.length; i += 7) {
+      weeks.push(days.slice(i, i + 7));
+    }
+    return weeks;
+  };
+
+  const reminderMonthMatrix = useMemo(
+    () => getMonthMatrix(reminderDatePickerMonth),
+    [reminderDatePickerMonth]
+  );
+  const reminderTimeOptions = REMINDER_TIME_OPTIONS;
+
+  const openReminderDatePicker = () => {
+    setShowReminderTimePicker(false);
+    const base = reminderDate ? new Date(reminderDate) : new Date();
+    setReminderDatePickerMonth(base);
+    setShowReminderDatePicker(true);
+  };
+
+  const handleSelectReminderDate = (date) => {
+    setReminderDate(formatISODate(date));
+    setShowReminderDatePicker(false);
+  };
+
+  const openReminderTimePicker = () => {
+    setShowReminderDatePicker(false);
+    setShowReminderTimePicker(true);
+  };
+
+  const handleSelectReminderTime = (value) => {
+    setReminderTime(value);
+    setShowReminderTimePicker(false);
   };
 
   const completedGroceries = groceries.filter((g) => g.completed);
@@ -450,6 +516,8 @@ const RoutineScreen = () => {
           setShowReminderModal(false);
           setReminderName('');
           setReminderDescription('');
+          setShowReminderDatePicker(false);
+          setShowReminderTimePicker(false);
         }}
         title="Add Reminder"
         fullScreen
@@ -468,43 +536,169 @@ const RoutineScreen = () => {
           multiline
           numberOfLines={2}
         />
-        <View style={styles.dateTimeRow}>
-          <View style={styles.dateInput}>
-            <Text style={styles.inputLabel}>Date</Text>
-            <TouchableOpacity style={styles.dateButton}>
-              <Text style={styles.dateButtonText}>{formatDate(reminderDate)}</Text>
-              <Ionicons name="calendar-outline" size={18} color={colors.textLight} />
-            </TouchableOpacity>
+          <View style={styles.dateTimeRow}>
+            <View style={styles.dateInput}>
+              <Text style={styles.inputLabel}>Date</Text>
+              <TouchableOpacity style={styles.dateButton} onPress={openReminderDatePicker}>
+                <Text style={styles.dateButtonText}>{formatDate(reminderDate)}</Text>
+                <Ionicons name="calendar-outline" size={18} color={colors.textLight} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.timeInput}>
+              <Text style={styles.inputLabel}>Time</Text>
+              <TouchableOpacity style={styles.dateButton} onPress={openReminderTimePicker}>
+                <Text style={[styles.dateButtonText, !reminderTime && styles.placeholderText]}>
+                  {reminderTime || '--:--'}
+                </Text>
+                <Ionicons name="time-outline" size={18} color={colors.textLight} />
+              </TouchableOpacity>
+            </View>
           </View>
-          <View style={styles.timeInput}>
-            <Text style={styles.inputLabel}>Time</Text>
-            <TouchableOpacity style={styles.dateButton}>
-              <Text style={[styles.dateButtonText, !reminderTime && styles.placeholderText]}>
-                {reminderTime || '--:--'}
-              </Text>
-              <Ionicons name="time-outline" size={18} color={colors.textLight} />
-            </TouchableOpacity>
-          </View>
-        </View>
-        <View style={styles.modalButtons}>
-          <Button
-            title="Cancel"
-            variant="secondary"
-            onPress={() => {
-              setShowReminderModal(false);
-              setReminderName('');
-              setReminderDescription('');
-            }}
-            style={styles.modalButton}
-          />
+          <View style={styles.modalButtons}>
+            <Button
+              title="Cancel"
+              variant="secondary"
+              onPress={() => {
+                setShowReminderModal(false);
+                setReminderName('');
+                setReminderDescription('');
+                setShowReminderDatePicker(false);
+                setShowReminderTimePicker(false);
+              }}
+              style={styles.modalButton}
+            />
           <Button
             title="Add"
             onPress={handleCreateReminder}
-            disabled={!reminderName.trim()}
-            style={styles.modalButton}
-          />
-        </View>
-      </Modal>
+              disabled={!reminderName.trim()}
+              style={styles.modalButton}
+            />
+          </View>
+
+          {showReminderDatePicker && (
+            <View style={styles.inlinePicker}>
+              <View style={styles.calendarHeader}>
+                <TouchableOpacity
+                  style={styles.calendarNav}
+                  onPress={() =>
+                    setReminderDatePickerMonth((prev) => {
+                      const next = new Date(prev);
+                      next.setMonth(prev.getMonth() - 1);
+                      return next;
+                    })
+                  }
+                >
+                  <Ionicons name="chevron-back" size={20} color={colors.text} />
+                </TouchableOpacity>
+                <Text style={styles.calendarTitle}>
+                  {reminderDatePickerMonth.toLocaleDateString('en-US', {
+                    month: 'long',
+                    year: 'numeric',
+                  })}
+                </Text>
+                <TouchableOpacity
+                  style={styles.calendarNav}
+                  onPress={() =>
+                    setReminderDatePickerMonth((prev) => {
+                      const next = new Date(prev);
+                      next.setMonth(prev.getMonth() + 1);
+                      return next;
+                    })
+                  }
+                >
+                  <Ionicons name="chevron-forward" size={20} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.weekDays}>
+                {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, idx) => (
+                  <Text key={`${day}-${idx}`} style={styles.weekDayLabel}>
+                    {day}
+                  </Text>
+                ))}
+              </View>
+
+              {reminderMonthMatrix.map((week, weekIdx) => (
+                <View key={`week-${weekIdx}`} style={styles.weekRow}>
+                  {week.map((day, dayIdx) => {
+                    if (!day) {
+                      return <View key={`empty-${dayIdx}`} style={styles.dayCell} />;
+                    }
+                    const iso = formatISODate(day);
+                    const selected = iso === reminderDate;
+                    return (
+                      <TouchableOpacity
+                        key={iso}
+                        style={[
+                          styles.dayCell,
+                          selected && styles.dayCellSelected,
+                        ]}
+                        onPress={() => handleSelectReminderDate(day)}
+                        activeOpacity={0.8}
+                      >
+                        <Text
+                          style={[
+                            styles.dayLabel,
+                            selected && styles.dayLabelSelected,
+                          ]}
+                        >
+                          {day.getDate()}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ))}
+
+              <Button
+                title="Close"
+                variant="secondary"
+                onPress={() => setShowReminderDatePicker(false)}
+                style={styles.pickerCloseButton}
+              />
+            </View>
+          )}
+
+          {showReminderTimePicker && (
+            <View style={styles.inlinePicker}>
+              <Text style={styles.pickerTitle}>Select Time</Text>
+              <ScrollView contentContainerStyle={styles.timeList} style={{ maxHeight: 260 }}>
+                {reminderTimeOptions.map((time) => (
+                  <TouchableOpacity
+                    key={time}
+                    style={[
+                      styles.timeOption,
+                      reminderTime === time && styles.timeOptionSelected,
+                    ]}
+                    onPress={() => handleSelectReminderTime(time)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name="time-outline"
+                      size={18}
+                      color={reminderTime === time ? '#FFFFFF' : colors.text}
+                      style={{ marginRight: spacing.sm }}
+                    />
+                    <Text
+                      style={[
+                        styles.timeOptionText,
+                        reminderTime === time && { color: '#FFFFFF' },
+                      ]}
+                    >
+                      {time}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <Button
+                title="Close"
+                variant="secondary"
+                onPress={() => setShowReminderTimePicker(false)}
+                style={styles.pickerCloseButton}
+              />
+            </View>
+          )}
+        </Modal>
 
       {/* Add Task to Routine Modal */}
       <Modal
@@ -545,7 +739,7 @@ const RoutineScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -810,6 +1004,91 @@ const styles = StyleSheet.create({
   },
   timeInput: {
     flex: 1,
+  },
+  inlinePicker: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    marginTop: spacing.md,
+    marginBottom: spacing.xxl,
+    ...shadows.small,
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  calendarTitle: {
+    ...typography.h3,
+  },
+  calendarNav: {
+    padding: spacing.sm,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.inputBackground,
+  },
+  weekDays: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  weekDayLabel: {
+    ...typography.caption,
+    width: `${100 / 7}%`,
+    textAlign: 'center',
+    color: colors.textSecondary,
+  },
+  weekRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  dayCell: {
+    width: `${100 / 7 - 2}%`,
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.inputBackground,
+  },
+  dayCellSelected: {
+    backgroundColor: colors.primaryLight,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  dayLabel: {
+    ...typography.body,
+    color: colors.text,
+  },
+  dayLabelSelected: {
+    color: colors.primary,
+    fontWeight: '700',
+  },
+  timeList: {
+    paddingBottom: spacing.xxxl,
+  },
+  timeOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  timeOptionSelected: {
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.sm,
+  },
+  timeOptionText: {
+    ...typography.body,
+    marginLeft: spacing.sm,
+  },
+  pickerTitle: {
+    ...typography.h3,
+    marginBottom: spacing.md,
+  },
+  pickerCloseButton: {
+    marginTop: spacing.md,
   },
 });
 

@@ -19,6 +19,7 @@ const STORAGE_KEYS = {
   TASKS: '@pillr_tasks',
   NOTES: '@pillr_notes',
   HEALTH: '@pillr_health',
+  HEALTH_FOOD_LOGS: '@pillr_health_food_logs',
   ROUTINES: '@pillr_routines',
   CHORES: '@pillr_chores',
   REMINDERS: '@pillr_reminders',
@@ -62,6 +63,7 @@ export const AppProvider = ({ children }) => {
     calories: 0,
     foods: [],
   });
+  const [foodLogs, setFoodLogs] = useState({});
 
   // Routine State
   const [routines, setRoutines] = useState([]);
@@ -124,11 +126,12 @@ export const AppProvider = ({ children }) => {
   const loadAllData = async () => {
   try {
     // Only load things we still keep in AsyncStorage:
-    // profile, onboarding flag, theme
-    const [storedProfile, storedOnboarding, storedTheme] = await Promise.all([
+    // profile, onboarding flag, theme, local food logs
+    const [storedProfile, storedOnboarding, storedTheme, storedFoodLogs] = await Promise.all([
       AsyncStorage.getItem(STORAGE_KEYS.PROFILE),
       AsyncStorage.getItem(STORAGE_KEYS.ONBOARDING),
       AsyncStorage.getItem(STORAGE_KEYS.THEME),
+      AsyncStorage.getItem(STORAGE_KEYS.HEALTH_FOOD_LOGS),
     ]);
 
     if (storedProfile) {
@@ -142,6 +145,14 @@ export const AppProvider = ({ children }) => {
     const chosenTheme = storedTheme ? storedTheme : 'default';
     setThemeName(chosenTheme);
     applyTheme(chosenTheme);
+
+    if (storedFoodLogs) {
+      try {
+        setFoodLogs(JSON.parse(storedFoodLogs));
+      } catch (err) {
+        console.log('Error parsing stored food logs', err);
+      }
+    }
 
     // 🔐 Restore Supabase session (if user was logged in before)
     const {
@@ -739,9 +750,27 @@ const setNotePassword = async (noteId, newPassword, currentPassword) => {
 
 
 
+const defaultHealthDay = () => ({
+  mood: null,
+  energy: 3,
+  waterIntake: 0,
+  sleepTime: null,
+  wakeTime: null,
+  sleepQuality: null,
+  calories: 0,
+  foods: [],
+  healthDayId: null,
+});
+
 const fetchHealthFromSupabase = async (userId) => {
   const { data, error } = await supabase
     .from('health_daily')
+    .select('*')
+    .eq('user_id', userId)
+    .order('date', { ascending: true });
+
+  const { data: foodEntries, error: foodError } = await supabase
+    .from('health_food_entries')
     .select('*')
     .eq('user_id', userId)
     .order('date', { ascending: true });
@@ -751,9 +780,13 @@ const fetchHealthFromSupabase = async (userId) => {
     return;
   }
 
+  if (foodError) {
+    console.log('Error fetching food entries:', foodError);
+  }
+
   const healthMap = {};
   (data || []).forEach((row) => {
-    const key = new Date(row.date).toDateString();
+    const key = row.date;
     healthMap[key] = {
       mood: row.mood,
       energy: row.energy ?? 3,
@@ -763,14 +796,68 @@ const fetchHealthFromSupabase = async (userId) => {
       sleepQuality: row.sleep_quality,
       calories: row.calories ?? 0,
       foods: row.foods || [],
+      healthDayId: row.id,
+    };
+  });
+
+  const foodMap = {};
+  (foodEntries || []).forEach((row) => {
+    const key = row.date;
+    if (!foodMap[key]) foodMap[key] = [];
+    foodMap[key].push({
+      id: row.id,
+      name: row.name,
+      calories: row.calories,
+      timestamp: row.created_at,
+      healthDayId: row.health_day_id,
+      date: row.date,
+    });
+  });
+
+  Object.entries(foodMap).forEach(([dateKey, foods]) => {
+    const deduped = [];
+    const seen = new Set();
+    (foods || []).forEach((f) => {
+      const key = f.id || f.timestamp || `${f.name}-${f.calories}-${f.date}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      deduped.push(f);
+    });
+    const totalCalories = deduped.reduce((sum, f) => sum + (f.calories || 0), 0);
+    const base = healthMap[dateKey] || defaultHealthDay();
+    healthMap[dateKey] = {
+      ...base,
+      foods: deduped,
+      calories: totalCalories || base.calories || 0,
+      healthDayId: base.healthDayId || deduped[0]?.healthDayId || null,
+    };
+  });
+
+  // Merge locally cached food logs to retain entries across sessions/logouts
+  Object.entries(foodLogs || {}).forEach(([dateKey, foods]) => {
+    const combined = [...(healthMap[dateKey]?.foods || []), ...(foods || [])];
+    const seen = new Set();
+    const deduped = [];
+    combined.forEach((f) => {
+      const key = f.id || f.timestamp || `${f.name}-${f.calories}-${f.date}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      deduped.push(f);
+    });
+    const totalCalories = deduped.reduce((sum, f) => sum + (f.calories || 0), 0);
+    const base = healthMap[dateKey] || defaultHealthDay();
+    healthMap[dateKey] = {
+      ...base,
+      foods: deduped,
+      calories: totalCalories || base.calories || 0,
     };
   });
 
   setHealthData(healthMap);
 
-  const todayKey = new Date().toDateString();
-  if (healthMap[todayKey]) {
-    setTodayHealth(healthMap[todayKey]);
+  const todayISO = new Date().toISOString().slice(0, 10);
+  if (healthMap[todayISO]) {
+    setTodayHealth(healthMap[todayISO]);
   } else {
     setTodayHealth({
       mood: null,
@@ -789,61 +876,151 @@ const fetchHealthFromSupabase = async (userId) => {
 
   // HEALTH FUNCTIONS
   // HEALTH FUNCTIONS
-const updateTodayHealth = async (updates) => {
-  if (!authUser?.id) {
-    throw new Error('You must be logged in to update health data.');
-  }
-
-  const today = new Date();
-  const todayKey = today.toDateString();
-  const todayISO = today.toISOString().slice(0, 10);
-
-  const newTodayHealth = { ...todayHealth, ...updates };
-  setTodayHealth(newTodayHealth);
-
-  const updatedHealthData = {
-    ...healthData,
-    [todayKey]: newTodayHealth,
-  };
-  setHealthData(updatedHealthData);
-
+const upsertHealthDayRecord = async (dateISO, healthDay) => {
   const payload = {
+    id: healthDay?.healthDayId,
     user_id: authUser.id,
-    date: todayISO,
-    mood: newTodayHealth.mood,
-    energy: newTodayHealth.energy,
-    water_intake: newTodayHealth.waterIntake,
-    sleep_time: newTodayHealth.sleepTime,
-    wake_time: newTodayHealth.wakeTime,
-    sleep_quality: newTodayHealth.sleepQuality,
-    calories: newTodayHealth.calories,
-    foods: newTodayHealth.foods,
+    date: dateISO,
+    mood: healthDay?.mood,
+    energy: healthDay?.energy,
+    water_intake: healthDay?.waterIntake,
+    sleep_time: healthDay?.sleepTime,
+    wake_time: healthDay?.wakeTime,
+    sleep_quality: healthDay?.sleepQuality,
+    calories: healthDay?.calories,
+    foods: healthDay?.foods,
   };
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('health_daily')
-    .upsert(payload, { onConflict: 'user_id,date' });
+    .upsert(payload, { onConflict: 'user_id,date' })
+    .select()
+    .single();
 
   if (error) {
     console.log('Error saving health data:', error);
   }
+
+  return data?.id || healthDay?.healthDayId || null;
 };
 
-const addFoodEntry = async (food) => {
+const updateHealthForDate = async (dateISO, updates) => {
+  if (!authUser?.id) {
+    throw new Error('You must be logged in to update health data.');
+  }
+
+  const base = healthData[dateISO] || defaultHealthDay();
+  const newHealth = { ...base, ...updates };
+  const newHealthData = { ...healthData, [dateISO]: newHealth };
+  setHealthData(newHealthData);
+
+  // Update todayHealth if this is the current day
+  const todayISO = new Date().toISOString().slice(0, 10);
+  if (dateISO === todayISO) {
+    setTodayHealth(newHealth);
+  }
+
+  // Persist food logs locally so they survive logout/app close
+  if (updates.foods !== undefined) {
+    const updatedFoodLogs = { ...(foodLogs || {}) };
+    updatedFoodLogs[dateISO] = updates.foods;
+    setFoodLogs(updatedFoodLogs);
+    await saveToStorage(STORAGE_KEYS.HEALTH_FOOD_LOGS, updatedFoodLogs);
+  }
+
+  const healthDayId = await upsertHealthDayRecord(dateISO, newHealth);
+  if (healthDayId) {
+    setHealthData((prev) => ({
+      ...prev,
+      [dateISO]: { ...newHealth, healthDayId },
+    }));
+    if (dateISO === todayISO) {
+      setTodayHealth((prev) => ({ ...prev, healthDayId }));
+    }
+  }
+};
+
+const updateTodayHealth = async (updates) => {
+  const todayISO = new Date().toISOString().slice(0, 10);
+  await updateHealthForDate(todayISO, updates);
+};
+
+const addFoodEntryForDate = async (dateISO, food) => {
+  if (!authUser?.id) {
+    throw new Error('You must be logged in to log food.');
+  }
+  const baseDay = healthData[dateISO] || defaultHealthDay();
+
+  const healthDayId = await upsertHealthDayRecord(dateISO, baseDay);
+
   const newFood = {
     ...food,
     id: Date.now().toString(),
     timestamp: new Date().toISOString(),
   };
-  const updatedFoods = [...(todayHealth.foods || []), newFood];
+
+  const insertPayload = {
+    user_id: authUser?.id,
+    health_day_id: healthDayId,
+    date: dateISO,
+    name: newFood.name,
+    calories: newFood.calories,
+    created_at: new Date().toISOString(),
+  };
+
+  const { data: foodRow, error } = await supabase
+    .from('health_food_entries')
+    .insert(insertPayload)
+    .select()
+    .single();
+
+  if (error) {
+    console.log('Error saving food entry:', error);
+  }
+
+  const savedFood = {
+    ...newFood,
+    id: foodRow?.id || newFood.id,
+  };
+
+  const updatedFoods = [...(baseDay.foods || []), savedFood];
   const totalCalories = updatedFoods.reduce(
     (sum, f) => sum + (f.calories || 0),
     0
   );
-  await updateTodayHealth({
+
+  await updateHealthForDate(dateISO, {
+    healthDayId,
     foods: updatedFoods,
     calories: totalCalories,
   });
+};
+
+const deleteFoodEntryForDate = async (dateISO, foodId) => {
+  if (!authUser?.id) return;
+  const baseDay = healthData[dateISO] || defaultHealthDay();
+  const updatedFoods = (baseDay.foods || []).filter((f) => f.id !== foodId);
+  const totalCalories = updatedFoods.reduce((sum, f) => sum + (f.calories || 0), 0);
+
+  if (foodId) {
+    const { error } = await supabase
+      .from('health_food_entries')
+      .delete()
+      .eq('id', foodId);
+    if (error) {
+      console.log('Error deleting food entry:', error);
+    }
+  }
+
+  await updateHealthForDate(dateISO, {
+    foods: updatedFoods,
+    calories: totalCalories,
+  });
+};
+
+const addFoodEntry = async (food) => {
+  const targetDate = new Date().toISOString().slice(0, 10);
+  await addFoodEntryForDate(targetDate, food);
 };
 
   const getAverageWater = () => {
@@ -1571,7 +1748,10 @@ const signOut = async () => {
     healthData,
     todayHealth,
     updateTodayHealth,
+    updateHealthForDate,
     addFoodEntry,
+    addFoodEntryForDate,
+    deleteFoodEntryForDate,
     getAverageWater,
     getAverageSleep,
 

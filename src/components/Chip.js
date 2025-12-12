@@ -2,6 +2,7 @@ import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, View } from 'react-native';
 import { colors, borderRadius, spacing } from '../utils/theme';
 import { supabase } from '../utils/supabaseClient';
+import { useApp } from '../context/AppContext';
 
 const Chip = ({
   label,
@@ -12,6 +13,8 @@ const Chip = ({
   size = 'medium',
   style,
 }) => {
+  const { themeColors } = useApp();
+  const styles = React.useMemo(() => createStyles(), [themeColors]);
   const getSizeStyles = () => {
     switch (size) {
       case 'small':
@@ -77,6 +80,8 @@ const ChipGroup = ({
   size = 'medium',
   style,
 }) => {
+  const { themeColors } = useApp();
+  const styles = React.useMemo(() => createStyles(), [themeColors]);
   const handleSelect = (value) => {
     if (multiSelect) {
       const isSelected = selectedValues.includes(value);
@@ -115,63 +120,64 @@ const ChipGroup = ({
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    borderRadius: borderRadius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  unselected: {
-    backgroundColor: colors.inputBackground,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-  text: {
-    fontWeight: '500',
-  },
-  selectedText: {
-    color: '#FFFFFF',
-  },
-  unselectedText: {
-    color: colors.text,
-  },
+const createStyles = () =>
+  StyleSheet.create({
+    container: {
+      borderRadius: borderRadius.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    unselected: {
+      backgroundColor: colors.inputBackground,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    disabled: {
+      opacity: 0.5,
+    },
+    text: {
+      fontWeight: '500',
+    },
+    selectedText: {
+      color: '#FFFFFF',
+    },
+    unselectedText: {
+      color: colors.text,
+    },
 
-  // Sizes
-  smallContainer: {
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.md,
-  },
-  smallText: {
-    fontSize: 12,
-  },
-  mediumContainer: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-  },
-  mediumText: {
-    fontSize: 14,
-  },
-  largeContainer: {
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.xl,
-  },
-  largeText: {
-    fontSize: 16,
-  },
+    // Sizes
+    smallContainer: {
+      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.md,
+    },
+    smallText: {
+      fontSize: 12,
+    },
+    mediumContainer: {
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.lg,
+    },
+    mediumText: {
+      fontSize: 14,
+    },
+    largeContainer: {
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+    },
+    largeText: {
+      fontSize: 16,
+    },
 
-  // Group
-  groupContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  chipInGroup: {
-    marginRight: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-});
+    // Group
+    groupContainer: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+    },
+    chipInGroup: {
+      marginRight: spacing.sm,
+      marginBottom: spacing.sm,
+    },
+  });
 
 export { Chip, ChipGroup };
 export default Chip;

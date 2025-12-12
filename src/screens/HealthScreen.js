@@ -17,7 +17,6 @@ import {
   borderRadius,
   spacing,
   typography,
-  moodEmojis,
 } from '../utils/theme';
 
 const TIME_OPTIONS = Array.from({ length: 48 }).map((_, idx) => {
@@ -28,27 +27,48 @@ const TIME_OPTIONS = Array.from({ length: 48 }).map((_, idx) => {
   return `${hour12}:${m} ${suffix}`;
 });
 
+const MOOD_OPTIONS = [
+  { label: 'Depressed', emoji: '😞' },
+  { label: 'Extremely Sad', emoji: '😢' },
+  { label: 'Very Sad', emoji: '😔' },
+  { label: 'Quite Sad', emoji: '🙁' },
+  { label: 'Sad', emoji: '😟' },
+  { label: 'Little Sad', emoji: '😕' },
+  { label: 'Neutral', emoji: '😐' },
+  { label: 'A Bit Happy', emoji: '🙂' },
+  { label: 'Happy', emoji: '😊' },
+  { label: 'Very Happy', emoji: '😄' },
+  { label: 'Extremely Happy', emoji: '😁' },
+  { label: 'Overjoyed', emoji: '🤩' },
+];
+
 const HealthScreen = () => {
   const insets = useSafeAreaInsets();
   const {
+    healthData,
     todayHealth,
     updateTodayHealth,
     addFoodEntry,
+    addFoodEntryForDate,
+    deleteFoodEntryForDate,
+    updateHealthForDate,
     profile,
     getAverageWater,
     getAverageSleep,
+    themeColors,
   } = useApp();
+  const styles = useMemo(() => createStyles(), [themeColors]);
 
   const [showFoodModal, setShowFoodModal] = useState(false);
   const [foodName, setFoodName] = useState('');
   const [foodCalories, setFoodCalories] = useState('');
+  const [showMoodModal, setShowMoodModal] = useState(false);
+  const [moodSliderIndex, setMoodSliderIndex] = useState(6);
+  const [moodSliderWidth, setMoodSliderWidth] = useState(0);
+  const [selectedDate, setSelectedDate] = useState(new Date());
 
   const sleepQualities = ['Excellent', 'Good', 'Fair', 'Poor'];
   const energyLevels = [1, 2, 3, 4, 5];
-
-  const handleMoodSelect = (value) => {
-    updateTodayHealth({ mood: value });
-  };
 
   const handleEnergySelect = (value) => {
     updateTodayHealth({ energy: value });
@@ -63,6 +83,7 @@ const HealthScreen = () => {
   };
 
   const timeOptions = TIME_OPTIONS;
+  const moodOptions = MOOD_OPTIONS;
 
   const [showSleepTimePicker, setShowSleepTimePicker] = useState(false);
   const [sleepTimeTarget, setSleepTimeTarget] = useState(null);
@@ -86,7 +107,7 @@ const HealthScreen = () => {
   const handleLogFood = async () => {
     if (!foodName.trim()) return;
 
-    await addFoodEntry({
+    await addFoodEntryForDate(selectedDateISO, {
       name: foodName.trim(),
       calories: parseInt(foodCalories) || 0,
     });
@@ -96,9 +117,68 @@ const HealthScreen = () => {
     setShowFoodModal(false);
   };
 
+  const selectedDateISO = selectedDate.toISOString().slice(0, 10);
+  const selectedDateKey = selectedDateISO;
+  const emptyDay = {
+    mood: null,
+    energy: 3,
+    waterIntake: 0,
+    sleepTime: null,
+    wakeTime: null,
+    sleepQuality: null,
+    calories: 0,
+    foods: [],
+  };
+  const selectedHealthRaw = healthData[selectedDateKey] || {};
+  const selectedHealth = {
+    ...emptyDay,
+    ...selectedHealthRaw,
+    foods: Array.isArray(selectedHealthRaw.foods) ? selectedHealthRaw.foods : [],
+  };
+
   const waterProgress = (todayHealth.waterIntake || 0) / profile.dailyWaterGoal;
-  const caloriesRemaining =
-    profile.dailyCalorieGoal - (todayHealth.calories || 0);
+  const caloriesConsumed = selectedHealth.calories || 0;
+  const caloriesRemaining = profile.dailyCalorieGoal - caloriesConsumed;
+  const remainingRatio = profile.dailyCalorieGoal
+    ? Math.max(0, caloriesRemaining) / profile.dailyCalorieGoal
+    : 1;
+  const calorieCircleSize = 120;
+  const getRemainingColor = () => {
+    if (remainingRatio > 0.6) return colors.success;
+    if (remainingRatio > 0.3) return colors.warning;
+    return colors.danger;
+  };
+
+  const currentMoodIndex = () => {
+    if (typeof selectedHealth.mood === 'number') {
+      return Math.min(moodOptions.length - 1, Math.max(0, selectedHealth.mood - 1));
+    }
+    return 6;
+  };
+
+  const openMoodPicker = () => {
+    setMoodSliderIndex(currentMoodIndex());
+    setShowMoodModal(true);
+  };
+
+  const handleMoodSave = async () => {
+    await updateHealthForDate(selectedDateISO, { mood: moodSliderIndex + 1 });
+    setShowMoodModal(false);
+  };
+
+  const handleMoodSlide = (locationX) => {
+    if (!moodSliderWidth || moodSliderWidth <= 0) return;
+    const boundedX = Math.max(0, Math.min(locationX, moodSliderWidth));
+    const ratio = boundedX / moodSliderWidth;
+    const idx = Math.round(ratio * (moodOptions.length - 1));
+    setMoodSliderIndex(idx);
+  };
+
+  const thumbLeft = () => {
+    const thumbWidth = 24;
+    const usableWidth = Math.max(1, moodSliderWidth - thumbWidth);
+    return (moodSliderIndex / Math.max(1, moodOptions.length - 1)) * usableWidth;
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -127,31 +207,143 @@ const HealthScreen = () => {
           </Card>
         </View>
 
-        {/* Mood Section */}
-        <Card style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>How are you feeling?</Text>
-          <View style={styles.moodRow}>
-            {moodEmojis.map((mood) => (
-              <TouchableOpacity
-                key={mood.value}
+        {/* Calorie Tracker Section */}
+        <Card style={[styles.sectionCard, styles.calorieCard]}>
+          <Text style={styles.sectionTitle}>Calorie Tracker</Text>
+          <View style={styles.dateSwitcher}>
+            <TouchableOpacity
+              style={styles.dateSwitchButton}
+              onPress={() => setSelectedDate((prev) => {
+                const d = new Date(prev);
+                d.setDate(prev.getDate() - 1);
+                return d;
+              })}
+            >
+              <Ionicons name="chevron-back" size={18} color={colors.text} />
+            </TouchableOpacity>
+            <Text style={styles.dateLabel}>
+              {selectedDate.toDateString() === new Date().toDateString()
+                ? 'Today'
+                : selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+            </Text>
+            <TouchableOpacity
+              style={styles.dateSwitchButton}
+              onPress={() => setSelectedDate((prev) => {
+                const d = new Date(prev);
+                d.setDate(prev.getDate() + 1);
+                return d;
+              })}
+            >
+              <Ionicons name="chevron-forward" size={18} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.calorieRow}>
+            <View style={styles.calorieLeft}>
+              <View style={styles.calorieStat}>
+                <Text style={styles.calorieLabel}>Daily Goal</Text>
+                <Text style={styles.calorieValue}>{profile.dailyCalorieGoal} cal</Text>
+              </View>
+              <View style={styles.calorieStat}>
+                <Text style={styles.calorieLabel}>Consumed</Text>
+                <Text style={styles.calorieValue}>{caloriesConsumed} cal</Text>
+              </View>
+            </View>
+            <View style={styles.calorieRight}>
+              <View
                 style={[
-                  styles.moodOption,
-                  todayHealth.mood === mood.value && styles.moodOptionActive,
+                  styles.remainingCircle,
+                  {
+                    width: calorieCircleSize,
+                    height: calorieCircleSize,
+                    borderColor: getRemainingColor(),
+                  },
                 ]}
-                onPress={() => handleMoodSelect(mood.value)}
               >
-                <Text style={styles.moodEmoji}>{mood.emoji}</Text>
                 <Text
                   style={[
-                    styles.moodLabel,
-                    todayHealth.mood === mood.value && styles.moodLabelActive,
+                    styles.remainingText,
+                    { color: getRemainingColor() },
                   ]}
                 >
-                  {mood.label}
+                  {Math.max(caloriesRemaining, 0)} cal
                 </Text>
-              </TouchableOpacity>
-            ))}
+                <Text style={[styles.remainingSub, { color: getRemainingColor() }]}>
+                  Remaining
+                </Text>
+              </View>
+            </View>
           </View>
+
+          {selectedHealth.foods && selectedHealth.foods.length > 0 && (
+            <View style={styles.foodList}>
+              <Text style={styles.foodListTitle}>
+                Food for{' '}
+                {selectedDate.toDateString() === new Date().toDateString()
+                  ? 'Today'
+                  : selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              </Text>
+              {selectedHealth.foods.map((food, idx) => (
+                <View
+                  key={food.id || food.timestamp || `${food.name}-${idx}`}
+                  style={styles.foodItem}
+                >
+                  <View style={styles.foodInfo}>
+                    <Text style={styles.foodName}>{food.name}</Text>
+                    <Text style={styles.foodCal}>{food.calories} cal</Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => {
+                      const updatedFoods = (selectedHealth.foods || []).filter(
+                        (f) => f.id !== food.id
+                      );
+                      const totalCalories = updatedFoods.reduce(
+                        (sum, f) => sum + (f.calories || 0),
+                        0
+                      );
+                      deleteFoodEntryForDate(selectedDateISO, food.id);
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={styles.logFoodButton}
+            onPress={() => setShowFoodModal(true)}
+          >
+            <Ionicons name="add" size={18} color={colors.textSecondary} />
+            <Text style={styles.logFoodText}>Log Food</Text>
+          </TouchableOpacity>
+        </Card>
+
+        {/* Mood Section */}
+        <Card style={styles.sectionCard}>
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={openMoodPicker}
+            style={styles.moodTouchable}
+          >
+            <Text style={styles.sectionTitle}>How are you feeling?</Text>
+            {selectedHealth.mood ? (
+              <View style={styles.moodSummary}>
+                <Text style={styles.moodSummaryEmoji}>
+                  {moodOptions[currentMoodIndex()].emoji}
+                </Text>
+                <Text style={styles.moodSummaryLabel}>
+                  {moodOptions[currentMoodIndex()].label}
+                </Text>
+                <Text style={styles.moodHint}>Tap to change</Text>
+              </View>
+            ) : (
+              <Text style={styles.moodPlaceholder}>
+                Check in your mood with us!
+              </Text>
+            )}
+          </TouchableOpacity>
         </Card>
 
         {/* Energy Level Section */}
@@ -208,8 +400,8 @@ const HealthScreen = () => {
           />
         </Card>
 
-        {/* Sleep Section */}
-        <Card style={styles.sectionCard}>
+      {/* Sleep Section */}
+      <Card style={[styles.sectionCard, styles.lastCard]}>
           <Text style={styles.sectionTitle}>Sleep</Text>
           <View style={styles.sleepInputRow}>
             <View style={styles.sleepInput}>
@@ -258,52 +450,6 @@ const HealthScreen = () => {
               </TouchableOpacity>
             ))}
           </View>
-      </Card>
-
-      {/* Calorie Tracker Section */}
-      <Card style={[styles.sectionCard, styles.lastCard]}>
-          <Text style={styles.sectionTitle}>Calorie Tracker</Text>
-          <View style={styles.calorieStats}>
-            <View style={styles.calorieStat}>
-              <Text style={styles.calorieLabel}>Daily Goal</Text>
-              <Text style={styles.calorieValue}>{profile.dailyCalorieGoal} cal</Text>
-            </View>
-            <View style={styles.calorieStat}>
-              <Text style={styles.calorieLabel}>Consumed</Text>
-              <Text style={styles.calorieValue}>{todayHealth.calories || 0} cal</Text>
-            </View>
-            <View style={styles.calorieStat}>
-              <Text style={styles.calorieLabel}>Remaining</Text>
-              <Text
-                style={[
-                  styles.calorieValue,
-                  caloriesRemaining < 0 && styles.calorieOverLimit,
-                ]}
-              >
-                {caloriesRemaining} cal
-              </Text>
-            </View>
-          </View>
-
-          {todayHealth.foods && todayHealth.foods.length > 0 && (
-            <View style={styles.foodList}>
-              <Text style={styles.foodListTitle}>Today's Food</Text>
-              {todayHealth.foods.map((food) => (
-                <View key={food.id} style={styles.foodItem}>
-                  <Text style={styles.foodName}>{food.name}</Text>
-                  <Text style={styles.foodCal}>{food.calories} cal</Text>
-                </View>
-              ))}
-            </View>
-          )}
-
-          <TouchableOpacity
-            style={styles.logFoodButton}
-            onPress={() => setShowFoodModal(true)}
-          >
-            <Ionicons name="add" size={18} color={colors.textSecondary} />
-            <Text style={styles.logFoodText}>Log Food</Text>
-          </TouchableOpacity>
         </Card>
       </ScrollView>
 
@@ -352,6 +498,59 @@ const HealthScreen = () => {
         </View>
       </Modal>
 
+      {/* Mood Picker Modal */}
+      <Modal
+        visible={showMoodModal}
+        onClose={() => setShowMoodModal(false)}
+        title="Select Your Mood"
+        fullScreen
+      >
+        <View style={styles.moodModalContent} pointerEvents="box-none">
+          <Text style={styles.moodPreviewEmoji}>{moodOptions[moodSliderIndex].emoji}</Text>
+          <Text style={styles.moodPreviewLabel}>{moodOptions[moodSliderIndex].label}</Text>
+
+          <View
+            style={styles.sliderTrack}
+            onLayout={(e) => setMoodSliderWidth(e.nativeEvent.layout.width)}
+            onStartShouldSetResponder={() => true}
+            onStartShouldSetResponderCapture={() => true}
+            onMoveShouldSetResponder={() => true}
+            onResponderGrant={(e) => handleMoodSlide(e.nativeEvent.locationX)}
+            onResponderMove={(e) => handleMoodSlide(e.nativeEvent.locationX)}
+            onResponderRelease={(e) => handleMoodSlide(e.nativeEvent.locationX)}
+          >
+            <View style={styles.sliderRail} />
+            <View
+              style={[
+                styles.sliderThumb,
+                {
+                  left: thumbLeft(),
+                },
+              ]}
+            />
+          </View>
+
+          <View style={styles.moodScaleLabels}>
+            <Text style={styles.moodScaleText}>Worse</Text>
+            <Text style={styles.moodScaleText}>Better</Text>
+          </View>
+
+          <View style={styles.modalButtons}>
+            <Button
+              title="Cancel"
+              variant="secondary"
+              onPress={() => setShowMoodModal(false)}
+              style={styles.modalButton}
+            />
+            <Button
+              title="Save Mood"
+              onPress={handleMoodSave}
+              style={styles.modalButton}
+            />
+          </View>
+        </View>
+      </Modal>
+
       {/* Sleep Time Picker */}
       {showSleepTimePicker && (
         <View style={styles.pickerOverlay} pointerEvents="box-none">
@@ -388,7 +587,7 @@ const HealthScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -572,7 +771,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   calorieStats: {
-    flexDirection: 'row',
     marginBottom: spacing.lg,
   },
   calorieStat: {
@@ -591,6 +789,39 @@ const styles = StyleSheet.create({
   calorieOverLimit: {
     color: colors.danger,
   },
+  calorieRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+  },
+  calorieLeft: {
+    flex: 1,
+  },
+  calorieRight: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  remainingCircle: {
+    borderWidth: 3,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.inputBackground,
+    padding: spacing.sm,
+  },
+  remainingText: {
+    ...typography.body,
+    fontWeight: '700',
+  },
+  remainingSub: {
+    ...typography.caption,
+    marginTop: 2,
+  },
+  calorieCard: {
+    paddingVertical: spacing.xl,
+  },
   foodList: {
     marginBottom: spacing.md,
     paddingTop: spacing.md,
@@ -607,6 +838,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: colors.divider,
+  },
+  foodInfo: {
+    flex: 1,
   },
   foodName: {
     ...typography.body,
@@ -629,6 +863,89 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: colors.textSecondary,
     marginLeft: spacing.sm,
+  },
+  dateSwitcher: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  dateSwitchButton: {
+    padding: spacing.xs,
+  },
+  dateLabel: {
+    ...typography.body,
+    fontWeight: '600',
+  },
+  moodTouchable: {
+    paddingVertical: spacing.sm,
+  },
+  moodSummary: {
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
+  moodSummaryEmoji: {
+    fontSize: 42,
+  },
+  moodSummaryLabel: {
+    ...typography.body,
+    marginTop: spacing.xs,
+    fontWeight: '600',
+  },
+  moodHint: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+  },
+  moodPlaceholder: {
+    ...typography.body,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
+  },
+  moodModalContent: {
+    alignItems: 'center',
+    paddingVertical: spacing.lg,
+  },
+  moodPreviewEmoji: {
+    fontSize: 64,
+  },
+  moodPreviewLabel: {
+    ...typography.h3,
+    marginTop: spacing.sm,
+    marginBottom: spacing.lg,
+    textAlign: 'center',
+  },
+  sliderTrack: {
+    width: '100%',
+    height: 48,
+    justifyContent: 'center',
+  },
+  sliderRail: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: colors.divider,
+  },
+  sliderThumb: {
+    position: 'absolute',
+    top: 12,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    elevation: 2,
+    pointerEvents: 'none',
+  },
+  moodScaleLabels: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: spacing.xs,
+  },
+  moodScaleText: {
+    ...typography.caption,
+    color: colors.textSecondary,
   },
   timeList: {
     paddingBottom: spacing.xxxl,
