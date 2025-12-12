@@ -12,6 +12,7 @@ import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
 import { useApp } from '../context/AppContext';
 import { Card, Button, Input } from '../components';
 import {
@@ -30,6 +31,7 @@ const EditProfileScreen = () => {
 
   const [name, setName] = useState(profile.name);
   const [email, setEmail] = useState(profile.email);
+  const [photo, setPhoto] = useState(profile.photo);
   const [calorieGoal, setCalorieGoal] = useState(String(profile.dailyCalorieGoal));
   const [waterGoal, setWaterGoal] = useState(String(profile.dailyWaterGoal));
   const [sleepGoal, setSleepGoal] = useState(String(profile.dailySleepGoal));
@@ -38,6 +40,7 @@ const EditProfileScreen = () => {
     await updateProfile({
       name: name.trim(),
       email: email.trim(),
+      photo,
       dailyCalorieGoal: parseInt(calorieGoal) || 2000,
       dailyWaterGoal: parseInt(waterGoal) || 8,
       dailySleepGoal: parseInt(sleepGoal) || 8,
@@ -45,9 +48,23 @@ const EditProfileScreen = () => {
     navigation.goBack();
   };
 
-  const handleChangePhoto = () => {
-    // Would use expo-image-picker in production
-    Alert.alert('Change Photo', 'Photo picker would open here');
+  const handleChangePhoto = async () => {
+    const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!granted) {
+      Alert.alert('Permission needed', 'Please allow photo library access to change your profile picture.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets?.length) {
+      setPhoto(result.assets[0].uri);
+    }
   };
 
   const handleChangePassword = () => {
@@ -99,8 +116,8 @@ const EditProfileScreen = () => {
         {/* Profile Photo */}
         <View style={styles.photoSection}>
           <TouchableOpacity onPress={handleChangePhoto}>
-            {profile.photo ? (
-              <Image source={{ uri: profile.photo }} style={styles.avatar} />
+            {photo ? (
+              <Image source={{ uri: photo }} style={styles.avatar} />
             ) : (
               <View style={styles.avatarPlaceholder}>
                 <Ionicons name="person" size={48} color={colors.textLight} />
