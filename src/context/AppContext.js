@@ -41,6 +41,20 @@ const defaultProfile = {
   dailySleepGoal: 8,
 };
 
+const defaultHealthDay = () => ({
+  mood: null,
+  energy: 3,
+  waterIntake: 0,
+  sleepTime: null,
+  wakeTime: null,
+  sleepQuality: null,
+  calories: 0,
+  foods: [],
+  healthDayId: null,
+  createdAt: null,
+  updatedAt: null,
+});
+
 
 export const AppProvider = ({ children }) => {
   // Habits State
@@ -53,16 +67,7 @@ export const AppProvider = ({ children }) => {
 
   // Health State
   const [healthData, setHealthData] = useState({});
-  const [todayHealth, setTodayHealth] = useState({
-    mood: null,
-    energy: 3,
-    waterIntake: 0,
-    sleepTime: null,
-    wakeTime: null,
-    sleepQuality: null,
-    calories: 0,
-    foods: [],
-  });
+  const [todayHealth, setTodayHealth] = useState(defaultHealthDay());
   const [foodLogs, setFoodLogs] = useState({});
 
   // Routine State
@@ -200,16 +205,7 @@ const loadUserDataFromSupabase = async (userId) => {
       setTasks([]);
       setNotes([]);
       setHealthData({});
-      setTodayHealth({
-        mood: null,
-        energy: 3,
-        waterIntake: 0,
-        sleepTime: null,
-        wakeTime: null,
-        sleepQuality: null,
-        calories: 0,
-        foods: [],
-      });
+      setTodayHealth(defaultHealthDay());
       setRoutines([]);
       setChores([]);
       setReminders([]);
@@ -750,18 +746,6 @@ const setNotePassword = async (noteId, newPassword, currentPassword) => {
 
 
 
-const defaultHealthDay = () => ({
-  mood: null,
-  energy: 3,
-  waterIntake: 0,
-  sleepTime: null,
-  wakeTime: null,
-  sleepQuality: null,
-  calories: 0,
-  foods: [],
-  healthDayId: null,
-});
-
 const fetchHealthFromSupabase = async (userId) => {
   const { data, error } = await supabase
     .from('health_daily')
@@ -797,6 +781,8 @@ const fetchHealthFromSupabase = async (userId) => {
       calories: row.calories ?? 0,
       foods: row.foods || [],
       healthDayId: row.id,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
     };
   });
 
@@ -859,16 +845,7 @@ const fetchHealthFromSupabase = async (userId) => {
   if (healthMap[todayISO]) {
     setTodayHealth(healthMap[todayISO]);
   } else {
-    setTodayHealth({
-      mood: null,
-      energy: 3,
-      waterIntake: 0,
-      sleepTime: null,
-      wakeTime: null,
-      sleepQuality: null,
-      calories: 0,
-      foods: [],
-    });
+    setTodayHealth(defaultHealthDay());
   }
 };
 
@@ -877,6 +854,8 @@ const fetchHealthFromSupabase = async (userId) => {
   // HEALTH FUNCTIONS
   // HEALTH FUNCTIONS
 const upsertHealthDayRecord = async (dateISO, healthDay) => {
+  const nowISO = new Date().toISOString();
+  const createdAt = healthDay?.createdAt || nowISO;
   const payload = {
     id: healthDay?.healthDayId,
     user_id: authUser.id,
@@ -889,6 +868,8 @@ const upsertHealthDayRecord = async (dateISO, healthDay) => {
     sleep_quality: healthDay?.sleepQuality,
     calories: healthDay?.calories,
     foods: healthDay?.foods,
+    created_at: createdAt,
+    updated_at: nowISO,
   };
 
   const { data, error } = await supabase
@@ -901,16 +882,23 @@ const upsertHealthDayRecord = async (dateISO, healthDay) => {
     console.log('Error saving health data:', error);
   }
 
-  return data?.id || healthDay?.healthDayId || null;
+  return data || null;
 };
 
-const updateHealthForDate = async (dateISO, updates) => {
+const updateHealthForDate = async (dateISO, updates = {}) => {
   if (!authUser?.id) {
     throw new Error('You must be logged in to update health data.');
   }
 
   const base = healthData[dateISO] || defaultHealthDay();
-  const newHealth = { ...base, ...updates };
+  const nowISO = new Date().toISOString();
+  const createdAt = base.createdAt || updates?.createdAt || nowISO;
+  const newHealth = {
+    ...base,
+    ...updates,
+    createdAt,
+    updatedAt: nowISO,
+  };
   const newHealthData = { ...healthData, [dateISO]: newHealth };
   setHealthData(newHealthData);
 
@@ -928,14 +916,20 @@ const updateHealthForDate = async (dateISO, updates) => {
     await saveToStorage(STORAGE_KEYS.HEALTH_FOOD_LOGS, updatedFoodLogs);
   }
 
-  const healthDayId = await upsertHealthDayRecord(dateISO, newHealth);
-  if (healthDayId) {
+  const healthDayRecord = await upsertHealthDayRecord(dateISO, newHealth);
+  if (healthDayRecord) {
+    const persistedHealth = {
+      ...newHealth,
+      healthDayId: healthDayRecord.id || newHealth.healthDayId,
+      createdAt: healthDayRecord.created_at || newHealth.createdAt,
+      updatedAt: healthDayRecord.updated_at || newHealth.updatedAt,
+    };
     setHealthData((prev) => ({
       ...prev,
-      [dateISO]: { ...newHealth, healthDayId },
+      [dateISO]: persistedHealth,
     }));
     if (dateISO === todayISO) {
-      setTodayHealth((prev) => ({ ...prev, healthDayId }));
+      setTodayHealth(persistedHealth);
     }
   }
 };
@@ -951,7 +945,8 @@ const addFoodEntryForDate = async (dateISO, food) => {
   }
   const baseDay = healthData[dateISO] || defaultHealthDay();
 
-  const healthDayId = await upsertHealthDayRecord(dateISO, baseDay);
+  const healthDayRecord = await upsertHealthDayRecord(dateISO, baseDay);
+  const healthDayId = healthDayRecord?.id || baseDay.healthDayId;
 
   const newFood = {
     ...food,
@@ -993,6 +988,8 @@ const addFoodEntryForDate = async (dateISO, food) => {
     healthDayId,
     foods: updatedFoods,
     calories: totalCalories,
+    createdAt: healthDayRecord?.created_at || baseDay.createdAt,
+    updatedAt: healthDayRecord?.updated_at || baseDay.updatedAt,
   });
 };
 
