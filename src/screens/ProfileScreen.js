@@ -25,7 +25,7 @@ import {
 const ProfileScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { profile, signOut, themeColors } = useApp();
+  const { profile, signOut, themeColors, t } = useApp();
   const styles = React.useMemo(() => createStyles(), [themeColors]);
 
   const settingsOptions = [
@@ -63,12 +63,12 @@ const ProfileScreen = () => {
 
   const handleSignOut = () => {
     Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
+      t('Sign Out'),
+      t('Are you sure you want to sign out?'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('Cancel'), style: 'cancel' },
         {
-          text: 'Sign Out',
+          text: t('Sign Out'),
           style: 'destructive',
           onPress: async () => {
             await signOut();
@@ -93,7 +93,7 @@ const ProfileScreen = () => {
           >
             <Ionicons name="arrow-back" size={24} color={colors.text} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Profile</Text>
+          <Text style={styles.headerTitle}>{t('Profile')}</Text>
           <View style={styles.headerSpacer} />
         </View>
 
@@ -114,13 +114,13 @@ const ProfileScreen = () => {
             style={styles.editProfileButton}
             onPress={() => navigation.navigate('EditProfile')}
           >
-            <Text style={styles.editProfileText}>Edit Profile</Text>
+            <Text style={styles.editProfileText}>{t('Edit Profile')}</Text>
           </TouchableOpacity>
         </View>
 
         {/* Settings */}
         <Card style={styles.settingsCard}>
-          <Text style={styles.sectionTitle}>Settings</Text>
+          <Text style={styles.sectionTitle}>{t('Settings')}</Text>
           {settingsOptions.map((option, index) => (
             <TouchableOpacity
               key={option.id}
@@ -136,7 +136,7 @@ const ProfileScreen = () => {
                 color={colors.text}
                 style={styles.settingIcon}
               />
-              <Text style={styles.settingLabel}>{option.label}</Text>
+              <Text style={styles.settingLabel}>{t(option.label)}</Text>
               <Ionicons
                 name="chevron-forward"
                 size={20}
@@ -149,7 +149,7 @@ const ProfileScreen = () => {
         {/* Sign Out */}
         <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
           <Ionicons name="log-out-outline" size={20} color={colors.danger} />
-          <Text style={styles.signOutText}>Sign Out</Text>
+          <Text style={styles.signOutText}>{t('Sign Out')}</Text>
         </TouchableOpacity>
 
         {/* Version */}

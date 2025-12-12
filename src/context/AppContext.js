@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, typography } from '../utils/theme';
 import themePresets from '../utils/themePresets';
 import { supabase } from '../utils/supabaseClient';
+import { translate } from '../utils/i18n';
 
 const AppContext = createContext();
 
@@ -95,6 +96,7 @@ export const AppProvider = ({ children }) => {
  // Profile State
   const [profile, setProfile] = useState(defaultProfile);
   const [userSettings, setUserSettings] = useState(defaultUserSettings);
+  const [language, setLanguage] = useState(defaultUserSettings.language);
 
   // Auth State
   const [authUser, setAuthUser] = useState(null);
@@ -1726,6 +1728,7 @@ const getFinanceSummaryForDate = (date) => {
       const themeToApply = mapped.themeName || 'default';
       setThemeName(themeToApply);
       applyTheme(themeToApply);
+      setLanguage(mapped.language || defaultUserSettings.language);
     }
 
     return row;
@@ -1771,8 +1774,13 @@ const getFinanceSummaryForDate = (date) => {
   const updateUserSettings = async (updates) => {
     const merged = { ...userSettings, ...updates };
     setUserSettings(merged);
+    if (updates.language) {
+      setLanguage(updates.language);
+    }
     return upsertUserSettings(merged);
   };
+
+  const t = (text) => translate(text, language || defaultUserSettings.language);
 
   const uploadProfilePhoto = async (uri) => {
     if (!uri || uri.startsWith('http')) return uri;
@@ -2003,6 +2011,9 @@ const getFinanceSummaryForDate = (date) => {
     updateProfile,
     userSettings,
     updateUserSettings,
+    language,
+    setLanguage,
+    t,
 
     // Auth
     authUser,

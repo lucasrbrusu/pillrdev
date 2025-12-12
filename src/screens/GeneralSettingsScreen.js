@@ -18,7 +18,7 @@ const LANGUAGE_OPTIONS = [
 const GeneralSettingsScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { themeColors, userSettings, updateUserSettings } = useApp();
+  const { themeColors, userSettings, updateUserSettings, setLanguage, t } = useApp();
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
 
   const [selectedLanguage, setSelectedLanguage] = useState(
@@ -27,6 +27,7 @@ const GeneralSettingsScreen = () => {
 
   const handleSave = async () => {
     await updateUserSettings({ language: selectedLanguage });
+    setLanguage(selectedLanguage);
     navigation.goBack();
   };
 
@@ -45,12 +46,12 @@ const GeneralSettingsScreen = () => {
           >
             <Ionicons name="arrow-back" size={24} color={colors.text} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>General Settings</Text>
+          <Text style={styles.headerTitle}>{t('General Settings')}</Text>
           <View style={styles.headerSpacer} />
         </View>
 
         <Card style={styles.card}>
-          <Text style={styles.sectionTitle}>Language</Text>
+          <Text style={styles.sectionTitle}>{t('Language')}</Text>
           {LANGUAGE_OPTIONS.map((option, idx) => (
             <TouchableOpacity
               key={option.id}
@@ -61,7 +62,7 @@ const GeneralSettingsScreen = () => {
               onPress={() => setSelectedLanguage(option.id)}
               activeOpacity={0.8}
             >
-              <Text style={styles.languageLabel}>{option.label}</Text>
+              <Text style={styles.languageLabel}>{t(option.label)}</Text>
               <Ionicons
                 name={
                   selectedLanguage === option.id
@@ -78,7 +79,7 @@ const GeneralSettingsScreen = () => {
 
       <View style={styles.footer}>
         <Button
-          title="Save"
+          title={t('Save')}
           onPress={handleSave}
           style={styles.saveButton}
         />

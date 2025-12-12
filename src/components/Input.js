@@ -22,16 +22,22 @@ const Input = ({
   style,
   inputStyle,
   containerStyle,
+  disableTranslation = false,
 }) => {
   const [isFocused, setIsFocused] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const { t } = useApp();
 
   const handleFocus = () => setIsFocused(true);
   const handleBlur = () => setIsFocused(false);
 
   return (
     <View style={[styles.container, containerStyle]}>
-      {label && <Text style={styles.label}>{label}</Text>}
+      {label && (
+        <Text style={styles.label}>
+          {typeof label === 'string' && !disableTranslation ? t(label) : label}
+        </Text>
+      )}
       <View
         style={[
           styles.inputContainer,
@@ -58,7 +64,11 @@ const Input = ({
           ]}
           value={value}
           onChangeText={onChangeText}
-          placeholder={placeholder}
+          placeholder={
+            typeof placeholder === 'string' && !disableTranslation
+              ? t(placeholder)
+              : placeholder
+          }
           placeholderTextColor={colors.placeholder}
           secureTextEntry={secureTextEntry && !showPassword}
           multiline={multiline}

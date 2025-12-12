@@ -17,8 +17,9 @@ const Button = ({
   style,
   textStyle,
   fullWidth = true,
+  disableTranslation = false,
 }) => {
-  const { themeColors } = useApp();
+  const { themeColors, t } = useApp();
   const styles = React.useMemo(() => createStyles(), [themeColors]);
   const getVariantStyles = () => {
     switch (variant) {
@@ -126,7 +127,9 @@ const Button = ({
               style={styles.iconLeft}
             />
           )}
-          <Text style={buttonTextStyles}>{title}</Text>
+          <Text style={buttonTextStyles}>
+            {typeof title === 'string' && !disableTranslation ? t(title) : title}
+          </Text>
           {icon && iconPosition === 'right' && (
             <Ionicons
               name={icon}
