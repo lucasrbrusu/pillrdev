@@ -25,7 +25,7 @@ const Modal = ({
   fullScreen = false,
 }) => {
   const { themeColors } = useApp();
-  const styles = React.useMemo(() => createStyles(), [themeColors]);
+  const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
   const insets = useSafeAreaInsets();
   const bottomInset = insets.bottom > 0 ? insets.bottom : spacing.lg;
   const contentBottomPadding = bottomInset + spacing.xl;
@@ -47,7 +47,10 @@ const Modal = ({
               style={[
                 styles.modalContainer,
                 fullScreen && styles.fullScreen,
-                { paddingBottom: bottomInset, backgroundColor: themeColors.card },
+                {
+                  paddingBottom: bottomInset,
+                  backgroundColor: themeColors.background,
+                },
               ]}
             >
               <View
@@ -92,7 +95,7 @@ const Modal = ({
   );
 };
 
-const createStyles = () =>
+const createStyles = (themeColors) =>
   StyleSheet.create({
     overlay: {
       flex: 1,
@@ -100,7 +103,7 @@ const createStyles = () =>
       justifyContent: 'flex-end',
     },
     modalContainer: {
-      backgroundColor: colors.card,
+      backgroundColor: themeColors?.background || colors.card,
       borderTopLeftRadius: borderRadius.xl,
       borderTopRightRadius: borderRadius.xl,
       maxHeight: '90%',

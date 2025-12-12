@@ -48,7 +48,7 @@ const TasksScreen = () => {
     setNotePassword,
     themeColors,
   } = useApp();
-  const styles = useMemo(() => createStyles(), [themeColors]);
+  const styles = useMemo(() => createStyles(themeColors), [themeColors]);
 
   const [activeTab, setActiveTab] = useState('All Tasks');
   const [filterType, setFilterType] = useState('Date');
@@ -782,23 +782,6 @@ const TasksScreen = () => {
         fullScreen
       >
         <View style={styles.noteForm}>
-          <Input
-            label="Title"
-            value={noteTitle}
-            onChangeText={setNoteTitle}
-            placeholder="Title"
-          />
-
-          <Input
-            label="Content"
-            value={noteContent}
-            onChangeText={setNoteContent}
-            placeholder="Start writing..."
-            multiline
-            numberOfLines={16}
-            inputStyle={styles.noteContentInput}
-          />
-
           <View style={styles.modalButtons}>
             <Button
               title="Cancel"
@@ -816,6 +799,26 @@ const TasksScreen = () => {
               style={styles.modalButton}
             />
           </View>
+
+          <Input
+            value={noteTitle}
+            onChangeText={setNoteTitle}
+            placeholder="Title"
+            style={styles.noteFieldContainer}
+            inputStyle={styles.noteFieldInput}
+            containerStyle={styles.noteFieldWrapper}
+          />
+
+          <Input
+            value={noteContent}
+            onChangeText={setNoteContent}
+            placeholder="Start writing..."
+            multiline
+            numberOfLines={16}
+            style={styles.noteFieldContainer}
+            inputStyle={[styles.noteContentInput, styles.noteFieldInput]}
+            containerStyle={styles.noteContentWrapper}
+          />
         </View>
       </Modal>
 
@@ -1066,7 +1069,11 @@ const TasksScreen = () => {
   );
 };
 
-const createStyles = () => StyleSheet.create({
+const createStyles = (themeColors) => {
+  const backgroundColor = themeColors?.background || colors.background;
+  const textColor = themeColors?.text || colors.text;
+
+  return StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -1273,8 +1280,28 @@ const createStyles = () => StyleSheet.create({
   },
   noteForm: {
     flex: 1,
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     paddingBottom: spacing.xl,
+    backgroundColor,
+    borderColor: backgroundColor,
+    borderWidth: 1,
+  },
+  noteFieldWrapper: {
+    marginBottom: spacing.xs,
+  },
+  noteContentWrapper: {
+    marginTop: spacing.xs,
+    marginBottom: spacing.md,
+  },
+  noteFieldContainer: {
+    backgroundColor,
+    borderWidth: 0,
+    borderColor: backgroundColor,
+    paddingHorizontal: 0,
+  },
+  noteFieldInput: {
+    paddingVertical: spacing.md,
+    color: textColor,
   },
   addNewButton: {
     paddingVertical: spacing.sm,
@@ -1418,7 +1445,7 @@ const createStyles = () => StyleSheet.create({
     lineHeight: 24,
   },
   noteContentInput: {
-    minHeight: 320,
+    minHeight: 240,
     textAlignVertical: 'top',
   },
   securitySection: {
@@ -1537,5 +1564,6 @@ const createStyles = () => StyleSheet.create({
     marginTop: spacing.md,
   },
 });
+};
 
 export default TasksScreen;

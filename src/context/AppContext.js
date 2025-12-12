@@ -65,6 +65,7 @@ const defaultUserSettings = {
   taskRemindersEnabled: true,
   healthRemindersEnabled: true,
   defaultCurrencyCode: 'USD',
+  language: 'en',
 };
 
 
@@ -1667,16 +1668,25 @@ const getFinanceSummaryForDate = (date) => {
   const updateProfile = async (updates) => {
     const merged = { ...profile, ...updates };
     setProfile(merged);
-    return upsertProfileRow({
+
+    let avatarUrl = merged.photo;
+    if (updates.photo) {
+      avatarUrl = await uploadProfilePhoto(updates.photo);
+    }
+
+    const payload = {
       ...updates,
       name: merged.name,
       username: merged.username,
       email: merged.email,
-      photo: merged.photo,
+      photo: avatarUrl,
+      avatar_url: avatarUrl,
       dailyCalorieGoal: merged.dailyCalorieGoal,
       dailyWaterGoal: merged.dailyWaterGoal,
       dailySleepGoal: merged.dailySleepGoal,
-    });
+    };
+
+    return upsertProfileRow(payload);
   };
 
   // USER SETTINGS FUNCTIONS
@@ -1688,6 +1698,7 @@ const getFinanceSummaryForDate = (date) => {
     taskRemindersEnabled: row?.task_reminders_enabled ?? defaultUserSettings.taskRemindersEnabled,
     healthRemindersEnabled: row?.health_reminders_enabled ?? defaultUserSettings.healthRemindersEnabled,
     defaultCurrencyCode: row?.default_currency_code || defaultUserSettings.defaultCurrencyCode,
+    language: row?.language || defaultUserSettings.language,
   });
 
   const fetchUserSettings = async (userId) => {
@@ -1733,6 +1744,7 @@ const getFinanceSummaryForDate = (date) => {
       task_reminders_enabled: overrides.taskRemindersEnabled ?? userSettings.taskRemindersEnabled ?? defaultUserSettings.taskRemindersEnabled,
       health_reminders_enabled: overrides.healthRemindersEnabled ?? userSettings.healthRemindersEnabled ?? defaultUserSettings.healthRemindersEnabled,
       default_currency_code: overrides.defaultCurrencyCode ?? userSettings.defaultCurrencyCode ?? defaultUserSettings.defaultCurrencyCode,
+      language: overrides.language ?? userSettings.language ?? defaultUserSettings.language,
       updated_at: nowISO,
     };
 
@@ -1760,6 +1772,35 @@ const getFinanceSummaryForDate = (date) => {
     const merged = { ...userSettings, ...updates };
     setUserSettings(merged);
     return upsertUserSettings(merged);
+  };
+
+  const uploadProfilePhoto = async (uri) => {
+    if (!uri || uri.startsWith('http')) return uri;
+    if (!authUser?.id) return uri;
+    try {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      const extension = (uri.split('.').pop() || 'jpg').split('?')[0];
+      const path = `avatars/${authUser.id}/${Date.now()}.${extension}`;
+      const { error } = await supabase.storage
+        .from('avatars')
+        .upload(path, blob, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: blob.type || 'image/jpeg',
+        });
+
+      if (error) {
+        console.log('Error uploading avatar:', error);
+        return uri;
+      }
+
+      const { data: publicData } = supabase.storage.from('avatars').getPublicUrl(path);
+      return publicData?.publicUrl || uri;
+    } catch (err) {
+      console.log('Error preparing avatar upload:', err);
+      return uri;
+    }
   };
 
   // AUTH FUNCTIONS

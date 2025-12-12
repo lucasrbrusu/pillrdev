@@ -30,6 +30,12 @@ const ProfileScreen = () => {
 
   const settingsOptions = [
     {
+      id: 'general',
+      label: 'General Settings',
+      icon: 'options-outline',
+      onPress: () => navigation.navigate('GeneralSettings'),
+    },
+    {
       id: 'notifications',
       label: 'Notifications',
       icon: 'notifications-outline',
