@@ -39,6 +39,7 @@ const RoutineScreen = () => {
     deleteRoutine,
     addTaskToRoutine,
     removeTaskFromRoutine,
+    reorderRoutineTasks,
     addChore,
     updateChore,
     deleteChore,
@@ -61,6 +62,8 @@ const RoutineScreen = () => {
   const [routineName, setRoutineName] = useState('');
   const [choreName, setChoreName] = useState('');
   const [choreDate, setChoreDate] = useState(new Date().toISOString().split('T')[0]);
+  const [showChoreDatePicker, setShowChoreDatePicker] = useState(false);
+  const [choreDatePickerMonth, setChoreDatePickerMonth] = useState(new Date());
   const [reminderName, setReminderName] = useState('');
   const [reminderDescription, setReminderDescription] = useState('');
   const [reminderDate, setReminderDate] = useState(new Date().toISOString().split('T')[0]);
@@ -121,13 +124,26 @@ const RoutineScreen = () => {
     setGroceryInput('');
   };
 
+  const handleMoveRoutineTask = (routineId, index, direction) => {
+    const routine = routines.find((r) => r.id === routineId);
+    if (!routine || !routine.tasks || !routine.tasks.length) return;
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= routine.tasks.length) return;
+    const newOrder = [...routine.tasks];
+    const [item] = newOrder.splice(index, 1);
+    newOrder.splice(newIndex, 0, item);
+    reorderRoutineTasks(routineId, newOrder);
+  };
+
   const openAddTaskModal = (routineId) => {
     setSelectedRoutineId(routineId);
     setShowTaskModal(true);
   };
 
   const formatDate = (dateString) => {
+    if (!dateString) return 'No date';
     const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return 'No date';
     return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
@@ -160,6 +176,10 @@ const RoutineScreen = () => {
     () => getMonthMatrix(reminderDatePickerMonth),
     [reminderDatePickerMonth]
   );
+  const choreMonthMatrix = useMemo(
+    () => getMonthMatrix(choreDatePickerMonth),
+    [choreDatePickerMonth]
+  );
   const reminderTimeOptions = REMINDER_TIME_OPTIONS;
 
   const openReminderDatePicker = () => {
@@ -184,8 +204,43 @@ const RoutineScreen = () => {
     setShowReminderTimePicker(false);
   };
 
+  const openChoreDatePicker = () => {
+    setChoreDatePickerMonth(choreDate ? new Date(choreDate) : new Date());
+    setShowChoreDatePicker(true);
+  };
+
+  const handleSelectChoreDate = (date) => {
+    setChoreDate(formatISODate(date));
+    setShowChoreDatePicker(false);
+  };
+
   const completedGroceries = groceries.filter((g) => g.completed);
   const activeGroceries = groceries.filter((g) => !g.completed);
+  const choreGroups = useMemo(() => {
+    const map = new Map();
+    chores.forEach((chore) => {
+      const key = chore.date
+        ? new Date(chore.date).toISOString().slice(0, 10)
+        : 'no-date';
+      const list = map.get(key) || [];
+      list.push(chore);
+      map.set(key, list);
+    });
+
+    const sortedKeys = Array.from(map.keys()).sort((a, b) => {
+      if (a === 'no-date') return 1;
+      if (b === 'no-date') return -1;
+      return new Date(a) - new Date(b);
+    });
+
+    return sortedKeys.map((key) => ({
+      key,
+      label: key === 'no-date' ? 'No date' : formatDate(key),
+      items: (map.get(key) || []).sort(
+        (a, b) => new Date(a.date || 0) - new Date(b.date || 0)
+      ),
+    }));
+  }, [chores]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -193,6 +248,9 @@ const RoutineScreen = () => {
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        alwaysBounceVertical
+        bounces
       >
         {/* Routine Manager Section */}
         <Card style={styles.sectionCard}>
@@ -237,36 +295,44 @@ const RoutineScreen = () => {
                   </View>
                 </View>
                 {routine.tasks && routine.tasks.length > 0 ? (
-                  routine.tasks.map((task, index) => (
-                    <View key={task.id} style={styles.routineTaskItem}>
-                      <View style={styles.taskOrderControls}>
-                        <TouchableOpacity style={styles.orderButton}>
-                          <Ionicons
-                            name="chevron-up"
-                            size={16}
-                            color={index === 0 ? colors.border : colors.textSecondary}
-                          />
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.orderButton}>
-                          <Ionicons
-                            name="chevron-down"
-                            size={16}
-                            color={
-                              index === routine.tasks.length - 1
-                                ? colors.border
-                                : colors.textSecondary
-                            }
-                          />
+                  routine.tasks.map((task, index) => {
+                    const atTop = index === 0;
+                    const atBottom = index === routine.tasks.length - 1;
+                    return (
+                      <View key={task.id} style={styles.routineTaskItem}>
+                        <View style={styles.taskOrderControls}>
+                          <TouchableOpacity
+                            style={styles.orderButton}
+                            onPress={() => handleMoveRoutineTask(routine.id, index, -1)}
+                            disabled={atTop}
+                          >
+                            <Ionicons
+                              name="chevron-up"
+                              size={16}
+                              color={atTop ? colors.border : colors.textSecondary}
+                            />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.orderButton}
+                            onPress={() => handleMoveRoutineTask(routine.id, index, 1)}
+                            disabled={atBottom}
+                          >
+                            <Ionicons
+                              name="chevron-down"
+                              size={16}
+                              color={atBottom ? colors.border : colors.textSecondary}
+                            />
+                          </TouchableOpacity>
+                        </View>
+                        <Text style={styles.routineTaskText}>{task.name}</Text>
+                        <TouchableOpacity
+                          onPress={() => removeTaskFromRoutine(routine.id, task.id)}
+                        >
+                          <Ionicons name="close" size={18} color={colors.textLight} />
                         </TouchableOpacity>
                       </View>
-                      <Text style={styles.routineTaskText}>{task.name}</Text>
-                      <TouchableOpacity
-                        onPress={() => removeTaskFromRoutine(routine.id, task.id)}
-                      >
-                        <Ionicons name="close" size={18} color={colors.textLight} />
-                      </TouchableOpacity>
-                    </View>
-                  ))
+                    );
+                  })
                 ) : (
                   <Text style={styles.noTasksText}>No tasks added</Text>
                 )}
@@ -291,37 +357,42 @@ const RoutineScreen = () => {
           {chores.length === 0 ? (
             <Text style={styles.emptyText}>No chores scheduled</Text>
           ) : (
-            chores.map((chore) => (
-              <TouchableOpacity
-                key={chore.id}
-                style={styles.choreItem}
-                onPress={() => updateChore(chore.id, { completed: !chore.completed })}
-              >
-                <View
-                  style={[
-                    styles.checkbox,
-                    chore.completed && styles.checkboxChecked,
-                  ]}
-                >
-                  {chore.completed && (
-                    <Ionicons name="checkmark" size={14} color="#FFFFFF" />
-                  )}
-                </View>
-                <View style={styles.choreContent}>
-                  <Text
-                    style={[
-                      styles.choreTitle,
-                      chore.completed && styles.choreTitleCompleted,
-                    ]}
+            choreGroups.map((group) => (
+              <View key={group.key} style={styles.choreGroup}>
+                <Text style={styles.choreGroupLabel}>{group.label}</Text>
+                {group.items.map((chore) => (
+                  <TouchableOpacity
+                    key={chore.id}
+                    style={styles.choreItem}
+                    onPress={() => updateChore(chore.id, { completed: !chore.completed })}
                   >
-                    {chore.title}
-                  </Text>
-                  <Text style={styles.choreDate}>{formatDate(chore.date)}</Text>
-                </View>
-                <TouchableOpacity onPress={() => deleteChore(chore.id)}>
-                  <Ionicons name="close" size={18} color={colors.textLight} />
-                </TouchableOpacity>
-              </TouchableOpacity>
+                    <View
+                      style={[
+                        styles.checkbox,
+                        chore.completed && styles.checkboxChecked,
+                      ]}
+                    >
+                      {chore.completed && (
+                        <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                      )}
+                    </View>
+                    <View style={styles.choreContent}>
+                      <Text
+                        style={[
+                          styles.choreTitle,
+                          chore.completed && styles.choreTitleCompleted,
+                        ]}
+                      >
+                        {chore.title}
+                      </Text>
+                      <Text style={styles.choreDate}>{formatDate(chore.date)}</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => deleteChore(chore.id)}>
+                      <Ionicons name="close" size={18} color={colors.textLight} />
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                ))}
+              </View>
             ))
           )}
         </Card>
@@ -475,6 +546,7 @@ const RoutineScreen = () => {
         onClose={() => {
           setShowChoreModal(false);
           setChoreName('');
+          setShowChoreDatePicker(false);
         }}
         title="Add Chore"
         fullScreen
@@ -486,7 +558,7 @@ const RoutineScreen = () => {
           placeholder="e.g., Clean bathroom"
         />
         <Text style={styles.inputLabel}>Date</Text>
-        <TouchableOpacity style={styles.dateButton}>
+        <TouchableOpacity style={styles.dateButton} onPress={openChoreDatePicker}>
           <Text style={styles.dateButtonText}>{formatDate(choreDate)}</Text>
           <Ionicons name="calendar-outline" size={18} color={colors.textLight} />
         </TouchableOpacity>
@@ -497,6 +569,7 @@ const RoutineScreen = () => {
             onPress={() => {
               setShowChoreModal(false);
               setChoreName('');
+              setShowChoreDatePicker(false);
             }}
             style={styles.modalButton}
           />
@@ -507,6 +580,90 @@ const RoutineScreen = () => {
             style={styles.modalButton}
           />
         </View>
+
+        {showChoreDatePicker && (
+          <View style={styles.inlinePicker}>
+            <View style={styles.calendarHeader}>
+              <TouchableOpacity
+                style={styles.calendarNav}
+                onPress={() =>
+                  setChoreDatePickerMonth((prev) => {
+                    const next = new Date(prev);
+                    next.setMonth(prev.getMonth() - 1);
+                    return next;
+                  })
+                }
+              >
+                <Ionicons name="chevron-back" size={20} color={colors.text} />
+              </TouchableOpacity>
+              <Text style={styles.calendarTitle}>
+                {choreDatePickerMonth.toLocaleDateString('en-US', {
+                  month: 'long',
+                  year: 'numeric',
+                })}
+              </Text>
+              <TouchableOpacity
+                style={styles.calendarNav}
+                onPress={() =>
+                  setChoreDatePickerMonth((prev) => {
+                    const next = new Date(prev);
+                    next.setMonth(prev.getMonth() + 1);
+                    return next;
+                  })
+                }
+              >
+                <Ionicons name="chevron-forward" size={20} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.weekDays}>
+              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, idx) => (
+                <Text key={`${day}-${idx}`} style={styles.weekDayLabel}>
+                  {day}
+                </Text>
+              ))}
+            </View>
+
+            {choreMonthMatrix.map((week, weekIdx) => (
+              <View key={`chore-week-${weekIdx}`} style={styles.weekRow}>
+                {week.map((day, dayIdx) => {
+                  if (!day) {
+                    return <View key={`chore-empty-${dayIdx}`} style={styles.dayCell} />;
+                  }
+                  const iso = formatISODate(day);
+                  const selected = iso === choreDate;
+                  return (
+                    <TouchableOpacity
+                      key={iso}
+                      style={[
+                        styles.dayCell,
+                        selected && styles.dayCellSelected,
+                      ]}
+                      onPress={() => handleSelectChoreDate(day)}
+                      activeOpacity={0.8}
+                    >
+                      <Text
+                        style={[
+                          styles.dayLabel,
+                          selected && styles.dayLabelSelected,
+                        ]}
+                      >
+                        {day.getDate()}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ))}
+
+            <Button
+              title="Close"
+              variant="secondary"
+              onPress={() => setShowChoreDatePicker(false)}
+              style={styles.pickerCloseButton}
+            />
+          </View>
+        )}
       </Modal>
 
       {/* Add Reminder Modal */}
@@ -751,6 +908,7 @@ const createStyles = () => StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.lg,
     paddingBottom: 100,
+    flexGrow: 1,
   },
   sectionCard: {
     marginBottom: spacing.lg,
@@ -819,6 +977,12 @@ const createStyles = () => StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.sm,
     paddingLeft: spacing.sm,
+    paddingRight: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.sm,
+    backgroundColor: colors.card,
   },
   taskOrderControls: {
     marginRight: spacing.sm,
@@ -842,6 +1006,15 @@ const createStyles = () => StyleSheet.create({
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.divider,
+  },
+  choreGroup: {
+    marginTop: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  choreGroupLabel: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
   },
   checkbox: {
     width: 22,

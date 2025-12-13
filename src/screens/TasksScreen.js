@@ -359,6 +359,8 @@ const TasksScreen = () => {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          alwaysBounceVertical
+          bounces
         >
         {/* Action Buttons */}
         <View style={styles.actionRow}>
@@ -732,27 +734,34 @@ const TasksScreen = () => {
         )}
 
         {showTimePicker && (
-          <View style={styles.inlinePicker}>
-            <Text style={styles.pickerTitle}>Select Time</Text>
-            <ScrollView contentContainerStyle={styles.timeList} style={{ maxHeight: 260 }}>
-              {timeOptions.map((time) => (
-                <TouchableOpacity
-                  key={time}
-                  style={styles.timeOption}
-                  onPress={() => handleSelectTime(time)}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="time-outline" size={18} color={colors.textSecondary} />
-                  <Text style={styles.timeOptionText}>{time}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <Button
-              title="Close"
-              variant="secondary"
+          <View style={styles.pickerOverlay} pointerEvents="box-none">
+            <TouchableOpacity
+              style={styles.overlayBackdrop}
+              activeOpacity={0.9}
               onPress={() => setShowTimePicker(false)}
-              style={styles.pickerCloseButton}
             />
+            <View style={styles.pickerSheet}>
+              <Text style={styles.pickerTitle}>Select Time</Text>
+              <ScrollView contentContainerStyle={styles.timeList} style={{ maxHeight: 260 }}>
+                {timeOptions.map((time) => (
+                  <TouchableOpacity
+                    key={time}
+                    style={styles.timeOption}
+                    onPress={() => handleSelectTime(time)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="time-outline" size={18} color={colors.textSecondary} />
+                    <Text style={styles.timeOptionText}>{time}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <Button
+                title="Close"
+                variant="secondary"
+                onPress={() => setShowTimePicker(false)}
+                style={styles.pickerCloseButton}
+              />
+            </View>
           </View>
         )}
 
@@ -1089,6 +1098,7 @@ const createStyles = (themeColors) => {
   scrollContent: {
     paddingHorizontal: spacing.xl,
     paddingBottom: 100,
+    flexGrow: 1,
   },
   actionRow: {
     flexDirection: 'row',
@@ -1538,12 +1548,16 @@ const createStyles = (themeColors) => {
   },
   pickerOverlay: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
     alignItems: 'center',
+    zIndex: 20,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xxl,
   },
   overlayBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    // Keep taps to dismiss but avoid dimming/blur
+    backgroundColor: 'transparent',
   },
   pickerSheet: {
     backgroundColor: colors.card,

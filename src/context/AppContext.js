@@ -1,9 +1,17 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, typography } from '../utils/theme';
 import themePresets from '../utils/themePresets';
 import { supabase } from '../utils/supabaseClient';
 import { translate } from '../utils/i18n';
+import {
+  requestNotificationPermissionAsync,
+  cancelAllScheduledNotificationsAsync,
+  scheduleLocalNotificationAsync,
+  buildDateWithTime,
+  formatFriendlyDateTime,
+  formatTimeFromDate,
+} from '../utils/notifications';
 
 const AppContext = createContext();
 
@@ -69,6 +77,10 @@ const defaultUserSettings = {
   language: 'en',
 };
 
+const DEFAULT_EVENT_TIME = { hour: 9, minute: 0 };
+const HABIT_REMINDER_TIME = { hour: 8, minute: 0 };
+const ROUTINE_REMINDER_TIME = { hour: 7, minute: 30 };
+
 const asNumber = (value, fallback = null) => {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -100,6 +112,19 @@ const normalizeDateKey = (value) => {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '';
   return d.toISOString().slice(0, 10);
+};
+
+const parseDateTimeParts = (value) => {
+  if (!value) return { date: null, time: '', dateTimeISO: null };
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return { date: value, time: '', dateTimeISO: null };
+  }
+  return {
+    date: parsed.toISOString().slice(0, 10),
+    time: formatTimeFromDate(parsed),
+    dateTimeISO: parsed.toISOString(),
+  };
 };
 
 
@@ -139,6 +164,7 @@ export const AppProvider = ({ children }) => {
 
   // Loading State
   const [isLoading, setIsLoading] = useState(true);
+  const [hasNotificationPermission, setHasNotificationPermission] = useState(false);
 
   // Immutable snapshots of the original palettes and typography
   const defaultPaletteRef = useRef(
@@ -180,12 +206,21 @@ export const AppProvider = ({ children }) => {
   const loadAllData = async () => {
   try {
     const storedFoodLogs = await AsyncStorage.getItem(STORAGE_KEYS.HEALTH_FOOD_LOGS);
+    const storedRoutines = await AsyncStorage.getItem(STORAGE_KEYS.ROUTINES);
 
     if (storedFoodLogs) {
       try {
         setFoodLogs(JSON.parse(storedFoodLogs));
       } catch (err) {
         console.log('Error parsing stored food logs', err);
+      }
+    }
+
+    if (storedRoutines) {
+      try {
+        setRoutines(JSON.parse(storedRoutines));
+      } catch (err) {
+        console.log('Error parsing stored routines', err);
       }
     }
 
@@ -260,6 +295,10 @@ const loadUserDataFromSupabase = async (userId) => {
     } catch (error) {
       console.error('Error saving data:', error);
     }
+  };
+
+  const persistRoutinesLocally = async (data) => {
+    await saveToStorage(STORAGE_KEYS.ROUTINES, data);
   };
 
 const fetchHabitsFromSupabase = async (userId) => {
@@ -1074,8 +1113,10 @@ const addFoodEntry = async (food) => {
 
 
 
-  const fetchRoutinesFromSupabase = async (userId) => {
-  const { data, error } = await supabase
+const ROUTINE_TASKS_TABLE = 'routine_tasks';
+
+const fetchRoutinesFromSupabase = async (userId) => {
+  const { data: routineRows, error } = await supabase
     .from('routines')
     .select('*')
     .eq('user_id', userId)
@@ -1086,20 +1127,55 @@ const addFoodEntry = async (food) => {
     return;
   }
 
-  const mapped = (data || []).map((r) => ({
+  const routinesMap = (routineRows || []).map((r) => ({
     id: r.id,
     name: r.name,
     createdAt: r.created_at,
-    tasks: r.tasks || [],
+    tasks: [],
   }));
 
-  setRoutines(mapped);
+  const routineIds = routinesMap.map((r) => r.id).filter(Boolean);
+
+  let tasksByRoutine = {};
+  if (routineIds.length > 0) {
+    const { data: taskRows, error: taskError } = await supabase
+      .from(ROUTINE_TASKS_TABLE)
+      .select('*')
+      .in('routine_id', routineIds)
+      .order('position', { ascending: true });
+
+    if (taskError) {
+      console.log('Error fetching routine tasks:', taskError);
+    } else {
+      tasksByRoutine = (taskRows || []).reduce((acc, row) => {
+        const list = acc[row.routine_id] || [];
+        list.push({
+          id: row.id,
+          name: row.name,
+          position: row.position ?? list.length,
+          createdAt: row.created_at,
+        });
+        acc[row.routine_id] = list.sort(
+          (a, b) => (a.position ?? 0) - (b.position ?? 0)
+        );
+        return acc;
+      }, {});
+    }
+  }
+
+  const combined = routinesMap.map((r) => ({
+    ...r,
+    tasks: tasksByRoutine[r.id] || [],
+  }));
+
+  setRoutines(combined);
+  await persistRoutinesLocally(combined);
 };
 
 
 
   // ROUTINE FUNCTIONS
-const addRoutine = async (routine) => {
+  const addRoutine = async (routine) => {
   if (!authUser?.id) {
     throw new Error('You must be logged in to create a routine.');
   }
@@ -1123,52 +1199,65 @@ const addRoutine = async (routine) => {
     name: data.name,
     createdAt: data.created_at,
     tasks: [],
+    };
+
+    setRoutines((prev) => {
+      const next = [...prev, newRoutine];
+      persistRoutinesLocally(next);
+      return next;
+    });
+    return newRoutine;
   };
 
-  setRoutines((prev) => [...prev, newRoutine]);
-  return newRoutine;
-};
+  const updateRoutine = async (routineId, updates) => {
+    if (!authUser?.id) return;
 
-const updateRoutine = async (routineId, updates) => {
-  if (!authUser?.id) return;
+    const routine = routines.find((r) => r.id === routineId);
+    if (!routine) return;
 
-  const routine = routines.find((r) => r.id === routineId);
-  if (!routine) return;
+    const updated = { ...routine, ...updates };
 
-  const updated = { ...routine, ...updates };
+    const { error } = await supabase
+      .from('routines')
+      .update({
+        name: updated.name,
+      })
+      .eq('id', routineId)
+      .eq('user_id', authUser.id);
 
-  const { error } = await supabase
-    .from('routines')
-    .update({
-      name: updated.name,
-    })
-    .eq('id', routineId)
-    .eq('user_id', authUser.id);
+    if (error) {
+      console.log('Error updating routine:', error);
+    }
 
-  if (error) {
-    console.log('Error updating routine:', error);
-  }
-
-  setRoutines((prev) =>
-    prev.map((r) => (r.id === routineId ? updated : r))
-  );
-};
+    setRoutines((prev) => {
+      const next = prev.map((r) => (r.id === routineId ? updated : r));
+      persistRoutinesLocally(next);
+      return next;
+    });
+  };
 
 const deleteRoutine = async (routineId) => {
   if (!authUser?.id) return;
 
+  // Remove tasks first to keep data clean
+  await supabase.from(ROUTINE_TASKS_TABLE).delete().eq('routine_id', routineId).eq('user_id', authUser.id);
+
   const { error } = await supabase
     .from('routines')
     .delete()
-    .eq('id', routineId)
-    .eq('user_id', authUser.id);
+      .eq('id', routineId)
+      .eq('user_id', authUser.id);
 
-  if (error) {
-    console.log('Error deleting routine:', error);
-  }
+    if (error) {
+      console.log('Error deleting routine:', error);
+    }
 
-  setRoutines((prev) => prev.filter((r) => r.id !== routineId));
-};
+    setRoutines((prev) => {
+      const next = prev.filter((r) => r.id !== routineId);
+      persistRoutinesLocally(next);
+      return next;
+    });
+  };
 
 const addTaskToRoutine = async (routineId, task) => {
   if (!authUser?.id) return;
@@ -1176,17 +1265,40 @@ const addTaskToRoutine = async (routineId, task) => {
   const routine = routines.find((r) => r.id === routineId);
   if (!routine) return;
 
+  const nextPosition = (routine.tasks?.length || 0);
+  const { data, error } = await supabase
+    .from(ROUTINE_TASKS_TABLE)
+    .insert({
+      user_id: authUser.id,
+      routine_id: routineId,
+      name: task.name,
+      position: nextPosition,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.log('Error adding task to routine:', error);
+    return;
+  }
+
   const newTask = {
-    ...task,
-    id: Date.now().toString(),
+    id: data.id,
+    name: data.name,
+    position: data.position ?? nextPosition,
+    createdAt: data.created_at,
   };
 
-  const updatedTasks = [...(routine.tasks || []), newTask];
+  const updatedTasks = [...(routine.tasks || []), newTask].sort(
+    (a, b) => (a.position ?? 0) - (b.position ?? 0)
+  );
   const updatedRoutine = { ...routine, tasks: updatedTasks };
 
-  setRoutines((prev) =>
-    prev.map((r) => (r.id === routineId ? updatedRoutine : r))
-  );
+  setRoutines((prev) => {
+    const next = prev.map((r) => (r.id === routineId ? updatedRoutine : r));
+    persistRoutinesLocally(next);
+    return next;
+  });
 };
 
 const removeTaskFromRoutine = async (routineId, taskId) => {
@@ -1196,11 +1308,27 @@ const removeTaskFromRoutine = async (routineId, taskId) => {
   if (!routine) return;
 
   const updatedTasks = (routine.tasks || []).filter((t) => t.id !== taskId);
-  const updatedRoutine = { ...routine, tasks: updatedTasks };
+  const resequenced = updatedTasks.map((t, idx) => ({ ...t, position: idx }));
+  const updatedRoutine = { ...routine, tasks: resequenced };
 
-  setRoutines((prev) =>
-    prev.map((r) => (r.id === routineId ? updatedRoutine : r))
+  await supabase.from(ROUTINE_TASKS_TABLE).delete().eq('id', taskId).eq('user_id', authUser.id);
+
+  // update positions for remaining tasks
+  await Promise.all(
+    resequenced.map((t) =>
+      supabase
+        .from(ROUTINE_TASKS_TABLE)
+        .update({ position: t.position })
+        .eq('id', t.id)
+        .eq('user_id', authUser.id)
+    )
   );
+
+  setRoutines((prev) => {
+    const next = prev.map((r) => (r.id === routineId ? updatedRoutine : r));
+    persistRoutinesLocally(next);
+    return next;
+  });
 };
 
 const reorderRoutineTasks = async (routineId, newTaskOrder) => {
@@ -1209,11 +1337,28 @@ const reorderRoutineTasks = async (routineId, newTaskOrder) => {
   const routine = routines.find((r) => r.id === routineId);
   if (!routine) return;
 
-  const updatedRoutine = { ...routine, tasks: newTaskOrder };
+  const resequenced = (newTaskOrder || []).map((t, idx) => ({
+    ...t,
+    position: idx,
+  }));
 
-  setRoutines((prev) =>
-    prev.map((r) => (r.id === routineId ? updatedRoutine : r))
+  await Promise.all(
+    resequenced.map((t) =>
+      supabase
+        .from(ROUTINE_TASKS_TABLE)
+        .update({ position: t.position })
+        .eq('id', t.id)
+        .eq('user_id', authUser.id)
+    )
   );
+
+  const updatedRoutine = { ...routine, tasks: resequenced };
+
+  setRoutines((prev) => {
+    const next = prev.map((r) => (r.id === routineId ? updatedRoutine : r));
+    persistRoutinesLocally(next);
+    return next;
+  });
 };
 
 
@@ -1318,6 +1463,19 @@ const deleteChore = async (choreId) => {
   setChores((prev) => prev.filter((c) => c.id !== choreId));
 };
 
+const mapReminderRow = (row) => {
+  const parts = parseDateTimeParts(row?.date_time || row?.date || null);
+  return {
+    id: row?.id,
+    title: row?.title,
+    description: row?.description || '',
+    date: parts.date,
+    time: row?.time || parts.time,
+    dateTime: parts.dateTimeISO,
+    createdAt: row?.created_at,
+  };
+};
+
 const fetchRemindersFromSupabase = async (userId) => {
   const { data, error } = await supabase
     .from('reminders')
@@ -1330,12 +1488,7 @@ const fetchRemindersFromSupabase = async (userId) => {
     return;
   }
 
-  const mapped = (data || []).map((r) => ({
-    id: r.id,
-    title: r.title,
-    dateTime: r.date_time || r.date || null,
-    createdAt: r.created_at,
-  }));
+  const mapped = (data || []).map((r) => mapReminderRow(r));
 
   setReminders(mapped);
 };
@@ -1346,28 +1499,66 @@ const addReminder = async (reminder) => {
     throw new Error('You must be logged in to add a reminder.');
   }
 
+  const combinedDate = buildDateWithTime(
+    reminder.date || reminder.dateTime,
+    reminder.time,
+    DEFAULT_EVENT_TIME.hour,
+    DEFAULT_EVENT_TIME.minute
+  );
+
+  const payload = {
+    user_id: authUser.id,
+    title: reminder.title,
+    description: reminder.description || null,
+  };
+
+  if (combinedDate) {
+    payload.date_time = combinedDate.toISOString();
+    payload.date = combinedDate.toISOString().slice(0, 10);
+    payload.time = reminder.time || formatTimeFromDate(combinedDate);
+  } else {
+    payload.date = reminder.dateTime || reminder.date || null;
+    if (reminder.time) payload.time = reminder.time;
+  }
+
   const { data, error } = await supabase
     .from('reminders')
-    .insert({
-      user_id: authUser.id,
-      title: reminder.title,
-      // use 'date' column (or fallback) since date_time may not exist in schema
-      date: reminder.dateTime || reminder.date || null,
-    })
+    .insert(payload)
     .select()
     .single();
 
   if (error) {
     console.log('Error adding reminder:', error);
-    throw error;
+    const { data: fallbackData, error: fallbackError } = await supabase
+      .from('reminders')
+      .insert({
+        user_id: authUser.id,
+        title: reminder.title,
+        date: reminder.dateTime || reminder.date || null,
+      })
+      .select()
+      .single();
+
+    if (fallbackError) {
+      console.log('Error adding reminder with fallback payload:', fallbackError);
+      throw fallbackError;
+    }
+    const fallbackMapped = mapReminderRow({
+      ...fallbackData,
+      description: reminder.description,
+      time: reminder.time,
+      date_time: combinedDate ? combinedDate.toISOString() : null,
+    });
+    setReminders((prev) => [...prev, fallbackMapped]);
+    return fallbackMapped;
   }
 
-  const newReminder = {
-    id: data.id,
-    title: data.title,
-    dateTime: data.date_time,
-    createdAt: data.created_at,
-  };
+  const newReminder = mapReminderRow({
+    ...data,
+    description: data?.description ?? reminder.description,
+    time: data?.time ?? reminder.time,
+    date_time: data?.date_time ?? (combinedDate ? combinedDate.toISOString() : null),
+  });
 
   setReminders((prev) => [...prev, newReminder]);
   return newReminder;
@@ -1929,6 +2120,197 @@ const getFinanceSummaryForDate = (date) => {
     await upsertUserSettings({ ...userSettings, themeName: name });
   };
 
+  // NOTIFICATION HELPERS
+  const scheduleTaskNotifications = async () => {
+    const now = Date.now();
+    const pendingTasks = (tasks || []).filter((t) => t.date && !t.completed);
+
+    for (const task of pendingTasks) {
+      const scheduledAt = buildDateWithTime(
+        task.date,
+        task.time,
+        DEFAULT_EVENT_TIME.hour,
+        DEFAULT_EVENT_TIME.minute
+      );
+
+      if (!scheduledAt) continue;
+
+      const baseBody = `Due ${formatFriendlyDateTime(scheduledAt)}`;
+      const oneDayBefore = new Date(scheduledAt.getTime() - 24 * 60 * 60 * 1000);
+      if (oneDayBefore.getTime() > now) {
+        await scheduleLocalNotificationAsync({
+          title: `Tomorrow: ${task.title}`,
+          body: baseBody,
+          data: { type: 'task', id: task.id },
+          trigger: oneDayBefore,
+        });
+      }
+
+      const thirtyBefore = new Date(scheduledAt.getTime() - 30 * 60 * 1000);
+      const triggerTime =
+        thirtyBefore.getTime() > now ? thirtyBefore : scheduledAt;
+
+      if (triggerTime.getTime() > now) {
+        await scheduleLocalNotificationAsync({
+          title: 'Upcoming task',
+          body: `${task.title} • ${formatFriendlyDateTime(scheduledAt)}`,
+          data: { type: 'task', id: task.id },
+          trigger: triggerTime,
+        });
+      }
+    }
+  };
+
+  const scheduleReminderNotifications = async () => {
+    const now = Date.now();
+    for (const reminder of reminders || []) {
+      const reminderDate = buildDateWithTime(
+        reminder.date || reminder.dateTime,
+        reminder.time,
+        DEFAULT_EVENT_TIME.hour,
+        DEFAULT_EVENT_TIME.minute
+      );
+
+      if (!reminderDate || reminderDate.getTime() <= now) continue;
+
+      await scheduleLocalNotificationAsync({
+        title: reminder.title || 'Reminder',
+        body: formatFriendlyDateTime(reminderDate),
+        data: { type: 'reminder', id: reminder.id },
+        trigger: reminderDate,
+      });
+    }
+  };
+
+  const weekdayMap = {
+    Sun: 1,
+    Mon: 2,
+    Tue: 3,
+    Wed: 4,
+    Thu: 5,
+    Fri: 6,
+    Sat: 7,
+  };
+
+  const scheduleHabitNotifications = async () => {
+    const habitsToSchedule = habits || [];
+
+    for (const habit of habitsToSchedule) {
+      const days =
+        Array.isArray(habit.days) && habit.days.length
+          ? habit.days
+          : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+      const content = {
+        title: habit.title ? `Habit: ${habit.title}` : 'Habit reminder',
+        body: 'Time to check in on your habit progress for today.',
+        data: { type: 'habit', id: habit.id },
+      };
+
+      if (habit.repeat === 'Daily' || days.length === 7) {
+        await scheduleLocalNotificationAsync({
+          ...content,
+          trigger: {
+            hour: HABIT_REMINDER_TIME.hour,
+            minute: HABIT_REMINDER_TIME.minute,
+            repeats: true,
+          },
+        });
+        continue;
+      }
+
+      for (const day of days) {
+        const weekday = weekdayMap[day] || weekdayMap[day?.slice(0, 3)];
+        if (!weekday) continue;
+
+        await scheduleLocalNotificationAsync({
+          ...content,
+          trigger: {
+            weekday,
+            hour: HABIT_REMINDER_TIME.hour,
+            minute: HABIT_REMINDER_TIME.minute,
+            repeats: true,
+          },
+        });
+      }
+    }
+  };
+
+  const scheduleRoutineNotifications = async () => {
+    const routineList = routines || [];
+
+    for (const routine of routineList) {
+      await scheduleLocalNotificationAsync({
+        title: routine.name ? `Routine: ${routine.name}` : 'Routine check-in',
+        body: 'Review your routine tasks for today.',
+        data: { type: 'routine', id: routine.id },
+        trigger: {
+          hour: ROUTINE_REMINDER_TIME.hour,
+          minute: ROUTINE_REMINDER_TIME.minute,
+          repeats: true,
+        },
+      });
+    }
+  };
+
+  const rescheduleAllNotifications = useCallback(async () => {
+    if (!userSettings.notificationsEnabled || !authUser || !hasNotificationPermission) {
+      await cancelAllScheduledNotificationsAsync();
+      return;
+    }
+
+    await cancelAllScheduledNotificationsAsync();
+
+    if (userSettings.taskRemindersEnabled) {
+      await scheduleTaskNotifications();
+    }
+    if (userSettings.habitRemindersEnabled) {
+      await scheduleHabitNotifications();
+    }
+    await scheduleRoutineNotifications();
+    await scheduleReminderNotifications();
+  }, [
+    authUser,
+    hasNotificationPermission,
+    reminders,
+    routines,
+    tasks,
+    habits,
+    userSettings.notificationsEnabled,
+    userSettings.taskRemindersEnabled,
+    userSettings.habitRemindersEnabled,
+  ]);
+
+  useEffect(() => {
+    const syncPermission = async () => {
+      if (!authUser || !userSettings.notificationsEnabled) {
+        setHasNotificationPermission(false);
+        await cancelAllScheduledNotificationsAsync();
+        return;
+      }
+      const granted = await requestNotificationPermissionAsync();
+      setHasNotificationPermission(granted);
+    };
+
+    syncPermission();
+  }, [authUser, userSettings.notificationsEnabled]);
+
+  useEffect(() => {
+    if (isLoading) return;
+    rescheduleAllNotifications();
+  }, [
+    isLoading,
+    rescheduleAllNotifications,
+    tasks,
+    habits,
+    routines,
+    reminders,
+    userSettings.notificationsEnabled,
+    userSettings.taskRemindersEnabled,
+    userSettings.habitRemindersEnabled,
+    hasNotificationPermission,
+  ]);
+
   // COMPUTED VALUES
   const getBestStreak = () => {
     if (habits.length === 0) return 0;
@@ -1961,6 +2343,7 @@ const getFinanceSummaryForDate = (date) => {
   const value = {
     // Loading
     isLoading,
+    hasNotificationPermission,
 
     // Habits
     habits,
