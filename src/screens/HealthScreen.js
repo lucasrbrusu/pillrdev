@@ -9,6 +9,7 @@ import {
 import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
 import { Card, Modal, Button, Input } from '../components';
 import {
@@ -44,6 +45,8 @@ const MOOD_OPTIONS = [
 
 const HealthScreen = () => {
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
+  const route = useRoute();
   const {
     healthData,
     todayHealth,
@@ -228,6 +231,13 @@ const HealthScreen = () => {
     setMoodSliderIndex(currentMoodIndex());
     setShowMoodModal(true);
   };
+
+  useEffect(() => {
+    if (route.params?.openMoodPicker) {
+      openMoodPicker();
+      navigation.setParams({ openMoodPicker: false });
+    }
+  }, [navigation, route.params?.openMoodPicker]);
 
   const handleMoodSave = async () => {
     await updateHealthForDate(selectedDateISO, { mood: moodSliderIndex + 1 });

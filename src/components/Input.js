@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, TextInput, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, borderRadius, spacing, typography } from '../utils/theme';
+import { useApp } from '../context/AppContext';
 import { supabase } from '../utils/supabaseClient';
 
 const Input = ({

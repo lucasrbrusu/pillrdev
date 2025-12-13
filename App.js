@@ -5,16 +5,18 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AppProvider } from './src/context/AppContext';
 import Navigation from './src/navigation';
 import { useApp } from './src/context/AppContext';
-import { View } from 'react-native';
+import { View, Keyboard, TouchableWithoutFeedback } from 'react-native';
 
 const AppContent = () => {
   const { themeColors, themeName } = useApp();
 
   return (
-    <View style={{ flex: 1, backgroundColor: themeColors.background }}>
-      <StatusBar style={themeName === 'dark' ? 'light' : 'dark'} />
-      <Navigation />
-    </View>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <View style={{ flex: 1, backgroundColor: themeColors.background }}>
+        <StatusBar style={themeName === 'dark' ? 'light' : 'dark'} />
+        <Navigation />
+      </View>
+    </TouchableWithoutFeedback>
   );
 };
 

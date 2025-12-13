@@ -6,6 +6,8 @@ import {
   ScrollView,
   TouchableOpacity,
   Platform,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -350,12 +352,14 @@ const TasksScreen = () => {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: themeColors.background }]}>
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <View style={[styles.container, { paddingTop: insets.top, backgroundColor: themeColors.background }]}>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
         {/* Action Buttons */}
         <View style={styles.actionRow}>
           <Button
@@ -558,18 +562,18 @@ const TasksScreen = () => {
             ))
           )}
         </Card>
-      </ScrollView>
+        </ScrollView>
 
-      {/* Add Task Modal */}
-      <Modal
-        visible={showTaskModal}
-        onClose={() => {
-          setShowTaskModal(false);
-          resetTaskForm();
-        }}
-        title="New Task"
-        fullScreen
-      >
+        {/* Add Task Modal */}
+        <Modal
+          visible={showTaskModal}
+          onClose={() => {
+            setShowTaskModal(false);
+            resetTaskForm();
+          }}
+          title="New Task"
+          fullScreen
+        >
         <Input
           label="Task Title"
           value={taskTitle}
@@ -820,18 +824,18 @@ const TasksScreen = () => {
             containerStyle={styles.noteContentWrapper}
           />
         </View>
-      </Modal>
+        </Modal>
 
-      {/* Task Detail Modal */}
-      <Modal
-        visible={showTaskDetailModal}
-        onClose={() => {
-          setShowTaskDetailModal(false);
-          setSelectedTask(null);
-        }}
-        title="Task Details"
-        fullScreen
-      >
+        {/* Task Detail Modal */}
+        <Modal
+          visible={showTaskDetailModal}
+          onClose={() => {
+            setShowTaskDetailModal(false);
+            setSelectedTask(null);
+          }}
+          title="Task Details"
+          fullScreen
+        >
         {selectedTask && (
           <>
             <Text style={styles.detailTitle}>{selectedTask.title}</Text>
@@ -903,18 +907,18 @@ const TasksScreen = () => {
             />
           </>
         )}
-      </Modal>
+        </Modal>
 
-      {/* Note Detail Modal */}
-      <Modal
-        visible={showNoteDetailModal}
-        onClose={() => {
-          setShowNoteDetailModal(false);
-          setSelectedNote(null);
-        }}
-        title="Note"
-        fullScreen
-      >
+        {/* Note Detail Modal */}
+        <Modal
+          visible={showNoteDetailModal}
+          onClose={() => {
+            setShowNoteDetailModal(false);
+            setSelectedNote(null);
+          }}
+          title="Note"
+          fullScreen
+        >
         {selectedNote && (
           <>
             <Text style={styles.detailTitle}>{selectedNote.title}</Text>
@@ -940,18 +944,18 @@ const TasksScreen = () => {
             </View>
           </>
         )}
-      </Modal>
+        </Modal>
 
-      {/* Note Security Modal */}
-      <Modal
-        visible={showNoteSecurityModal}
-        onClose={() => {
-          setShowNoteSecurityModal(false);
-          resetSecurityForm();
-        }}
-        title="Note Security"
-        fullScreen
-      >
+        {/* Note Security Modal */}
+        <Modal
+          visible={showNoteSecurityModal}
+          onClose={() => {
+            setShowNoteSecurityModal(false);
+            resetSecurityForm();
+          }}
+          title="Note Security"
+          fullScreen
+        >
         {selectedNote && (
           <>
             <Text style={styles.inputLabel}>Note</Text>
@@ -1009,19 +1013,19 @@ const TasksScreen = () => {
             </View>
           </>
         )}
-      </Modal>
+        </Modal>
 
-      {/* Unlock Modal */}
-      <Modal
-        visible={showUnlockModal}
-        onClose={() => {
-          setShowUnlockModal(false);
-          setNoteToUnlock(null);
-          setCurrentNotePassword('');
-          setSecurityError('');
-        }}
-        title="Unlock Note"
-      >
+        {/* Unlock Modal */}
+        <Modal
+          visible={showUnlockModal}
+          onClose={() => {
+            setShowUnlockModal(false);
+            setNoteToUnlock(null);
+            setCurrentNotePassword('');
+            setSecurityError('');
+          }}
+          title="Unlock Note"
+        >
         {noteToUnlock && (
           <>
             <Text style={styles.detailTitle}>{noteToUnlock.title}</Text>
@@ -1063,15 +1067,16 @@ const TasksScreen = () => {
             </View>
           </>
         )}
-      </Modal>
+        </Modal>
 
-    </View>
+      </View>
+    </TouchableWithoutFeedback>
   );
 };
 
 const createStyles = (themeColors) => {
-  const backgroundColor = themeColors?.background || colors.background;
-  const textColor = themeColors?.text || colors.text;
+  const backgroundColor = (themeColors && themeColors.background) || colors.background;
+  const textColor = (themeColors && themeColors.text) || colors.text;
 
   return StyleSheet.create({
   container: {

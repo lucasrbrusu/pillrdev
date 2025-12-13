@@ -177,28 +177,28 @@ const HomeScreen = () => {
 
         {/* Upcoming Reminders */}
         <Card
-          style={styles.sectionCard}
+          style={[styles.sectionCard, styles.remindersCard]}
           onPress={() => navigation.navigate('Routine')}
         >
           <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>Reminders</Text>
-            <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
+            <Text style={[styles.cardTitle, styles.remindersTitle]}>Reminders</Text>
+            <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
           </View>
           {upcomingReminders.length === 0 ? (
-            <Text style={styles.emptyText}>No reminders available</Text>
+            <Text style={[styles.emptyText, styles.remindersText]}>No reminders available</Text>
           ) : (
             <View style={styles.reminderList}>
               {upcomingReminders.map((reminder) => (
                 <View key={reminder.id} style={styles.reminderItem}>
                   <View style={styles.reminderIcon}>
-                    <Ionicons name="notifications-outline" size={18} color={colors.routine} />
+                    <Ionicons name="notifications-outline" size={18} color="#FFFFFF" />
                   </View>
                   <View style={styles.reminderContent}>
-                    <Text style={styles.reminderTitle} numberOfLines={1}>
+                    <Text style={[styles.reminderTitle, styles.remindersText]} numberOfLines={1}>
                       {reminder.title}
                     </Text>
                     {(reminder.date || reminder.time) && (
-                      <Text style={styles.reminderMeta}>
+                      <Text style={[styles.reminderMeta, styles.remindersMeta]}>
                         {reminder.date}
                         {reminder.time ? ` • ${reminder.time}` : ''}
                       </Text>
@@ -212,51 +212,51 @@ const HomeScreen = () => {
 
         {/* Today's Overview */}
         <Card
-          style={styles.sectionCard}
+          style={[styles.sectionCard, styles.tasksOverviewCard]}
           onPress={() => navigation.navigate('Tasks')}
         >
           <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>Today's Overview</Text>
-            <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
+            <Text style={[styles.cardTitle, styles.tasksOverviewTitle]}>Today's Overview</Text>
+            <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
           </View>
-          <Text style={styles.dateText}>{formattedDate}</Text>
+          <Text style={[styles.dateText, styles.tasksOverviewMeta]}>{formattedDate}</Text>
           {todayTasks.length > 0 ? (
             <View style={styles.tasksList}>
               {todayTasks.slice(0, 3).map((task) => (
                 <View key={task.id} style={styles.taskItem}>
-                  <View style={[styles.taskDot, { backgroundColor: colors.tasks }]} />
-                  <Text style={styles.taskText} numberOfLines={1}>
+                  <View style={[styles.taskDot, styles.tasksOverviewDot]} />
+                  <Text style={[styles.taskText, styles.tasksOverviewText]} numberOfLines={1}>
                     {task.title}
                   </Text>
                   {task.time && (
-                    <Text style={styles.taskTime}>{task.time}</Text>
+                    <Text style={[styles.taskTime, styles.tasksOverviewMeta]}>{task.time}</Text>
                   )}
                 </View>
               ))}
             </View>
           ) : (
-            <Text style={styles.emptyText}>No tasks scheduled for today</Text>
+            <Text style={[styles.emptyText, styles.tasksOverviewText]}>No tasks scheduled for today</Text>
           )}
         </Card>
 
         {/* Today's Health */}
         <Card
-          style={styles.sectionCard}
+          style={[styles.sectionCard, styles.healthCard]}
           onPress={() => navigation.navigate('Health')}
         >
           <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>Today's Health</Text>
-            <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
+            <Text style={[styles.cardTitle, styles.healthTitle]}>Today's Health</Text>
+            <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
           </View>
           {currentMood ? (
             <View style={styles.healthContent}>
               <Text style={styles.moodEmoji}>{currentMood.emoji}</Text>
-              <Text style={styles.moodLabel}>Feeling {currentMood.label.toLowerCase()}</Text>
+              <Text style={[styles.moodLabel, styles.healthText]}>Feeling {currentMood.label.toLowerCase()}</Text>
             </View>
           ) : (
             <View style={styles.healthPrompt}>
-              <Ionicons name="heart-outline" size={20} color={colors.health} />
-              <Text style={styles.healthPromptText}>
+              <Ionicons name="heart-outline" size={20} color="#FFFFFF" />
+              <Text style={[styles.healthPromptText, styles.healthText]}>
                 Check in with your health and mood today
               </Text>
             </View>
@@ -264,66 +264,69 @@ const HomeScreen = () => {
         </Card>
 
         {!currentMood && (
-          <Card style={styles.sectionCard}>
+          <Card
+            style={[styles.sectionCard, styles.moodPromptCard]}
+            onPress={() => navigation.navigate('Health', { openMoodPicker: true })}
+          >
             <Text style={styles.cardTitle}>Check in with your mood today!</Text>
           </Card>
         )}
 
         {/* Your Habits */}
         <Card
-          style={styles.sectionCard}
+          style={[styles.sectionCard, styles.habitsCard]}
           onPress={() => navigation.navigate('Habits')}
         >
           <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>Your Habits</Text>
-            <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
+            <Text style={[styles.cardTitle, styles.habitsTitle]}>Your Habits</Text>
+            <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
           </View>
           {recentHabits.length > 0 ? (
             <View style={styles.habitsList}>
               {recentHabits.map((habit) => (
                 <View key={habit.id} style={styles.habitItem}>
-                  <View style={[styles.habitDot, { backgroundColor: colors.habits }]} />
-                  <Text style={styles.habitText} numberOfLines={1}>
+                  <View style={[styles.habitDot, { backgroundColor: '#FFFFFF' }]} />
+                  <Text style={[styles.habitText, styles.habitsText]} numberOfLines={1}>
                     {habit.title}
                   </Text>
                 </View>
               ))}
             </View>
           ) : (
-            <Text style={styles.emptyText}>No habits yet</Text>
+            <Text style={[styles.emptyText, styles.habitsText]}>No habits yet</Text>
           )}
         </Card>
 
         {/* Home & Chores */}
         <Card
-          style={[styles.sectionCard, styles.lastCard]}
+          style={[styles.sectionCard, styles.lastCard, styles.choresCard]}
           onPress={() => navigation.navigate('Routine')}
         >
           <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>Home & Chores</Text>
-            <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
+            <Text style={[styles.cardTitle, styles.choresTitle]}>Home & Chores</Text>
+            <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
           </View>
           {upcomingChores.length > 0 || groceryPreview.length > 0 ? (
             <View>
               {upcomingChores.map((chore) => (
                 <View key={chore.id} style={styles.choreItem}>
-                  <Ionicons name="checkbox-outline" size={18} color={colors.routine} />
-                  <Text style={styles.choreText} numberOfLines={1}>
+                  <Ionicons name="checkbox-outline" size={18} color="#FFFFFF" />
+                  <Text style={[styles.choreText, styles.choresText]} numberOfLines={1}>
                     {chore.title}
                   </Text>
                 </View>
               ))}
               {groceryPreview.length > 0 && (
                 <View style={styles.groceryPreview}>
-                  <Ionicons name="cart-outline" size={16} color={colors.textLight} />
-                  <Text style={styles.groceryText}>
+                  <Ionicons name="cart-outline" size={16} color="#FFFFFF" />
+                  <Text style={[styles.groceryText, styles.choresText]}>
                     {groceryPreview.length} item{groceryPreview.length !== 1 ? 's' : ''} on grocery list
                   </Text>
                 </View>
               )}
             </View>
           ) : (
-            <Text style={styles.emptyText}>No upcoming chores or grocery items</Text>
+            <Text style={[styles.emptyText, styles.choresText]}>No upcoming chores or grocery items</Text>
           )}
         </Card>
       </ScrollView>
@@ -451,6 +454,22 @@ const createStyles = () =>
       ...typography.caption,
       marginLeft: spacing.sm,
     },
+    tasksOverviewCard: {
+      backgroundColor: colors.tasks,
+      borderColor: colors.tasks,
+    },
+    tasksOverviewTitle: {
+      color: '#FFFFFF',
+    },
+    tasksOverviewText: {
+      color: '#FFFFFF',
+    },
+    tasksOverviewMeta: {
+      color: '#FFFFFFCC',
+    },
+    tasksOverviewDot: {
+      backgroundColor: '#FFFFFF',
+    },
   healthContent: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -484,6 +503,16 @@ const createStyles = () =>
       color: colors.health,
       marginLeft: spacing.sm,
     },
+    healthCard: {
+      backgroundColor: colors.health,
+      borderColor: colors.health,
+    },
+    healthTitle: {
+      color: '#FFFFFF',
+    },
+    healthText: {
+      color: '#FFFFFF',
+    },
     habitsList: {
       marginTop: spacing.xs,
     },
@@ -500,6 +529,10 @@ const createStyles = () =>
     },
     habitText: {
       ...typography.body,
+    },
+    moodPromptCard: {
+      backgroundColor: 'rgba(64, 164, 223, 0.15)',
+      borderColor: 'rgba(64, 164, 223, 0.3)',
     },
     choreItem: {
       flexDirection: 'row',
@@ -519,13 +552,13 @@ const createStyles = () =>
       alignItems: 'center',
       paddingVertical: spacing.sm,
       borderBottomWidth: 1,
-      borderBottomColor: colors.divider,
+      borderBottomColor: '#FFFFFF33',
     },
     reminderIcon: {
       width: 36,
       height: 36,
       borderRadius: borderRadius.full,
-      backgroundColor: `${colors.routine}15`,
+      backgroundColor: '#FFFFFF22',
       alignItems: 'center',
       justifyContent: 'center',
       marginRight: spacing.sm,
@@ -542,17 +575,60 @@ const createStyles = () =>
       color: colors.textSecondary,
       marginTop: 2,
     },
+    remindersCard: {
+      backgroundColor: colors.routine,
+      borderColor: colors.routine,
+    },
+    remindersTitle: {
+      color: '#FFFFFF',
+    },
+    remindersText: {
+      color: '#FFFFFF',
+    },
+    remindersMeta: {
+      color: '#FFFFFFCC',
+    },
+    healthCard: {
+      backgroundColor: colors.health,
+      borderColor: colors.health,
+    },
+    healthTitle: {
+      color: '#FFFFFF',
+    },
+    healthText: {
+      color: '#FFFFFF',
+    },
     groceryPreview: {
       flexDirection: 'row',
       alignItems: 'center',
       marginTop: spacing.sm,
       paddingTop: spacing.sm,
       borderTopWidth: 1,
-      borderTopColor: colors.divider,
+      borderTopColor: '#FFFFFF33',
     },
     groceryText: {
       ...typography.bodySmall,
       marginLeft: spacing.sm,
+    },
+    choresCard: {
+      backgroundColor: colors.routine,
+      borderColor: colors.routine,
+    },
+    choresTitle: {
+      color: '#FFFFFF',
+    },
+    choresText: {
+      color: '#FFFFFF',
+    },
+    habitsCard: {
+      backgroundColor: colors.habits,
+      borderColor: colors.habits,
+    },
+    habitsTitle: {
+      color: '#FFFFFF',
+    },
+    habitsText: {
+      color: '#FFFFFF',
     },
   });
 
