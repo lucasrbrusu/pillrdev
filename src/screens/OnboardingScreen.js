@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import Button from '../components/Button';
 import { useApp } from '../context/AppContext';
 import { colors, borderRadius, spacing, typography, shadows } from '../utils/theme';
@@ -12,14 +12,16 @@ const pillars = [
     id: 'habits',
     title: 'Micro Habits',
     description: 'Build lasting change through small, consistent actions.',
-    icon: 'radio-button-on-outline',
+    icon: 'target',
+    iconType: 'feather',
     color: colors.habits,
   },
   {
     id: 'planning',
     title: 'Daily Planning',
     description: 'Organize your schedule with clarity and intention.',
-    icon: 'calendar-outline',
+    icon: 'edit-3',
+    iconType: 'feather',
     color: colors.tasks,
   },
   {
@@ -27,13 +29,23 @@ const pillars = [
     title: 'Health Tracking',
     description: 'Monitor your wellness journey day by day.',
     icon: 'heart-outline',
+    iconType: 'ionicons',
     color: colors.health,
   },
   {
     id: 'home',
     title: 'Home Routines',
     description: 'Maintain your space with effortless organization.',
-    icon: 'home-outline',
+    icon: 'history',
+    iconType: 'material',
+    color: colors.routine,
+  },
+  {
+    id: 'finance',
+    title: 'Finance',
+    description: 'Track expenses, income, and stay on budget.',
+    icon: 'trending-up',
+    iconType: 'feather',
     color: colors.finance,
   },
 ];
@@ -58,27 +70,46 @@ const OnboardingScreen = ({ navigation }) => {
       >
         <View style={styles.badgeRow}>
           <View style={[styles.badge, { backgroundColor: `${colors.habits}15` }]}>
-            <Ionicons name="radio-button-on" size={18} color={colors.habits} />
+            <Feather name="target" size={18} color={colors.habits} />
           </View>
           <View style={[styles.badge, { backgroundColor: `${colors.tasks}15` }]}>
-            <Ionicons name="calendar-clear-outline" size={18} color={colors.tasks} />
+            <Feather name="edit-3" size={18} color={colors.tasks} />
           </View>
           <View style={[styles.badge, { backgroundColor: `${colors.health}15` }]}>
-            <Ionicons name="heart" size={18} color={colors.health} />
+            <Ionicons name="heart-outline" size={18} color={colors.health} />
+          </View>
+          <View style={[styles.badge, { backgroundColor: `${colors.routine}15` }]}>
+            <MaterialCommunityIcons name="history" size={18} color={colors.routine} />
           </View>
           <View style={[styles.badge, { backgroundColor: `${colors.finance}15` }]}>
-            <Ionicons name="home" size={18} color={colors.finance} />
+            <Feather name="trending-up" size={18} color={colors.finance} />
           </View>
         </View>
 
-        <Text style={styles.title}>Pillr</Text>
+        <View style={styles.logoRow}>
+          <View style={styles.logoIcon}>
+            <View style={[styles.logoDot, { backgroundColor: colors.habits }]} />
+            <View style={[styles.logoDot, { backgroundColor: colors.tasks }]} />
+            <View style={[styles.logoDot, { backgroundColor: colors.health }]} />
+            <View style={[styles.logoDot, { backgroundColor: colors.routine }]} />
+          </View>
+          <Text style={styles.logoTitle}>Pillr</Text>
+        </View>
         <Text style={styles.subtitle}>Four pillars for a balanced life</Text>
 
         <View style={styles.pillarsContainer}>
           {pillars.map((pillar) => (
             <TouchableOpacity key={pillar.id} activeOpacity={0.9} style={styles.pillarCard}>
               <View style={[styles.iconContainer, { backgroundColor: `${pillar.color}15` }]}>
-                <Ionicons name={pillar.icon} size={24} color={pillar.color} />
+                {pillar.iconType === 'feather' && (
+                  <Feather name={pillar.icon} size={24} color={pillar.color} />
+                )}
+                {pillar.iconType === 'material' && (
+                  <MaterialCommunityIcons name={pillar.icon} size={24} color={pillar.color} />
+                )}
+                {!pillar.iconType || pillar.iconType === 'ionicons' ? (
+                  <Ionicons name={pillar.icon} size={24} color={pillar.color} />
+                ) : null}
               </View>
               <View style={styles.pillarText}>
                 <Text style={styles.pillarTitle}>{pillar.title}</Text>
@@ -131,11 +162,37 @@ const createStyles = () => StyleSheet.create({
     textAlign: 'center',
     marginBottom: spacing.sm,
   },
+  logoTitle: {
+    fontSize: 36,
+    fontWeight: '800',
+    color: colors.text,
+    textAlign: 'center',
+    marginBottom: 0,
+  },
   subtitle: {
     ...typography.body,
     color: colors.textSecondary,
     textAlign: 'center',
     marginBottom: spacing.xl,
+  },
+  logoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
+  },
+  logoIcon: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    width: 28,
+    height: 28,
+    marginRight: spacing.sm,
+  },
+  logoDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 3,
+    margin: 1,
   },
   pillarsContainer: {},
   pillarCard: {

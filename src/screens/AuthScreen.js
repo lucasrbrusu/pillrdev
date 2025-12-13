@@ -8,7 +8,7 @@ import {
   Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import { useApp } from '../context/AppContext';
@@ -114,20 +114,31 @@ const AuthScreen = ({ navigation }) => {
 
         <View style={styles.iconRow}>
           <View style={[styles.badge, { backgroundColor: `${colors.habits}15` }]}>
-            <Ionicons name="radio-button-on" size={18} color={colors.habits} />
+            <Feather name="target" size={18} color={colors.habits} />
           </View>
           <View style={[styles.badge, { backgroundColor: `${colors.tasks}15` }]}>
-            <Ionicons name="calendar-clear-outline" size={18} color={colors.tasks} />
+            <Feather name="edit-3" size={18} color={colors.tasks} />
           </View>
           <View style={[styles.badge, { backgroundColor: `${colors.health}15` }]}>
-            <Ionicons name="heart" size={18} color={colors.health} />
+            <Ionicons name="heart-outline" size={18} color={colors.health} />
+          </View>
+          <View style={[styles.badge, { backgroundColor: `${colors.routine}15` }]}>
+            <MaterialCommunityIcons name="history" size={18} color={colors.routine} />
           </View>
           <View style={[styles.badge, { backgroundColor: `${colors.finance}15` }]}>
-            <Ionicons name="home" size={18} color={colors.finance} />
+            <Feather name="trending-up" size={18} color={colors.finance} />
           </View>
         </View>
 
-        <Text style={styles.title}>Pillr</Text>
+        <View style={styles.logoRow}>
+          <View style={styles.logoIcon}>
+            <View style={[styles.logoDot, { backgroundColor: colors.habits }]} />
+            <View style={[styles.logoDot, { backgroundColor: colors.tasks }]} />
+            <View style={[styles.logoDot, { backgroundColor: colors.health }]} />
+            <View style={[styles.logoDot, { backgroundColor: colors.routine }]} />
+          </View>
+          <Text style={styles.logoTitle}>Pillr</Text>
+        </View>
         <Text style={styles.subtitle}>Welcome back. Let&apos;s get you signed in.</Text>
 
         <View style={styles.tabRow}>
@@ -301,11 +312,36 @@ const createStyles = () => StyleSheet.create({
     marginRight: spacing.sm,
     ...shadows.small,
   },
+  logoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
+  },
+  logoIcon: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    width: 28,
+    height: 28,
+    marginRight: spacing.sm,
+  },
+  logoDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 3,
+    margin: 1,
+  },
   title: {
     fontSize: 32,
     fontWeight: '800',
     color: colors.text,
     marginBottom: spacing.xs,
+  },
+  logoTitle: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: colors.text,
+    marginBottom: 0,
   },
   subtitle: {
     ...typography.body,
