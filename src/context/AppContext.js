@@ -54,7 +54,6 @@ const defaultProfile = {
 
 const defaultHealthDay = () => ({
   mood: null,
-  energy: 3,
   waterIntake: 0,
   sleepTime: null,
   wakeTime: null,
@@ -91,7 +90,6 @@ const mapHealthRow = (row, fallback = defaultHealthDay()) => {
   return {
     ...fallback,
     mood: asNumber(row.mood, fallback.mood),
-    energy: asNumber(row.energy, fallback.energy),
     waterIntake: asNumber(row.water_intake, fallback.waterIntake),
     sleepTime: row.sleep_time ?? fallback.sleepTime,
     wakeTime: row.wake_time ?? fallback.wakeTime,
@@ -928,7 +926,6 @@ const upsertHealthDayRecord = async (dateISO, healthDay) => {
     user_id: authUser.id,
     date: dateISO,
     mood: healthDay?.mood,
-    energy: healthDay?.energy,
     water_intake: healthDay?.waterIntake,
     sleep_time: healthDay?.sleepTime,
     wake_time: healthDay?.wakeTime,
@@ -964,14 +961,15 @@ const updateHealthForDate = async (dateISO, updates = {}) => {
 
   const normalizedDate = normalizeDateKey(dateISO);
   const base = healthData[normalizedDate] || defaultHealthDay();
+  const { energy: _ignoreEnergy, ...updatesWithoutEnergy } = updates || {};
+  const { energy: _ignoreBaseEnergy, ...baseWithoutEnergy } = base;
   const nowISO = new Date().toISOString();
-  const createdAt = base.createdAt || updates?.createdAt || nowISO;
+  const createdAt = baseWithoutEnergy.createdAt || updatesWithoutEnergy?.createdAt || nowISO;
   const newHealth = {
-    ...base,
-    ...updates,
-    mood: asNumber(updates.mood, base.mood),
-    energy: asNumber(updates.energy, base.energy),
-    waterIntake: asNumber(updates.waterIntake, base.waterIntake),
+    ...baseWithoutEnergy,
+    ...updatesWithoutEnergy,
+    mood: asNumber(updatesWithoutEnergy.mood, baseWithoutEnergy.mood),
+    waterIntake: asNumber(updatesWithoutEnergy.waterIntake, baseWithoutEnergy.waterIntake),
     createdAt,
     updatedAt: nowISO,
   };

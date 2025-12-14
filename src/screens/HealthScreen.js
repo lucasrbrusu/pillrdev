@@ -71,11 +71,6 @@ const HealthScreen = () => {
   const [isSavingSleep, setIsSavingSleep] = useState(false);
 
   const sleepQualities = ['Excellent', 'Good', 'Fair', 'Poor'];
-  const energyLevels = [1, 2, 3, 4, 5];
-
-  const handleEnergySelect = (value) => {
-    updateTodayHealth({ energy: value });
-  };
 
   const handleAddWater = () => {
     updateTodayHealth({ waterIntake: (todayHealth.waterIntake || 0) + 1 });
@@ -146,7 +141,6 @@ const HealthScreen = () => {
   const selectedDateKey = selectedDateISO;
   const emptyDay = {
     mood: null,
-    energy: 3,
     waterIntake: 0,
     sleepTime: null,
     wakeTime: null,
@@ -570,33 +564,6 @@ const HealthScreen = () => {
           )}
         </Card>
 
-        {/* Energy Level Section */}
-        <Card style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Energy Level</Text>
-          <View style={styles.energyRow}>
-            {energyLevels.map((level) => (
-              <TouchableOpacity
-                key={level}
-                style={[
-                  styles.energyOption,
-                  todayHealth.energy === level && styles.energyOptionActive,
-                ]}
-                onPress={() => handleEnergySelect(level)}
-              >
-                <Text
-                  style={[
-                    styles.energyText,
-                    todayHealth.energy === level && styles.energyTextActive,
-                  ]}
-                >
-                  {level}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <Text style={styles.energyHint}>1 = Low, 5 = High</Text>
-        </Card>
-
         {/* Water Intake Section */}
         <Card style={[styles.sectionCard, styles.lastCard]}>
           <View style={styles.sectionHeader}>
@@ -805,38 +772,6 @@ const createStyles = () => StyleSheet.create({
   moodLabelActive: {
     color: colors.primary,
     fontWeight: '600',
-  },
-  energyRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-  },
-  energyOption: {
-    width: 48,
-    height: 48,
-    borderRadius: borderRadius.md,
-    backgroundColor: colors.inputBackground,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  energyOptionActive: {
-    backgroundColor: colors.text,
-    borderColor: colors.text,
-  },
-  energyText: {
-    ...typography.body,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  energyTextActive: {
-    color: '#FFFFFF',
-  },
-  energyHint: {
-    ...typography.caption,
-    textAlign: 'center',
-    color: colors.textLight,
   },
   waterCount: {
     ...typography.body,

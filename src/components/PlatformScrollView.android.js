@@ -6,6 +6,7 @@ const PlatformScrollView = React.forwardRef(
     <ScrollView
       ref={ref}
       overScrollMode="always"
+      keyboardDismissMode="on-drag"
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
       scrollEnabled={scrollEnabled !== false}

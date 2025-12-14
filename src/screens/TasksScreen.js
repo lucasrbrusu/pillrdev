@@ -4,8 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Keyboard,
-  TouchableWithoutFeedback,
 } from 'react-native';
 import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -337,16 +335,15 @@ const TasksScreen = () => {
   };
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <View style={[styles.container, { paddingTop: insets.top, backgroundColor: themeColors.background }]}>
-        <PlatformScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          alwaysBounceVertical
-          bounces
-        >
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: themeColors.background }]}>
+      <PlatformScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        alwaysBounceVertical
+        bounces
+      >
         {/* Action Buttons */}
         <View style={styles.actionRow}>
           <Button
@@ -488,12 +485,12 @@ const TasksScreen = () => {
             <Text style={styles.sectionTitle}>Notes</Text>
             <TouchableOpacity
               style={styles.addNewButton}
-              onPress={() => setShowNoteModal(true)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.addNewText}>Add new</Text>
-            </TouchableOpacity>
-          </View>
+            onPress={() => setShowNoteModal(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.addNewText}>Add new</Text>
+          </TouchableOpacity>
+        </View>
 
           {notes.length === 0 ? (
             <View style={styles.emptyState}>
@@ -549,7 +546,7 @@ const TasksScreen = () => {
             ))
           )}
         </Card>
-        </PlatformScrollView>
+      </PlatformScrollView>
 
         {/* Add Task Modal */}
         <Modal
@@ -981,7 +978,6 @@ const TasksScreen = () => {
         </Modal>
 
       </View>
-    </TouchableWithoutFeedback>
   );
 };
 
