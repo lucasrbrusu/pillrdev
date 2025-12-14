@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   TextInput,
 } from 'react-native';
@@ -11,7 +10,15 @@ import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
-import { Card, Modal, Button, Input, ChipGroup } from '../components';
+import {
+  Card,
+  Modal,
+  Button,
+  Input,
+  ChipGroup,
+  PlatformScrollView,
+  PlatformDatePicker,
+} from '../components';
 import {
   colors,
   shadows,
@@ -40,7 +47,6 @@ const FinanceScreen = () => {
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [showChartModal, setShowChartModal] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [calendarMonth, setCalendarMonth] = useState(new Date());
 
   // Transaction form state
   const [amount, setAmount] = useState('');
@@ -162,12 +168,6 @@ const FinanceScreen = () => {
       next.setDate(next.getDate() + days);
       return next;
     });
-    setCalendarMonth((prev) => {
-      const next = new Date(prev);
-      next.setDate(next.getDate() + days);
-      next.setDate(1);
-      return next;
-    });
   };
 
   const handleOpenIncome = () => {
@@ -180,49 +180,14 @@ const FinanceScreen = () => {
     setShowExpenseModal(true);
   };
 
-  const handleMonthShift = (delta) => {
-    setCalendarMonth((prev) => {
-      const next = new Date(prev);
-      next.setMonth(next.getMonth() + delta);
-      return next;
-    });
-  };
-
-  const handleSelectFromCalendar = (date) => {
+  const handleDateChange = (date) => {
     setSelectedDate(date);
     setTransactionDate(formatDateForInput(date));
-    setShowDatePicker(false);
   };
-
-  const getMonthMatrix = (monthDate) => {
-    const start = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
-    const end = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
-    const startDay = start.getDay();
-    const daysInMonth = end.getDate();
-    const days = [];
-
-    // previous month padding
-    for (let i = 0; i < startDay; i++) {
-      days.push(null);
-    }
-    for (let d = 1; d <= daysInMonth; d++) {
-      days.push(new Date(monthDate.getFullYear(), monthDate.getMonth(), d));
-    }
-    while (days.length % 7 !== 0) {
-      days.push(null);
-    }
-    const weeks = [];
-    for (let i = 0; i < days.length; i += 7) {
-      weeks.push(days.slice(i, i + 7));
-    }
-    return weeks;
-  };
-
-  const monthMatrix = getMonthMatrix(calendarMonth);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <ScrollView
+      <PlatformScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -367,7 +332,7 @@ const FinanceScreen = () => {
               ))
           )}
         </Card>
-      </ScrollView>
+      </PlatformScrollView>
 
       {/* Income Modal */}
       <Modal
@@ -560,71 +525,13 @@ const FinanceScreen = () => {
       </Modal>
 
       {/* Date Picker Modal */}
-      <Modal
+      <PlatformDatePicker
         visible={showDatePicker}
+        value={selectedDate}
+        onChange={handleDateChange}
         onClose={() => setShowDatePicker(false)}
-        title="Select Date"
-      >
-        <View style={styles.calendarHeader}>
-          <TouchableOpacity
-            style={styles.calendarNav}
-            onPress={() => handleMonthShift(-1)}
-          >
-            <Ionicons name="chevron-back" size={20} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={styles.calendarTitle}>
-            {calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-          </Text>
-          <TouchableOpacity
-            style={styles.calendarNav}
-            onPress={() => handleMonthShift(1)}
-          >
-            <Ionicons name="chevron-forward" size={20} color={colors.text} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.weekDays}>
-          {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, idx) => (
-            <Text key={`${day}-${idx}`} style={styles.weekDayLabel}>
-              {day}
-            </Text>
-          ))}
-        </View>
-
-        {monthMatrix.map((week, idx) => (
-          <View key={idx} style={styles.weekRow}>
-            {week.map((day, dayIdx) => {
-              const isSelected =
-                day &&
-                day.toDateString() === new Date(selectedDate).toDateString();
-              return (
-                <TouchableOpacity
-                  key={dayIdx}
-                  style={[
-                    styles.dayCell,
-                    isSelected && styles.dayCellSelected,
-                    !day && styles.dayCellEmpty,
-                  ]}
-                  disabled={!day}
-                  onPress={() => day && handleSelectFromCalendar(day)}
-                  activeOpacity={day ? 0.8 : 1}
-                >
-                  {day && (
-                    <Text
-                      style={[
-                        styles.dayLabel,
-                        isSelected && styles.dayLabelSelected,
-                      ]}
-                    >
-                      {day.getDate()}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        ))}
-      </Modal>
+        accentColor={colors.finance}
+      />
     </View>
   );
 };
@@ -921,60 +828,6 @@ const createStyles = () => StyleSheet.create({
   },
   closeChartButton: {
     marginBottom: spacing.lg,
-  },
-  calendarHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
-  },
-  calendarTitle: {
-    ...typography.h3,
-  },
-  calendarNav: {
-    padding: spacing.sm,
-    borderRadius: borderRadius.full,
-    backgroundColor: colors.inputBackground,
-  },
-  weekDays: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-  },
-  weekDayLabel: {
-    ...typography.caption,
-    width: `${100 / 7}%`,
-    textAlign: 'center',
-    color: colors.textSecondary,
-  },
-  weekRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: spacing.xs,
-  },
-  dayCell: {
-    width: `${100 / 7 - 2}%`,
-    aspectRatio: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: borderRadius.md,
-    backgroundColor: colors.inputBackground,
-  },
-  dayCellEmpty: {
-    backgroundColor: 'transparent',
-  },
-  dayCellSelected: {
-    backgroundColor: colors.primaryLight,
-    borderWidth: 1,
-    borderColor: colors.primary,
-  },
-  dayLabel: {
-    ...typography.body,
-    color: colors.text,
-  },
-  dayLabelSelected: {
-    color: colors.primary,
-    fontWeight: '700',
   },
 });
 

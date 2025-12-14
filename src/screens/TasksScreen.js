@@ -3,9 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
-  Platform,
   Keyboard,
   TouchableWithoutFeedback,
 } from 'react-native';
@@ -14,10 +12,19 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
-import { Card, Modal, Button, Input, ChipGroup } from '../components';
+import { formatTimeFromDate } from '../utils/notifications';
+import {
+  Card,
+  Modal,
+  Button,
+  Input,
+  ChipGroup,
+  PlatformDatePicker,
+  PlatformTimePicker,
+  PlatformScrollView,
+} from '../components';
 import {
   colors,
-  shadows,
   borderRadius,
   spacing,
   typography,
@@ -48,6 +55,8 @@ const TasksScreen = () => {
     getUpcomingTasks,
     verifyNotePassword,
     setNotePassword,
+    todayHealth,
+    updateTodayHealth,
     themeColors,
   } = useApp();
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
@@ -61,7 +70,6 @@ const TasksScreen = () => {
   const [showNoteSecurityModal, setShowNoteSecurityModal] = useState(false);
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [datePickerMonth, setDatePickerMonth] = useState(new Date());
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [timePickerTarget, setTimePickerTarget] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
@@ -136,7 +144,6 @@ const TasksScreen = () => {
     setTaskPriority('medium');
     setTaskDate(new Date().toISOString().split('T')[0]);
     setTaskTime('');
-    setDatePickerMonth(new Date());
     setShowDatePicker(false);
     setShowTimePicker(false);
     setTimePickerTarget(null);
@@ -296,38 +303,13 @@ const TasksScreen = () => {
 
   const formatISODate = (date) => date.toISOString().split('T')[0];
 
-  const getMonthMatrix = (monthDate) => {
-    const start = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
-    const end = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
-    const startDay = start.getDay();
-    const daysInMonth = end.getDate();
-    const days = [];
-
-    for (let i = 0; i < startDay; i++) days.push(null);
-    for (let d = 1; d <= daysInMonth; d++) {
-      days.push(new Date(monthDate.getFullYear(), monthDate.getMonth(), d));
-    }
-    while (days.length % 7 !== 0) days.push(null);
-
-    const weeks = [];
-    for (let i = 0; i < days.length; i += 7) {
-      weeks.push(days.slice(i, i + 7));
-    }
-    return weeks;
-  };
-
-  const monthMatrix = useMemo(() => getMonthMatrix(datePickerMonth), [datePickerMonth]);
-
   const handleSelectDate = (date) => {
     setTaskDate(formatISODate(date));
-    setShowDatePicker(false);
   };
 
   const openDatePicker = () => {
     setShowTimePicker(false);
     setTimePickerTarget(null);
-    const base = taskDate ? new Date(taskDate) : new Date();
-    setDatePickerMonth(base);
     setShowDatePicker(true);
   };
 
@@ -338,23 +320,26 @@ const TasksScreen = () => {
   };
 
   const handleSelectTime = (value) => {
+    const normalized =
+      value instanceof Date
+        ? formatTimeFromDate(value)
+        : value;
+
     if (timePickerTarget === 'task') {
-      setTaskTime(value);
+      setTaskTime(normalized);
     }
     if (timePickerTarget === 'sleep') {
-      updateTodayHealth({ sleepTime: value });
+      updateTodayHealth({ sleepTime: normalized });
     }
     if (timePickerTarget === 'wake') {
-      updateTodayHealth({ wakeTime: value });
+      updateTodayHealth({ wakeTime: normalized });
     }
-    setShowTimePicker(false);
-    setTimePickerTarget(null);
   };
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <View style={[styles.container, { paddingTop: insets.top, backgroundColor: themeColors.background }]}>
-        <ScrollView
+        <PlatformScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
@@ -564,7 +549,7 @@ const TasksScreen = () => {
             ))
           )}
         </Card>
-        </ScrollView>
+        </PlatformScrollView>
 
         {/* Add Task Modal */}
         <Modal
@@ -654,116 +639,33 @@ const TasksScreen = () => {
           </View>
         </View>
 
-        {showDatePicker && (
-          <View style={styles.inlinePicker}>
-            <View style={styles.calendarHeader}>
-              <TouchableOpacity
-                style={styles.calendarNav}
-                onPress={() =>
-                  setDatePickerMonth((prev) => {
-                    const next = new Date(prev);
-                    next.setMonth(prev.getMonth() - 1);
-                    return next;
-                  })
-                }
-              >
-                <Ionicons name="chevron-back" size={20} color={colors.text} />
-              </TouchableOpacity>
-              <Text style={styles.calendarTitle}>
-                {datePickerMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-              </Text>
-              <TouchableOpacity
-                style={styles.calendarNav}
-                onPress={() =>
-                  setDatePickerMonth((prev) => {
-                    const next = new Date(prev);
-                    next.setMonth(prev.getMonth() + 1);
-                    return next;
-                  })
-                }
-              >
-                <Ionicons name="chevron-forward" size={20} color={colors.text} />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.weekDays}>
-              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, idx) => (
-                <Text key={`${day}-${idx}`} style={styles.weekDayLabel}>
-                  {day}
-                </Text>
-              ))}
-            </View>
-            {monthMatrix.map((week, idx) => (
-              <View key={idx} style={styles.weekRow}>
-                {week.map((day, dayIdx) => {
-                  const isSelected =
-                    day && formatISODate(day) === formatISODate(new Date(taskDate));
-                  return (
-                    <TouchableOpacity
-                      key={dayIdx}
-                      style={[
-                        styles.dayCell,
-                        isSelected && styles.dayCellSelected,
-                        !day && styles.dayCellEmpty,
-                      ]}
-                      disabled={!day}
-                      onPress={() => day && handleSelectDate(day)}
-                      activeOpacity={day ? 0.8 : 1}
-                    >
-                      {day && (
-                        <Text
-                          style={[
-                            styles.dayLabel,
-                            isSelected && styles.dayLabelSelected,
-                          ]}
-                        >
-                          {day.getDate()}
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            ))}
-            <Button
-              title="Close"
-              variant="secondary"
-              onPress={() => setShowDatePicker(false)}
-              style={styles.pickerCloseButton}
-            />
-          </View>
-        )}
+        <PlatformDatePicker
+          visible={showDatePicker}
+          value={taskDate}
+          onChange={handleSelectDate}
+          onClose={() => setShowDatePicker(false)}
+          accentColor={colors.tasks}
+        />
 
-        {showTimePicker && (
-          <View style={styles.pickerOverlay} pointerEvents="box-none">
-            <TouchableOpacity
-              style={styles.overlayBackdrop}
-              activeOpacity={0.9}
-              onPress={() => setShowTimePicker(false)}
-            />
-            <View style={styles.pickerSheet}>
-              <Text style={styles.pickerTitle}>Select Time</Text>
-              <ScrollView contentContainerStyle={styles.timeList} style={{ maxHeight: 260 }}>
-                {timeOptions.map((time) => (
-                  <TouchableOpacity
-                    key={time}
-                    style={styles.timeOption}
-                    onPress={() => handleSelectTime(time)}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons name="time-outline" size={18} color={colors.textSecondary} />
-                    <Text style={styles.timeOptionText}>{time}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-              <Button
-                title="Close"
-                variant="secondary"
-                onPress={() => setShowTimePicker(false)}
-                style={styles.pickerCloseButton}
-              />
-            </View>
-          </View>
-        )}
+        <PlatformTimePicker
+          visible={showTimePicker}
+          value={
+            timePickerTarget === 'task'
+              ? taskTime
+              : timePickerTarget === 'sleep'
+              ? todayHealth?.sleepTime
+              : timePickerTarget === 'wake'
+              ? todayHealth?.wakeTime
+              : ''
+          }
+          onChange={handleSelectTime}
+          onClose={() => {
+            setShowTimePicker(false);
+            setTimePickerTarget(null);
+          }}
+          options={timeOptions}
+          accentColor={colors.tasks}
+        />
 
         <View style={styles.modalButtons}>
           <Button
@@ -1469,118 +1371,6 @@ const createStyles = (themeColors) => {
   errorText: {
     color: colors.danger,
     marginBottom: spacing.sm,
-  },
-  calendarHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
-  },
-  calendarTitle: {
-    ...typography.h3,
-  },
-  calendarNav: {
-    padding: spacing.sm,
-    borderRadius: borderRadius.full,
-    backgroundColor: colors.inputBackground,
-  },
-  weekDays: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-  },
-  weekDayLabel: {
-    ...typography.caption,
-    width: `${100 / 7}%`,
-    textAlign: 'center',
-    color: colors.textSecondary,
-  },
-  weekRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: spacing.xs,
-  },
-  dayCell: {
-    width: `${100 / 7 - 2}%`,
-    aspectRatio: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: borderRadius.md,
-    backgroundColor: colors.inputBackground,
-  },
-  dayCellEmpty: {
-    backgroundColor: 'transparent',
-  },
-  dayCellSelected: {
-    backgroundColor: colors.primaryLight,
-    borderWidth: 1,
-    borderColor: colors.primary,
-  },
-  dayLabel: {
-    ...typography.body,
-    color: colors.text,
-  },
-  dayLabelSelected: {
-    color: colors.primary,
-    fontWeight: '700',
-  },
-  timeList: {
-    paddingBottom: spacing.xxxl,
-  },
-  timeOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
-  },
-  timeOptionText: {
-    ...typography.body,
-    marginLeft: spacing.sm,
-  },
-  inlinePicker: {
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    marginTop: spacing.md,
-    marginBottom: spacing.xxl,
-    ...shadows.small,
-  },
-  pickerOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    zIndex: 20,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xxl,
-  },
-  overlayBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    // Keep taps to dismiss but avoid dimming/blur
-    backgroundColor: 'transparent',
-  },
-  pickerSheet: {
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.xl,
-    padding: spacing.xl,
-    maxHeight: '75%',
-    width: '90%',
-    alignItems: 'stretch',
-  },
-  centerSheet: {
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.xl,
-    padding: spacing.xl,
-    maxHeight: '75%',
-    width: '90%',
-    alignItems: 'stretch',
-  },
-  pickerTitle: {
-    ...typography.h3,
-    marginBottom: spacing.md,
-  },
-  pickerCloseButton: {
-    marginTop: spacing.md,
   },
 });
 };

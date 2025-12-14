@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   TextInput,
 } from 'react-native';
@@ -11,10 +10,18 @@ import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
-import { Card, Modal, Button, Input } from '../components';
+import {
+  Card,
+  Modal,
+  Button,
+  Input,
+  PlatformScrollView,
+  PlatformDatePicker,
+  PlatformTimePicker,
+} from '../components';
+import { formatTimeFromDate } from '../utils/notifications';
 import {
   colors,
-  shadows,
   borderRadius,
   spacing,
   typography,
@@ -63,14 +70,12 @@ const RoutineScreen = () => {
   const [choreName, setChoreName] = useState('');
   const [choreDate, setChoreDate] = useState(new Date().toISOString().split('T')[0]);
   const [showChoreDatePicker, setShowChoreDatePicker] = useState(false);
-  const [choreDatePickerMonth, setChoreDatePickerMonth] = useState(new Date());
   const [reminderName, setReminderName] = useState('');
   const [reminderDescription, setReminderDescription] = useState('');
   const [reminderDate, setReminderDate] = useState(new Date().toISOString().split('T')[0]);
   const [reminderTime, setReminderTime] = useState('');
   const [showReminderDatePicker, setShowReminderDatePicker] = useState(false);
   const [showReminderTimePicker, setShowReminderTimePicker] = useState(false);
-  const [reminderDatePickerMonth, setReminderDatePickerMonth] = useState(new Date());
   const [taskName, setTaskName] = useState('');
   const [groceryInput, setGroceryInput] = useState('');
 
@@ -104,7 +109,6 @@ const RoutineScreen = () => {
     setReminderDescription('');
     setReminderDate(new Date().toISOString().split('T')[0]);
     setReminderTime('');
-    setReminderDatePickerMonth(new Date());
     setShowReminderDatePicker(false);
     setShowReminderTimePicker(false);
     setShowReminderModal(false);
@@ -152,46 +156,15 @@ const RoutineScreen = () => {
 
   const formatISODate = (date) => date.toISOString().split('T')[0];
 
-  const getMonthMatrix = (monthDate) => {
-    const start = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
-    const end = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
-    const startDay = start.getDay();
-    const daysInMonth = end.getDate();
-    const days = [];
-
-    for (let i = 0; i < startDay; i++) days.push(null);
-    for (let d = 1; d <= daysInMonth; d++) {
-      days.push(new Date(monthDate.getFullYear(), monthDate.getMonth(), d));
-    }
-    while (days.length % 7 !== 0) days.push(null);
-
-    const weeks = [];
-    for (let i = 0; i < days.length; i += 7) {
-      weeks.push(days.slice(i, i + 7));
-    }
-    return weeks;
-  };
-
-  const reminderMonthMatrix = useMemo(
-    () => getMonthMatrix(reminderDatePickerMonth),
-    [reminderDatePickerMonth]
-  );
-  const choreMonthMatrix = useMemo(
-    () => getMonthMatrix(choreDatePickerMonth),
-    [choreDatePickerMonth]
-  );
   const reminderTimeOptions = REMINDER_TIME_OPTIONS;
 
   const openReminderDatePicker = () => {
     setShowReminderTimePicker(false);
-    const base = reminderDate ? new Date(reminderDate) : new Date();
-    setReminderDatePickerMonth(base);
     setShowReminderDatePicker(true);
   };
 
   const handleSelectReminderDate = (date) => {
     setReminderDate(formatISODate(date));
-    setShowReminderDatePicker(false);
   };
 
   const openReminderTimePicker = () => {
@@ -200,18 +173,17 @@ const RoutineScreen = () => {
   };
 
   const handleSelectReminderTime = (value) => {
-    setReminderTime(value);
-    setShowReminderTimePicker(false);
+    const normalized =
+      value instanceof Date ? formatTimeFromDate(value) : value;
+    setReminderTime(normalized);
   };
 
   const openChoreDatePicker = () => {
-    setChoreDatePickerMonth(choreDate ? new Date(choreDate) : new Date());
     setShowChoreDatePicker(true);
   };
 
   const handleSelectChoreDate = (date) => {
     setChoreDate(formatISODate(date));
-    setShowChoreDatePicker(false);
   };
 
   const completedGroceries = groceries.filter((g) => g.completed);
@@ -244,7 +216,7 @@ const RoutineScreen = () => {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <ScrollView
+      <PlatformScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -503,7 +475,7 @@ const RoutineScreen = () => {
             </>
           )}
         </Card>
-      </ScrollView>
+      </PlatformScrollView>
 
       {/* Create Routine Modal */}
       <Modal
@@ -581,89 +553,13 @@ const RoutineScreen = () => {
           />
         </View>
 
-        {showChoreDatePicker && (
-          <View style={styles.inlinePicker}>
-            <View style={styles.calendarHeader}>
-              <TouchableOpacity
-                style={styles.calendarNav}
-                onPress={() =>
-                  setChoreDatePickerMonth((prev) => {
-                    const next = new Date(prev);
-                    next.setMonth(prev.getMonth() - 1);
-                    return next;
-                  })
-                }
-              >
-                <Ionicons name="chevron-back" size={20} color={colors.text} />
-              </TouchableOpacity>
-              <Text style={styles.calendarTitle}>
-                {choreDatePickerMonth.toLocaleDateString('en-US', {
-                  month: 'long',
-                  year: 'numeric',
-                })}
-              </Text>
-              <TouchableOpacity
-                style={styles.calendarNav}
-                onPress={() =>
-                  setChoreDatePickerMonth((prev) => {
-                    const next = new Date(prev);
-                    next.setMonth(prev.getMonth() + 1);
-                    return next;
-                  })
-                }
-              >
-                <Ionicons name="chevron-forward" size={20} color={colors.text} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.weekDays}>
-              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, idx) => (
-                <Text key={`${day}-${idx}`} style={styles.weekDayLabel}>
-                  {day}
-                </Text>
-              ))}
-            </View>
-
-            {choreMonthMatrix.map((week, weekIdx) => (
-              <View key={`chore-week-${weekIdx}`} style={styles.weekRow}>
-                {week.map((day, dayIdx) => {
-                  if (!day) {
-                    return <View key={`chore-empty-${dayIdx}`} style={styles.dayCell} />;
-                  }
-                  const iso = formatISODate(day);
-                  const selected = iso === choreDate;
-                  return (
-                    <TouchableOpacity
-                      key={iso}
-                      style={[
-                        styles.dayCell,
-                        selected && styles.dayCellSelected,
-                      ]}
-                      onPress={() => handleSelectChoreDate(day)}
-                      activeOpacity={0.8}
-                    >
-                      <Text
-                        style={[
-                          styles.dayLabel,
-                          selected && styles.dayLabelSelected,
-                        ]}
-                      >
-                        {day.getDate()}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            ))}
-
-            <Button
-              title="Close"
-              variant="secondary"
-              onPress={() => setShowChoreDatePicker(false)}
-              style={styles.pickerCloseButton}
-            />
-          </View>
-        )}
+        <PlatformDatePicker
+          visible={showChoreDatePicker}
+          value={choreDate}
+          onChange={handleSelectChoreDate}
+          onClose={() => setShowChoreDatePicker(false)}
+          accentColor={colors.routine}
+        />
       </Modal>
 
       {/* Add Reminder Modal */}
@@ -732,129 +628,22 @@ const RoutineScreen = () => {
             />
           </View>
 
-          {showReminderDatePicker && (
-            <View style={styles.inlinePicker}>
-              <View style={styles.calendarHeader}>
-                <TouchableOpacity
-                  style={styles.calendarNav}
-                  onPress={() =>
-                    setReminderDatePickerMonth((prev) => {
-                      const next = new Date(prev);
-                      next.setMonth(prev.getMonth() - 1);
-                      return next;
-                    })
-                  }
-                >
-                  <Ionicons name="chevron-back" size={20} color={colors.text} />
-                </TouchableOpacity>
-                <Text style={styles.calendarTitle}>
-                  {reminderDatePickerMonth.toLocaleDateString('en-US', {
-                    month: 'long',
-                    year: 'numeric',
-                  })}
-                </Text>
-                <TouchableOpacity
-                  style={styles.calendarNav}
-                  onPress={() =>
-                    setReminderDatePickerMonth((prev) => {
-                      const next = new Date(prev);
-                      next.setMonth(prev.getMonth() + 1);
-                      return next;
-                    })
-                  }
-                >
-                  <Ionicons name="chevron-forward" size={20} color={colors.text} />
-                </TouchableOpacity>
-              </View>
+        <PlatformDatePicker
+          visible={showReminderDatePicker}
+          value={reminderDate}
+          onChange={handleSelectReminderDate}
+          onClose={() => setShowReminderDatePicker(false)}
+          accentColor={colors.routine}
+        />
 
-              <View style={styles.weekDays}>
-                {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, idx) => (
-                  <Text key={`${day}-${idx}`} style={styles.weekDayLabel}>
-                    {day}
-                  </Text>
-                ))}
-              </View>
-
-              {reminderMonthMatrix.map((week, weekIdx) => (
-                <View key={`week-${weekIdx}`} style={styles.weekRow}>
-                  {week.map((day, dayIdx) => {
-                    if (!day) {
-                      return <View key={`empty-${dayIdx}`} style={styles.dayCell} />;
-                    }
-                    const iso = formatISODate(day);
-                    const selected = iso === reminderDate;
-                    return (
-                      <TouchableOpacity
-                        key={iso}
-                        style={[
-                          styles.dayCell,
-                          selected && styles.dayCellSelected,
-                        ]}
-                        onPress={() => handleSelectReminderDate(day)}
-                        activeOpacity={0.8}
-                      >
-                        <Text
-                          style={[
-                            styles.dayLabel,
-                            selected && styles.dayLabelSelected,
-                          ]}
-                        >
-                          {day.getDate()}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              ))}
-
-              <Button
-                title="Close"
-                variant="secondary"
-                onPress={() => setShowReminderDatePicker(false)}
-                style={styles.pickerCloseButton}
-              />
-            </View>
-          )}
-
-          {showReminderTimePicker && (
-            <View style={styles.inlinePicker}>
-              <Text style={styles.pickerTitle}>Select Time</Text>
-              <ScrollView contentContainerStyle={styles.timeList} style={{ maxHeight: 260 }}>
-                {reminderTimeOptions.map((time) => (
-                  <TouchableOpacity
-                    key={time}
-                    style={[
-                      styles.timeOption,
-                      reminderTime === time && styles.timeOptionSelected,
-                    ]}
-                    onPress={() => handleSelectReminderTime(time)}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons
-                      name="time-outline"
-                      size={18}
-                      color={reminderTime === time ? '#FFFFFF' : colors.text}
-                      style={{ marginRight: spacing.sm }}
-                    />
-                    <Text
-                      style={[
-                        styles.timeOptionText,
-                        reminderTime === time && { color: '#FFFFFF' },
-                      ]}
-                    >
-                      {time}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-              <Button
-                title="Close"
-                variant="secondary"
-                onPress={() => setShowReminderTimePicker(false)}
-                style={styles.pickerCloseButton}
-              />
-            </View>
-          )}
+        <PlatformTimePicker
+          visible={showReminderTimePicker}
+          value={reminderTime}
+          onChange={handleSelectReminderTime}
+          onClose={() => setShowReminderTimePicker(false)}
+          options={reminderTimeOptions}
+          accentColor={colors.routine}
+        />
         </Modal>
 
       {/* Add Task to Routine Modal */}
@@ -1177,91 +966,6 @@ const createStyles = () => StyleSheet.create({
   },
   timeInput: {
     flex: 1,
-  },
-  inlinePicker: {
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    marginTop: spacing.md,
-    marginBottom: spacing.xxl,
-    ...shadows.small,
-  },
-  calendarHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
-  },
-  calendarTitle: {
-    ...typography.h3,
-  },
-  calendarNav: {
-    padding: spacing.sm,
-    borderRadius: borderRadius.full,
-    backgroundColor: colors.inputBackground,
-  },
-  weekDays: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-  },
-  weekDayLabel: {
-    ...typography.caption,
-    width: `${100 / 7}%`,
-    textAlign: 'center',
-    color: colors.textSecondary,
-  },
-  weekRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: spacing.xs,
-  },
-  dayCell: {
-    width: `${100 / 7 - 2}%`,
-    aspectRatio: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: borderRadius.md,
-    backgroundColor: colors.inputBackground,
-  },
-  dayCellSelected: {
-    backgroundColor: colors.primaryLight,
-    borderWidth: 1,
-    borderColor: colors.primary,
-  },
-  dayLabel: {
-    ...typography.body,
-    color: colors.text,
-  },
-  dayLabelSelected: {
-    color: colors.primary,
-    fontWeight: '700',
-  },
-  timeList: {
-    paddingBottom: spacing.xxxl,
-  },
-  timeOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
-  },
-  timeOptionSelected: {
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.md,
-    paddingHorizontal: spacing.sm,
-  },
-  timeOptionText: {
-    ...typography.body,
-    marginLeft: spacing.sm,
-  },
-  pickerTitle: {
-    ...typography.h3,
-    marginBottom: spacing.md,
-  },
-  pickerCloseButton: {
-    marginTop: spacing.md,
   },
 });
 

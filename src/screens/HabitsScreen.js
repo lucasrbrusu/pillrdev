@@ -1,16 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-} from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
-import { Card, Modal, Button, Input, ChipGroup } from '../components';
+import { Card, Modal, Button, Input, ChipGroup, PlatformScrollView } from '../components';
 import {
   colors,
   shadows,
@@ -175,7 +169,7 @@ const HabitsScreen = () => {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <ScrollView
+      <PlatformScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -291,7 +285,7 @@ const HabitsScreen = () => {
             ))
           )}
         </Card>
-      </ScrollView>
+      </PlatformScrollView>
 
       {/* Add Habit Modal */}
       <Modal
