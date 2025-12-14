@@ -16,7 +16,10 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.pillr.app"
+      "bundleIdentifier": "com.pillr.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -30,6 +33,12 @@
     },
     "plugins": [
       "expo-notifications"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "0c089fef-83fe-4a42-a3d9-1ab2d310e55b"
+      }
+    },
+    "owner": "lucasrbrusu"
   }
 }
