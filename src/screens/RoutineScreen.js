@@ -64,6 +64,7 @@ const RoutineScreen = () => {
   const [showChoreModal, setShowChoreModal] = useState(false);
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
+  const [showGroceryModal, setShowGroceryModal] = useState(false);
   const [selectedRoutineId, setSelectedRoutineId] = useState(null);
 
   const [routineName, setRoutineName] = useState('');
@@ -214,16 +215,65 @@ const RoutineScreen = () => {
     }));
   }, [chores]);
 
+  const renderGroceryList = () => (
+    <>
+      {groceries.length === 0 ? (
+        <Text style={styles.emptyText}>Your grocery list is empty</Text>
+      ) : (
+        <>
+          {activeGroceries.map((item) => (
+            <TouchableOpacity
+              key={item.id}
+              style={styles.groceryItem}
+              onPress={() => toggleGroceryItem(item.id)}
+            >
+              <View style={styles.groceryCheckbox} />
+              <Text style={styles.groceryText}>{item.name}</Text>
+              <TouchableOpacity onPress={() => deleteGroceryItem(item.id)}>
+                <Ionicons name="close" size={16} color={colors.textLight} />
+              </TouchableOpacity>
+            </TouchableOpacity>
+          ))}
+
+          {completedGroceries.length > 0 && (
+            <>
+              <View style={styles.completedHeader}>
+                <Text style={styles.completedLabel}>Completed</Text>
+                <TouchableOpacity onPress={clearCompletedGroceries}>
+                  <Text style={styles.clearText}>Clear</Text>
+                </TouchableOpacity>
+              </View>
+              {completedGroceries.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.groceryItem}
+                  onPress={() => toggleGroceryItem(item.id)}
+                >
+                  <View style={[styles.groceryCheckbox, styles.groceryCheckboxChecked]}>
+                    <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+                  </View>
+                  <Text style={[styles.groceryText, styles.groceryTextCompleted]}>
+                    {item.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </>
+          )}
+        </>
+      )}
+    </>
+  );
+
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <PlatformScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        alwaysBounceVertical
-        bounces
-      >
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <PlatformScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          alwaysBounceVertical
+          bounces
+        >
         {/* Routine Manager Section */}
         <Card style={styles.sectionCard}>
           <View style={styles.sectionHeader}>
@@ -409,9 +459,126 @@ const RoutineScreen = () => {
         </Card>
 
         {/* Grocery List Section */}
-        <Card style={[styles.sectionCard, styles.lastCard]}>
+        <Card
+          style={[styles.sectionCard, styles.lastCard]}
+          onPress={() => setShowGroceryModal(true)}
+        >
           <Text style={styles.sectionTitle}>Grocery List</Text>
 
+          <View style={styles.groceryInputContainer}>
+            <TextInput
+              style={styles.groceryInput}
+              value={groceryInput}
+              placeholder="Tap to add item..."
+              placeholderTextColor={colors.placeholder}
+              editable={false}
+              onPressIn={() => setShowGroceryModal(true)}
+            />
+            <TouchableOpacity
+              style={styles.groceryAddButton}
+              onPress={() => setShowGroceryModal(true)}
+            >
+              <Ionicons name="add" size={20} color={colors.primary} />
+            </TouchableOpacity>
+          </View>
+
+          {renderGroceryList()}
+        </Card>
+        </PlatformScrollView>
+
+        {/* Create Routine Modal */}
+        <Modal
+          visible={showRoutineModal}
+          onClose={() => {
+            setShowRoutineModal(false);
+            setRoutineName('');
+          }}
+          title="Create Routine"
+          fullScreen
+        >
+          <Input
+            label="Routine Name"
+            value={routineName}
+            onChangeText={setRoutineName}
+            placeholder="e.g., Morning Routine"
+          />
+          <View style={styles.modalButtons}>
+            <Button
+              title="Cancel"
+              variant="secondary"
+              onPress={() => {
+                setShowRoutineModal(false);
+                setRoutineName('');
+              }}
+              style={styles.modalButton}
+            />
+            <Button
+              title="Create"
+              onPress={handleCreateRoutine}
+              disabled={!routineName.trim()}
+              style={styles.modalButton}
+            />
+          </View>
+        </Modal>
+
+        {/* Add Chore Modal */}
+        <Modal
+          visible={showChoreModal}
+          onClose={() => {
+            setShowChoreModal(false);
+            setChoreName('');
+            setShowChoreDatePicker(false);
+          }}
+          title="Add Chore"
+          fullScreen
+        >
+          <Input
+            label="Chore Name"
+            value={choreName}
+            onChangeText={setChoreName}
+            placeholder="e.g., Clean bathroom"
+          />
+          <Text style={styles.inputLabel}>Date</Text>
+          <TouchableOpacity style={styles.dateButton} onPress={openChoreDatePicker}>
+            <Text style={styles.dateButtonText}>{formatDate(choreDate)}</Text>
+            <Ionicons name="calendar-outline" size={18} color={colors.textLight} />
+          </TouchableOpacity>
+          <View style={styles.modalButtons}>
+            <Button
+              title="Cancel"
+              variant="secondary"
+              onPress={() => {
+                setShowChoreModal(false);
+                setChoreName('');
+                setShowChoreDatePicker(false);
+              }}
+              style={styles.modalButton}
+            />
+            <Button
+              title="Add"
+              onPress={handleCreateChore}
+              disabled={!choreName.trim()}
+              style={styles.modalButton}
+            />
+          </View>
+
+      <PlatformDatePicker
+        visible={showChoreDatePicker}
+        value={choreDate}
+        onChange={handleSelectChoreDate}
+        onClose={() => setShowChoreDatePicker(false)}
+        accentColor={colors.routine}
+      />
+    </Modal>
+
+      {/* Grocery Fullscreen Modal */}
+      <Modal
+        visible={showGroceryModal}
+        onClose={() => setShowGroceryModal(false)}
+        title="Grocery List"
+        fullScreen
+      >
+        <View style={{ marginTop: spacing.md }}>
           <View style={styles.groceryInputContainer}>
             <TextInput
               style={styles.groceryInput}
@@ -421,6 +588,7 @@ const RoutineScreen = () => {
               placeholderTextColor={colors.placeholder}
               onSubmitEditing={handleAddGroceryItem}
               returnKeyType="done"
+              autoFocus
             />
             <TouchableOpacity
               style={styles.groceryAddButton}
@@ -430,136 +598,8 @@ const RoutineScreen = () => {
             </TouchableOpacity>
           </View>
 
-          {groceries.length === 0 ? (
-            <Text style={styles.emptyText}>Your grocery list is empty</Text>
-          ) : (
-            <>
-              {activeGroceries.map((item) => (
-                <TouchableOpacity
-                  key={item.id}
-                  style={styles.groceryItem}
-                  onPress={() => toggleGroceryItem(item.id)}
-                >
-                  <View style={styles.groceryCheckbox} />
-                  <Text style={styles.groceryText}>{item.name}</Text>
-                  <TouchableOpacity onPress={() => deleteGroceryItem(item.id)}>
-                    <Ionicons name="close" size={16} color={colors.textLight} />
-                  </TouchableOpacity>
-                </TouchableOpacity>
-              ))}
-
-              {completedGroceries.length > 0 && (
-                <>
-                  <View style={styles.completedHeader}>
-                    <Text style={styles.completedLabel}>Completed</Text>
-                    <TouchableOpacity onPress={clearCompletedGroceries}>
-                      <Text style={styles.clearText}>Clear</Text>
-                    </TouchableOpacity>
-                  </View>
-                  {completedGroceries.map((item) => (
-                    <TouchableOpacity
-                      key={item.id}
-                      style={styles.groceryItem}
-                      onPress={() => toggleGroceryItem(item.id)}
-                    >
-                      <View style={[styles.groceryCheckbox, styles.groceryCheckboxChecked]}>
-                        <Ionicons name="checkmark" size={12} color="#FFFFFF" />
-                      </View>
-                      <Text style={[styles.groceryText, styles.groceryTextCompleted]}>
-                        {item.name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </>
-              )}
-            </>
-          )}
-        </Card>
-      </PlatformScrollView>
-
-      {/* Create Routine Modal */}
-      <Modal
-        visible={showRoutineModal}
-        onClose={() => {
-          setShowRoutineModal(false);
-          setRoutineName('');
-        }}
-        title="Create Routine"
-        fullScreen
-      >
-        <Input
-          label="Routine Name"
-          value={routineName}
-          onChangeText={setRoutineName}
-          placeholder="e.g., Morning Routine"
-        />
-        <View style={styles.modalButtons}>
-          <Button
-            title="Cancel"
-            variant="secondary"
-            onPress={() => {
-              setShowRoutineModal(false);
-              setRoutineName('');
-            }}
-            style={styles.modalButton}
-          />
-          <Button
-            title="Create"
-            onPress={handleCreateRoutine}
-            disabled={!routineName.trim()}
-            style={styles.modalButton}
-          />
+          {renderGroceryList()}
         </View>
-      </Modal>
-
-      {/* Add Chore Modal */}
-      <Modal
-        visible={showChoreModal}
-        onClose={() => {
-          setShowChoreModal(false);
-          setChoreName('');
-          setShowChoreDatePicker(false);
-        }}
-        title="Add Chore"
-        fullScreen
-      >
-        <Input
-          label="Chore Name"
-          value={choreName}
-          onChangeText={setChoreName}
-          placeholder="e.g., Clean bathroom"
-        />
-        <Text style={styles.inputLabel}>Date</Text>
-        <TouchableOpacity style={styles.dateButton} onPress={openChoreDatePicker}>
-          <Text style={styles.dateButtonText}>{formatDate(choreDate)}</Text>
-          <Ionicons name="calendar-outline" size={18} color={colors.textLight} />
-        </TouchableOpacity>
-        <View style={styles.modalButtons}>
-          <Button
-            title="Cancel"
-            variant="secondary"
-            onPress={() => {
-              setShowChoreModal(false);
-              setChoreName('');
-              setShowChoreDatePicker(false);
-            }}
-            style={styles.modalButton}
-          />
-          <Button
-            title="Add"
-            onPress={handleCreateChore}
-            disabled={!choreName.trim()}
-            style={styles.modalButton}
-          />
-        </View>
-
-        <PlatformDatePicker
-          visible={showChoreDatePicker}
-          value={choreDate}
-          onChange={handleSelectChoreDate}
-          onClose={() => setShowChoreDatePicker(false)}
-          accentColor={colors.routine}
-        />
       </Modal>
 
       {/* Add Reminder Modal */}
@@ -644,7 +684,7 @@ const RoutineScreen = () => {
           options={reminderTimeOptions}
           accentColor={colors.routine}
         />
-        </Modal>
+      </Modal>
 
       {/* Add Task to Routine Modal */}
       <Modal
