@@ -12,7 +12,7 @@ import {
 import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
 import { Card } from '../components';
 import { colors, shadows, borderRadius, spacing, typography } from '../utils/theme';
@@ -35,6 +35,7 @@ const MOOD_OPTIONS = [
 const HomeScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const route = useRoute();
   const {
     themeColors,
     profile,
@@ -87,6 +88,7 @@ const HomeScreen = () => {
   const [notePasswordInput, setNotePasswordInput] = React.useState('');
   const [notePasswordError, setNotePasswordError] = React.useState('');
   const [unlockedNoteIds, setUnlockedNoteIds] = React.useState([]);
+  const [focusToast, setFocusToast] = React.useState(route.params?.focusToast || '');
 
   const sortedNotes = React.useMemo(() => {
     return (notes || [])
@@ -94,6 +96,15 @@ const HomeScreen = () => {
       .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0))
       .slice(0, 3);
   }, [notes]);
+
+  React.useEffect(() => {
+    if (route.params?.focusToast) {
+      setFocusToast(route.params.focusToast);
+      const timer = setTimeout(() => setFocusToast(''), 4500);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [route.params?.focusToast]);
 
   const sectionButtons = [
     {
@@ -183,6 +194,11 @@ const HomeScreen = () => {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, backgroundColor: themeColors.background }]}>
+      {!!focusToast && (
+        <View style={styles.focusToast}>
+          <Text style={styles.focusToastText}>{focusToast}</Text>
+        </View>
+      )}
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -253,6 +269,41 @@ const HomeScreen = () => {
                 <Text style={styles.caloriesGoalText}>Goal {calorieGoal}</Text>
               </View>
             </View>
+          </Card>
+        </View>
+
+        {/* Focus Mode + Countdown */}
+        <View style={styles.topStatsRow}>
+          <Card style={[styles.sectionCard, styles.focusCard]}>
+            <TouchableOpacity
+              style={styles.focusRow}
+              activeOpacity={0.8}
+              onPress={() => navigation.navigate('FocusMode')}
+            >
+              <View style={styles.focusIconWrap}>
+                <Ionicons name="timer" size={22} color="#FFFFFF" />
+              </View>
+              <View style={styles.focusTextWrap}>
+                <Text style={styles.focusLabel}>Focus mode</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </Card>
+
+          <Card style={[styles.sectionCard, styles.countdownCard]}>
+            <TouchableOpacity
+              style={styles.focusRow}
+              activeOpacity={0.8}
+              onPress={() => navigation.navigate('CountdownTimer')}
+            >
+              <View style={styles.focusIconWrap}>
+                <Ionicons name="hourglass" size={22} color={colors.text} />
+              </View>
+              <View style={styles.focusTextWrap}>
+                <Text style={styles.focusLabel}>Countdown Timer</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+            </TouchableOpacity>
           </Card>
         </View>
 
@@ -352,39 +403,6 @@ const HomeScreen = () => {
           )}
         </Card>
 
-        {/* Today's Health */}
-        <Card
-          style={[styles.sectionCard, styles.healthCard]}
-          onPress={() => navigation.navigate('Health')}
-        >
-          <View style={styles.cardHeader}>
-            <Text style={[styles.cardTitle, styles.healthTitle]}>Today's Health</Text>
-            <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
-          </View>
-          {currentMood ? (
-            <View style={styles.healthContent}>
-              <Text style={styles.moodEmoji}>{currentMood.emoji}</Text>
-              <Text style={[styles.moodLabel, styles.healthText]}>Feeling {currentMood.label.toLowerCase()}</Text>
-            </View>
-          ) : (
-            <View style={styles.healthPrompt}>
-              <Ionicons name="heart-outline" size={20} color="#FFFFFF" />
-              <Text style={[styles.healthPromptText, styles.healthText]}>
-                Check in with your health and mood today
-              </Text>
-            </View>
-          )}
-        </Card>
-
-        {!currentMood && (
-          <Card
-            style={[styles.sectionCard, styles.moodPromptCard]}
-            onPress={() => navigation.navigate('Health', { openMoodPicker: true })}
-          >
-            <Text style={styles.cardTitle}>Check in with your mood today!</Text>
-          </Card>
-        )}
-
         {/* Note detail modal */}
         <Modal
           visible={!!selectedNote}
@@ -451,6 +469,39 @@ const HomeScreen = () => {
           </View>
         </Modal>
 
+        {/* Today's Health */}
+        <Card
+          style={[styles.sectionCard, styles.healthCard]}
+          onPress={() => navigation.navigate('Health')}
+        >
+          <View style={styles.cardHeader}>
+            <Text style={[styles.cardTitle, styles.healthTitle]}>Today's Health</Text>
+            <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
+          </View>
+          {currentMood ? (
+            <View style={styles.healthContent}>
+              <Text style={styles.moodEmoji}>{currentMood.emoji}</Text>
+              <Text style={[styles.moodLabel, styles.healthText]}>Feeling {currentMood.label.toLowerCase()}</Text>
+            </View>
+          ) : (
+            <View style={styles.healthPrompt}>
+              <Ionicons name="heart-outline" size={20} color="#FFFFFF" />
+              <Text style={[styles.healthPromptText, styles.healthText]}>
+                Check in with your health and mood today
+              </Text>
+            </View>
+          )}
+        </Card>
+
+        {!currentMood && (
+          <Card
+            style={[styles.sectionCard, styles.moodPromptCard]}
+            onPress={() => navigation.navigate('Health', { openMoodPicker: true })}
+          >
+            <Text style={styles.cardTitle}>Check in with your mood today!</Text>
+          </Card>
+        )}
+
         {/* Your Habits */}
         <Card
           style={[styles.sectionCard, styles.habitsCard]}
@@ -513,7 +564,7 @@ const HomeScreen = () => {
         {!profile?.isPremium && (
           <View style={styles.premiumUpsell}>
             <View style={styles.premiumIconWrap}>
-              <Ionicons name="crown" size={28} color="#b8860b" />
+              <Ionicons name="star" size={28} color="#b8860b" />
             </View>
             <View style={styles.premiumTextWrap}>
               <Text style={styles.premiumTitle}>Upgrade to Premium!</Text>
@@ -903,6 +954,75 @@ const createStyles = (themeColorsParam = colors) => {
       backgroundColor: themeColorsParam?.card || colors.card,
       borderColor: themeColorsParam?.border || colors.border || '#E5E7EB',
     },
+    focusCard: {
+      backgroundColor: '#2e2eb8',
+      borderColor: '#2e2eb8',
+      flex: 1,
+    },
+    focusRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      minHeight: 72,
+    },
+    focusIconWrap: {
+      width: 48,
+      height: 48,
+      borderRadius: borderRadius.full,
+      backgroundColor: `${colors.primary}15`,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.md,
+    },
+    focusTextWrap: {
+      flex: 1,
+    },
+    focusLabel: {
+      ...typography.bodySmall,
+      color: colors.textSecondary,
+      marginBottom: 2,
+    },
+    focusValue: {
+      ...typography.h2,
+      color: colors.text,
+    },
+    focusHint: {
+      ...typography.bodySmall,
+      color: colors.textSecondary,
+    },
+    countdownCard: {
+      backgroundColor: themeColorsParam?.card || colors.card,
+      borderColor: themeColorsParam?.border || colors.border || '#E5E7EB',
+      flex: 1,
+    },
+    focusButton: {
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.lg,
+      borderRadius: borderRadius.md,
+      backgroundColor: colors.primary,
+    },
+    focusButtonText: {
+      ...typography.body,
+      color: '#fff',
+      fontWeight: '700',
+    },
+    focusButtonTextSecondary: {
+      ...typography.body,
+      color: colors.text,
+      fontWeight: '700',
+    },
+    focusActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      columnGap: spacing.sm,
+    },
+    focusSecondary: {
+      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
+      borderWidth: 1,
+      borderColor: sectionBorderColor,
+    },
+    focusExit: {
+      backgroundColor: colors.danger,
+    },
     quickNoteRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1024,6 +1144,28 @@ const createStyles = (themeColorsParam = colors) => {
     premiumSubtitle: {
       ...typography.body,
       color: '#4a3b00',
+    },
+    focusToast: {
+      position: 'absolute',
+      top: spacing.xxxl * 2,
+      left: spacing.xl,
+      right: spacing.xl,
+      backgroundColor: colors.card,
+      borderColor: colors.border,
+      borderWidth: 1,
+      borderRadius: borderRadius.xl,
+      paddingVertical: spacing.xl,
+      paddingHorizontal: spacing.xl,
+      ...shadows.medium,
+      zIndex: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    focusToastText: {
+      ...typography.h3,
+      color: colors.text,
+      textAlign: 'center',
+      fontWeight: '700',
     },
   });
 };

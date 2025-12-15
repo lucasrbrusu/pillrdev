@@ -113,7 +113,7 @@ const ProfileScreen = () => {
             <Text style={styles.profileName}>{profile.name}</Text>
             {isPremium && (
               <View style={styles.premiumBadge}>
-                <Ionicons name="crown" size={14} color="#FACC15" style={styles.premiumIcon} />
+                <Ionicons name="star" size={14} color="#FACC15" style={styles.premiumIcon} />
                 <Text style={styles.premiumText}>{t('Premium')}</Text>
               </View>
             )}

@@ -25,6 +25,8 @@ import AuthScreen from '../screens/AuthScreen';
 import AppearanceScreen from '../screens/AppearanceScreen';
 import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';
 import ChatScreen from '../screens/ChatScreen';
+import FocusModeScreen from '../screens/FocusModeScreen';
+import CountdownTimerScreen from '../screens/CountdownTimerScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -219,6 +221,8 @@ const Navigation = () => {
           <Stack.Screen name="Appearance" component={AppearanceScreen} />
           <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
           <Stack.Screen name="Chat" component={ChatScreen} />
+          <Stack.Screen name="FocusMode" component={FocusModeScreen} />
+          <Stack.Screen name="CountdownTimer" component={CountdownTimerScreen} />
         </Stack.Navigator>
       ) : (
         <Stack.Navigator
