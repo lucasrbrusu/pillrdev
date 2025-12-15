@@ -6,6 +6,8 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -42,9 +44,12 @@ const HomeScreen = () => {
     chores,
     reminders,
     groceries,
+    notes,
     getTodayTasks,
+    getBestStreak,
+    verifyNotePassword,
   } = useApp();
-  const styles = React.useMemo(() => createStyles(), [themeColors]);
+  const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
 
   const today = new Date();
   const formattedDate = today.toLocaleDateString('en-US', {
@@ -73,6 +78,22 @@ const HomeScreen = () => {
   const currentMood = todayHealth.mood
     ? MOOD_OPTIONS[Math.max(0, Math.min(MOOD_OPTIONS.length - 1, todayHealth.mood - 1))]
     : null;
+  const bestStreak = getBestStreak ? getBestStreak() : 0;
+  const consumedCalories = todayHealth?.calories || 0;
+  const calorieGoal = profile?.dailyCalorieGoal || 2000;
+  const remainingCalories = Math.max(calorieGoal - consumedCalories, 0);
+  const [selectedNote, setSelectedNote] = React.useState(null);
+  const [noteToUnlock, setNoteToUnlock] = React.useState(null);
+  const [notePasswordInput, setNotePasswordInput] = React.useState('');
+  const [notePasswordError, setNotePasswordError] = React.useState('');
+  const [unlockedNoteIds, setUnlockedNoteIds] = React.useState([]);
+
+  const sortedNotes = React.useMemo(() => {
+    return (notes || [])
+      .slice()
+      .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0))
+      .slice(0, 3);
+  }, [notes]);
 
   const sectionButtons = [
     {
@@ -128,6 +149,38 @@ const HomeScreen = () => {
     }
   };
 
+  const handleNotePress = (note) => {
+    if (note.password && !unlockedNoteIds.includes(note.id)) {
+      setNoteToUnlock(note);
+      setNotePasswordInput('');
+      setNotePasswordError('');
+      return;
+    }
+    setSelectedNote(note);
+  };
+
+  const closeNoteModal = () => {
+    setSelectedNote(null);
+  };
+
+  const closeUnlockModal = () => {
+    setNoteToUnlock(null);
+    setNotePasswordInput('');
+    setNotePasswordError('');
+  };
+
+  const handleUnlockNote = () => {
+    if (!noteToUnlock) return;
+    const isValid = verifyNotePassword(noteToUnlock.id, notePasswordInput);
+    if (!isValid) {
+      setNotePasswordError('Incorrect password. Try again.');
+      return;
+    }
+    setUnlockedNoteIds((prev) => [...prev, noteToUnlock.id]);
+    setSelectedNote(noteToUnlock);
+    closeUnlockModal();
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top, backgroundColor: themeColors.background }]}>
       <ScrollView
@@ -173,6 +226,34 @@ const HomeScreen = () => {
               <Text style={styles.sectionLabel}>{section.label}</Text>
             </TouchableOpacity>
           ))}
+        </View>
+
+        {/* Best Streak + Calories */}
+        <View style={styles.topStatsRow}>
+          <Card style={[styles.sectionCard, styles.bestStreakCard]}>
+            <View style={styles.bestStreakRow}>
+              <View style={styles.bestStreakIconWrap}>
+                <Ionicons name="flame" size={24} color="#ff4d4f" />
+              </View>
+              <View style={styles.bestStreakTextWrap}>
+                <Text style={styles.bestStreakLabel}>Best streak</Text>
+                <Text style={styles.bestStreakValue}>{bestStreak} day{bestStreak === 1 ? '' : 's'}</Text>
+              </View>
+            </View>
+          </Card>
+
+          <Card style={[styles.sectionCard, styles.caloriesCard]}>
+            <View style={styles.caloriesRow}>
+              <View style={styles.caloriesIconWrap}>
+                <Ionicons name="heart" size={22} color={colors.success} />
+              </View>
+              <View style={styles.caloriesTextWrap}>
+                <Text style={styles.caloriesLabel}>Remaining calories</Text>
+                <Text style={styles.caloriesValue}>{remainingCalories}</Text>
+                <Text style={styles.caloriesGoalText}>Goal {calorieGoal}</Text>
+              </View>
+            </View>
+          </Card>
         </View>
 
         {/* Upcoming Reminders */}
@@ -239,6 +320,38 @@ const HomeScreen = () => {
           )}
         </Card>
 
+        {/* Quick Notes */}
+        <Card style={[styles.sectionCard, styles.quickNotesCard]}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Quick Notes</Text>
+            <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+          </View>
+          {sortedNotes.length === 0 ? (
+            <Text style={styles.emptyText}>No notes yet</Text>
+          ) : (
+            sortedNotes.map((note) => (
+              <TouchableOpacity
+                key={note.id}
+                style={styles.quickNoteRow}
+                onPress={() => handleNotePress(note)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.quickNoteInfo}>
+                  <Text style={styles.quickNoteTitle} numberOfLines={1}>
+                    {note.title || 'Untitled note'}
+                  </Text>
+                  <Text style={styles.quickNoteExcerpt} numberOfLines={1}>
+                    {note.content ? note.content : 'Tap to view'}
+                  </Text>
+                </View>
+                {note.password && (
+                  <Ionicons name="lock-closed" size={18} color={colors.primary} />
+                )}
+              </TouchableOpacity>
+            ))
+          )}
+        </Card>
+
         {/* Today's Health */}
         <Card
           style={[styles.sectionCard, styles.healthCard]}
@@ -271,6 +384,72 @@ const HomeScreen = () => {
             <Text style={styles.cardTitle}>Check in with your mood today!</Text>
           </Card>
         )}
+
+        {/* Note detail modal */}
+        <Modal
+          visible={!!selectedNote}
+          transparent
+          animationType="fade"
+          onRequestClose={closeNoteModal}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>{selectedNote?.title || 'Note'}</Text>
+              <Text style={styles.modalContent}>{selectedNote?.content || 'No content'}</Text>
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalSecondary]}
+                  onPress={closeNoteModal}
+                >
+                  <Text style={styles.modalButtonTextSecondary}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Unlock modal */}
+        <Modal
+          visible={!!noteToUnlock}
+          transparent
+          animationType="fade"
+          onRequestClose={closeUnlockModal}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Unlock note</Text>
+              <Text style={styles.modalContent}>Enter the password to view this note.</Text>
+              <TextInput
+                value={notePasswordInput}
+                onChangeText={(val) => {
+                  setNotePasswordInput(val);
+                  if (notePasswordError) setNotePasswordError('');
+                }}
+                placeholder="Password"
+                placeholderTextColor={colors.textSecondary}
+                secureTextEntry
+                style={styles.passwordInput}
+              />
+              {!!notePasswordError && (
+                <Text style={styles.errorText}>{notePasswordError}</Text>
+              )}
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalSecondary]}
+                  onPress={closeUnlockModal}
+                >
+                  <Text style={styles.modalButtonTextSecondary}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalPrimary]}
+                  onPress={handleUnlockNote}
+                >
+                  <Text style={styles.modalButtonText}>Unlock</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         {/* Your Habits */}
         <Card
@@ -349,8 +528,11 @@ const HomeScreen = () => {
   );
 };
 
-const createStyles = () =>
-  StyleSheet.create({
+const createStyles = (themeColorsParam = colors) => {
+  const sectionCardColor = themeColorsParam?.card || colors.card;
+  const sectionBorderColor = themeColorsParam?.border || colors.border || '#E5E7EB';
+
+  return StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: colors.background,
@@ -425,6 +607,11 @@ const createStyles = () =>
       fontWeight: '500',
     },
     sectionCard: {
+      marginBottom: spacing.lg,
+    },
+    topStatsRow: {
+      flexDirection: 'row',
+      gap: spacing.md,
       marginBottom: spacing.lg,
     },
     lastCard: {
@@ -626,8 +813,8 @@ const createStyles = () =>
       marginLeft: spacing.sm,
     },
     choresCard: {
-      backgroundColor: colors.routine,
-      borderColor: colors.routine,
+      backgroundColor: '#1f4f2b',
+      borderColor: '#163821',
     },
     choresTitle: {
       color: '#FFFFFF',
@@ -644,6 +831,164 @@ const createStyles = () =>
     },
     habitsText: {
       color: '#FFFFFF',
+    },
+    bestStreakCard: {
+      backgroundColor: sectionCardColor,
+      borderColor: sectionBorderColor,
+      flex: 1,
+    },
+    bestStreakRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      minHeight: 72,
+    },
+    bestStreakIconWrap: {
+      width: 48,
+      height: 48,
+      borderRadius: borderRadius.full,
+      backgroundColor: 'rgba(255, 77, 79, 0.12)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.md,
+    },
+    bestStreakTextWrap: {
+      flex: 1,
+    },
+    bestStreakLabel: {
+      ...typography.bodySmall,
+      color: themeColorsParam?.textSecondary || colors.textSecondary,
+      marginBottom: 2,
+    },
+    bestStreakValue: {
+      ...typography.h2,
+      color: themeColorsParam?.text || colors.text,
+    },
+    caloriesCard: {
+      backgroundColor: sectionCardColor,
+      borderColor: sectionBorderColor,
+      flex: 1,
+    },
+    caloriesRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      minHeight: 72,
+    },
+    caloriesIconWrap: {
+      width: 48,
+      height: 48,
+      borderRadius: borderRadius.full,
+      backgroundColor: `${colors.success}15`,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.md,
+    },
+    caloriesTextWrap: {
+      flex: 1,
+    },
+    caloriesLabel: {
+      ...typography.bodySmall,
+      color: colors.textSecondary,
+      marginBottom: 2,
+    },
+    caloriesValue: {
+      ...typography.h2,
+      color: colors.text,
+    },
+    caloriesGoalText: {
+      ...typography.caption,
+      color: colors.textSecondary,
+      marginTop: 2,
+    },
+    quickNotesCard: {
+      backgroundColor: themeColorsParam?.card || colors.card,
+      borderColor: themeColorsParam?.border || colors.border || '#E5E7EB',
+    },
+    quickNoteRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.divider,
+    },
+    quickNoteInfo: {
+      flex: 1,
+      marginRight: spacing.md,
+    },
+    quickNoteTitle: {
+      ...typography.body,
+      color: colors.text,
+      fontWeight: '600',
+    },
+    quickNoteExcerpt: {
+      ...typography.bodySmall,
+      color: colors.textSecondary,
+      marginTop: 2,
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: spacing.xl,
+    },
+    modalCard: {
+      width: '100%',
+      borderRadius: borderRadius.xl,
+      backgroundColor: themeColorsParam?.card || colors.card,
+      padding: spacing.xl,
+      borderWidth: 1,
+      borderColor: themeColorsParam?.border || colors.border || '#E5E7EB',
+    },
+    modalTitle: {
+      ...typography.h3,
+      marginBottom: spacing.sm,
+      color: colors.text,
+    },
+    modalContent: {
+      ...typography.body,
+      color: colors.textSecondary,
+      marginBottom: spacing.lg,
+      lineHeight: 20,
+    },
+    modalButtons: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      gap: spacing.md,
+    },
+    modalButton: {
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.lg,
+      borderRadius: borderRadius.md,
+    },
+    modalPrimary: {
+      backgroundColor: colors.primary,
+    },
+    modalSecondary: {
+      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
+    },
+    modalButtonText: {
+      ...typography.body,
+      color: '#fff',
+      fontWeight: '600',
+    },
+    modalButtonTextSecondary: {
+      ...typography.body,
+      color: colors.text,
+      fontWeight: '600',
+    },
+    passwordInput: {
+      borderWidth: 1,
+      borderColor: themeColorsParam?.border || colors.border || '#E5E7EB',
+      borderRadius: borderRadius.md,
+      padding: spacing.md,
+      marginBottom: spacing.md,
+      color: colors.text,
+      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
+    },
+    errorText: {
+      ...typography.caption,
+      color: colors.danger,
+      marginBottom: spacing.sm,
     },
     premiumUpsell: {
       flexDirection: 'row',
@@ -681,5 +1026,6 @@ const createStyles = () =>
       color: '#4a3b00',
     },
   });
+};
 
 export default HomeScreen;

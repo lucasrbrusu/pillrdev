@@ -47,6 +47,7 @@ const STORAGE_KEYS = {
   AUTH_USER: '@pillr_auth_user',
   AUTH_USERS: '@pillr_auth_users',
   ONBOARDING: '@pillr_onboarding_complete',
+  LAST_ACTIVE_PREFIX: '@pillr_last_active_',
 };
 
 const SUPABASE_STORAGE_KEYS = [
@@ -105,6 +106,21 @@ const computeIsPremium = (plan, premiumExpiresAt) => {
   const expiry = new Date(premiumExpiresAt);
   if (Number.isNaN(expiry.getTime())) return true;
   return expiry.getTime() > Date.now();
+};
+
+const getLastActiveKey = (userId) => `${STORAGE_KEYS.LAST_ACTIVE_PREFIX}${userId}`;
+
+const readLastActive = async (userId) => {
+  if (!userId) return null;
+  const value = await AsyncStorage.getItem(getLastActiveKey(userId));
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const writeLastActive = async (userId, date = new Date()) => {
+  if (!userId) return;
+  await AsyncStorage.setItem(getLastActiveKey(userId), date.toISOString());
 };
 
 const asNumber = (value, fallback = null) => {
@@ -178,6 +194,7 @@ export const AppProvider = ({ children }) => {
 
  // Profile State
   const [profile, setProfile] = useState(defaultProfile);
+  const [profileLoaded, setProfileLoaded] = useState(false);
   const [userSettings, setUserSettings] = useState(defaultUserSettings);
   const [language, setLanguage] = useState(defaultUserSettings.language);
 
@@ -190,6 +207,7 @@ export const AppProvider = ({ children }) => {
   // Loading State
   const [isLoading, setIsLoading] = useState(true);
   const [hasNotificationPermission, setHasNotificationPermission] = useState(false);
+  const streakCheckRanRef = useRef(false);
 
   // Immutable snapshots of the original palettes and typography
   const defaultPaletteRef = useRef(
@@ -314,6 +332,7 @@ const loadUserDataFromSupabase = async (userId) => {
       setGroceries([]);
       setFinances([]);
       setProfile(defaultProfile);
+      setProfileLoaded(false);
       setUserSettings(defaultUserSettings);
       setHasOnboarded(false);
       setThemeName('default');
@@ -390,6 +409,18 @@ const fetchHabitsFromSupabase = async (userId) => {
 
   setHabits(mappedHabits);
 };
+
+  const resetAllHabitStreaks = useCallback(async () => {
+    if (!authUser?.id) return;
+    setHabits((prev) => prev.map((h) => ({ ...h, streak: 0 })));
+    const { error } = await supabase
+      .from('habits')
+      .update({ streak: 0 })
+      .eq('user_id', authUser.id);
+    if (error) {
+      console.log('Error resetting habit streaks:', error);
+    }
+  }, [authUser?.id]);
 
 
 
@@ -569,6 +600,39 @@ const isHabitCompletedToday = (habitId) => {
   const today = new Date().toDateString();
   return habit.completedDates?.includes(today) || false;
 };
+
+  const applyStreakFreezeIfNeeded = useCallback(async () => {
+    if (!authUser?.id || !profileLoaded) return;
+
+    const userId = authUser.id;
+    const lastActive = await readLastActive(userId);
+    const now = new Date();
+    const todayStart = new Date(now.toDateString());
+
+    if (!lastActive) {
+      await writeLastActive(userId, now);
+      return;
+    }
+
+    const lastActiveStart = new Date(lastActive.toDateString());
+    const dayDiff = Math.max(
+      Math.floor((todayStart.getTime() - lastActiveStart.getTime()) / (24 * 60 * 60 * 1000)),
+      0
+    );
+
+    const isPremiumUser =
+      profile?.isPremium ||
+      computeIsPremium(profile?.plan, profile?.premiumExpiresAt || profile?.premium_expires_at);
+
+    // Premium users get a 24h freeze window; streak resets only after 48h away.
+    const resetThreshold = isPremiumUser ? 2 : 1;
+
+    if (dayDiff > resetThreshold) {
+      await resetAllHabitStreaks();
+    }
+
+    await writeLastActive(userId, now);
+  }, [authUser?.id, profile?.isPremium, profile?.plan, profile?.premiumExpiresAt, profile?.premium_expires_at, profileLoaded, resetAllHabitStreaks]);
 
 const fetchTasksFromSupabase = async (userId) => {
   const { data, error } = await supabase
@@ -1959,6 +2023,7 @@ const getFinanceSummaryForDate = (date) => {
       const mapped = mapProfileRow(row);
       setProfile(mapped);
       setHasOnboarded(!!row.has_onboarded);
+      setProfileLoaded(true);
     }
 
     return row;
@@ -2023,6 +2088,7 @@ const getFinanceSummaryForDate = (date) => {
     const mapped = mapProfileRow(data);
     setProfile(mapped);
     setHasOnboarded(!!data.has_onboarded);
+    setProfileLoaded(true);
     return data;
   };
 
@@ -2476,6 +2542,11 @@ const getFinanceSummaryForDate = (date) => {
 
     syncPermission();
   }, [authUser, userSettings.notificationsEnabled]);
+
+  useEffect(() => {
+    if (isLoading || !authUser?.id || !profileLoaded) return;
+    applyStreakFreezeIfNeeded();
+  }, [isLoading, authUser?.id, profileLoaded, applyStreakFreezeIfNeeded]);
 
   useEffect(() => {
     if (isLoading) return;
