@@ -4,6 +4,8 @@ import {
   StyleSheet,
   ActivityIndicator,
   Pressable,
+  useWindowDimensions,
+  Dimensions,
 } from 'react-native';
 import { NavigationContainer, DefaultTheme, useNavigation } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -34,6 +36,20 @@ import ChatScreen from '../screens/ChatScreen';
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
+const useBottomOffset = () => {
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const screenHeight = React.useMemo(() => Dimensions.get('screen').height, []);
+
+  // When Android gesture/navbar hides, windowHeight grows; this keeps spacing
+  // responsive so the tab bar hugs the bottom with a small buffer.
+  const softNavHeight = Math.max(screenHeight - windowHeight - insets.top, 0);
+  const minGap = 8;
+  const baseGap = 10;
+
+  return Math.max(insets.bottom, softNavHeight, minGap) + baseGap;
+};
+
 const TabBarIcon = ({ name, type, color, size }) => {
   if (type === 'feather') return <Feather name={name} size={size} color={color} />;
   if (type === 'material') return <MaterialCommunityIcons name={name} size={size} color={color} />;
@@ -41,8 +57,7 @@ const TabBarIcon = ({ name, type, color, size }) => {
 };
 
 const CustomTabBar = ({ state, descriptors, navigation, styles }) => {
-  const insets = useSafeAreaInsets();
-  const bottomPadding = (insets.bottom || 0) + 10;
+  const bottomPadding = useBottomOffset();
 
   return (
     <View style={[styles.tabBarContainer, { paddingBottom: bottomPadding }]}>
@@ -151,7 +166,7 @@ const TabNavigator = ({ styles }) => {
 
 const MainWithChatButton = ({ styles }) => {
   const navigation = useNavigation();
-  const insets = useSafeAreaInsets();
+  const bottomPadding = useBottomOffset();
 
   return (
     <View style={{ flex: 1 }}>
@@ -159,7 +174,7 @@ const MainWithChatButton = ({ styles }) => {
       <Pressable
         onPress={() => navigation.navigate('Chat')}
         android_ripple={{ color: '#FFFFFF33', borderless: true }}
-        style={[styles.chatButton, { bottom: (insets.bottom || 0) + 86 }]}
+        style={[styles.chatButton, { bottom: bottomPadding + 72 }]}
       >
         <Ionicons name="chatbubbles-outline" size={24} color="#FFFFFF" />
       </Pressable>

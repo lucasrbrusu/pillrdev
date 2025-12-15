@@ -11,7 +11,9 @@ const AppContent = () => {
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: themeColors.background }}
-      edges={['top', 'bottom', 'left', 'right']}
+      // Use top/side insets only; bottom spacing is handled inside nav so it
+      // can respond when Android system buttons hide or show.
+      edges={['top', 'left', 'right']}
     >
       <StatusBar
         backgroundColor={themeColors.background}
