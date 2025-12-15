@@ -41,7 +41,7 @@ const TabBarIcon = ({ name, type, color, size }) => {
 
 const CustomTabBar = ({ state, descriptors, navigation, styles }) => {
   const insets = useSafeAreaInsets();
-  const bottomPadding = (insets.bottom || 0) + 6;
+  const bottomPadding = (insets.bottom || 0) + 10;
 
   return (
     <View style={[styles.tabBarContainer, { paddingBottom: bottomPadding }]}>
