@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, typography } from '../utils/theme';
 import themePresets from '../utils/themePresets';
@@ -40,6 +48,11 @@ const STORAGE_KEYS = {
   AUTH_USERS: '@pillr_auth_users',
   ONBOARDING: '@pillr_onboarding_complete',
 };
+
+const SUPABASE_STORAGE_KEYS = [
+  'supabase.auth.token',
+  'sb-ueiptamivkuwhswotwpn-auth-token',
+];
 
 const defaultProfile = {
   name: 'User',
@@ -230,6 +243,14 @@ export const AppProvider = ({ children }) => {
 
     if (error) {
       console.log('Error getting Supabase session:', error);
+      const isInvalidRefresh =
+        typeof error.message === 'string' &&
+        error.message.toLowerCase().includes('invalid refresh token');
+      if (isInvalidRefresh) {
+        await supabase.auth.signOut();
+        await clearCachedSession();
+        applyTheme('default');
+      }
     } else if (session?.user) {
       await setActiveUser(session.user);
     } else {
@@ -292,6 +313,17 @@ const loadUserDataFromSupabase = async (userId) => {
       await AsyncStorage.setItem(key, JSON.stringify(data));
     } catch (error) {
       console.error('Error saving data:', error);
+    }
+  };
+
+  const clearCachedSession = async () => {
+    try {
+      await AsyncStorage.multiRemove([
+        ...SUPABASE_STORAGE_KEYS,
+        STORAGE_KEYS.AUTH_USER,
+      ]);
+    } catch (err) {
+      console.log('Error clearing cached session keys:', err);
     }
   };
 
@@ -1807,37 +1839,102 @@ const getFinanceSummaryForDate = (date) => {
 };
 
   // PROFILE FUNCTIONS
+  const isMissingColumnError = (error, column) => {
+    if (!error) return false;
+    const message = (error.message || '').toLowerCase();
+    const columnName = (column || '').toLowerCase();
+    return (
+      error.code === '42703' ||
+      message.includes('does not exist') ||
+      (columnName && message.includes(columnName))
+    );
+  };
+
   const mapProfileRow = (row) => ({
     profileId: row?.id || null,
-    name: row?.full_name || defaultProfile.name,
-    username: row?.username || '',
-    email: row?.email || profile.email || defaultProfile.email,
+    name:
+      row?.full_name ||
+      authUser?.user_metadata?.full_name ||
+      authUser?.user_metadata?.name ||
+      authUser?.email ||
+      defaultProfile.name,
+    username: row?.username || authUser?.user_metadata?.username || '',
+    email: row?.email || authUser?.email || profile.email || defaultProfile.email,
     photo: row?.avatar_url || null,
     dailyCalorieGoal: row?.daily_calorie_goal ?? defaultProfile.dailyCalorieGoal,
     dailyWaterGoal: row?.daily_water_goal ?? defaultProfile.dailyWaterGoal,
     dailySleepGoal: row?.daily_sleep_goal ?? defaultProfile.dailySleepGoal,
   });
 
+  // Ensure profile state has at least auth-derived values when we gain an auth user
+  useEffect(() => {
+    if (!authUser) return;
+    setProfile((prev) => {
+      const nextName =
+        prev?.name && prev.name !== defaultProfile.name
+          ? prev.name
+          : authUser.user_metadata?.full_name ||
+            authUser.user_metadata?.name ||
+            authUser.email ||
+            defaultProfile.name;
+      const nextEmail =
+        prev?.email && prev.email !== defaultProfile.email
+          ? prev.email
+          : authUser.email || defaultProfile.email;
+      if (nextName === prev.name && nextEmail === prev.email) return prev;
+      return { ...prev, name: nextName, email: nextEmail };
+    });
+  }, [authUser]);
+
   const fetchProfileFromSupabase = async (userId) => {
     if (!userId) return null;
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
 
-    if (error && error.code !== 'PGRST116') {
-      console.log('Error fetching profile:', error);
-      return null;
+    const fetchByColumn = async (column) => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq(column, userId)
+        .limit(1);
+
+      if (error) return { row: null, error };
+      const row = Array.isArray(data) ? data[0] : data;
+      return { row: row || null, error: null };
+    };
+
+    let row = null;
+    let lastError = null;
+
+    const { row: byIdRow, error: byIdError } = await fetchByColumn('id');
+    if (byIdError && !isMissingColumnError(byIdError, 'id')) {
+      lastError = byIdError;
+    }
+    if (byIdRow) {
+      row = byIdRow;
     }
 
-    let row = data;
+    if (!row) {
+      const { row: byUserIdRow, error: byUserIdError } = await fetchByColumn('user_id');
+      if (byUserIdError && !isMissingColumnError(byUserIdError, 'user_id')) {
+        lastError = byUserIdError;
+      }
+      if (byUserIdRow) {
+        row = byUserIdRow;
+      }
+    }
+
+    if (!row && lastError) {
+      console.log('Error fetching profile:', lastError);
+    }
 
     if (!row) {
       row = await upsertProfileRow({
         id: userId,
-        full_name: profile.name,
-        email: profile.email,
+        full_name:
+          profile.name ||
+          authUser?.user_metadata?.full_name ||
+          authUser?.user_metadata?.name ||
+          authUser?.email,
+        email: authUser?.email || profile.email,
       });
     }
 
@@ -1854,11 +1951,21 @@ const getFinanceSummaryForDate = (date) => {
     const userId = authUser?.id || fields.id;
     if (!userId) return null;
     const nowISO = new Date().toISOString();
-    const payload = {
+    const basePayload = {
       id: userId,
-      full_name: fields.full_name ?? fields.name ?? profile.name,
-      username: fields.username ?? profile.username ?? null,
-      email: fields.email ?? profile.email ?? authUser?.email,
+      full_name:
+        fields.full_name ??
+        fields.name ??
+        authUser?.user_metadata?.full_name ??
+        authUser?.user_metadata?.name ??
+        authUser?.email ??
+        profile.name,
+      username:
+        fields.username ??
+        authUser?.user_metadata?.username ??
+        profile.username ??
+        null,
+      email: fields.email ?? authUser?.email ?? profile.email ?? defaultProfile.email,
       avatar_url: fields.avatar_url ?? fields.photo ?? profile.photo,
       has_onboarded: fields.has_onboarded ?? hasOnboarded,
       daily_calorie_goal: fields.daily_calorie_goal ?? fields.dailyCalorieGoal ?? profile.dailyCalorieGoal,
@@ -1867,11 +1974,23 @@ const getFinanceSummaryForDate = (date) => {
       updated_at: nowISO,
     };
 
-    const { data, error } = await supabase
-      .from('profiles')
-      .upsert(payload, { onConflict: 'id' })
-      .select()
-      .single();
+    const attemptUpsert = async (payload, onConflict) => {
+      const options = onConflict ? { onConflict } : undefined;
+      return supabase.from('profiles').upsert(payload, options).select().single();
+    };
+
+    let data = null;
+    let error = null;
+
+    // First try a schema that has user_id as the unique key
+    ({ data, error } = await attemptUpsert({ ...basePayload, user_id: userId }, 'user_id'));
+
+    // If that fails because the column is missing or not unique, fall back to the id-based schema
+    if (error) {
+      if (isMissingColumnError(error, 'user_id') || error.code === '23505') {
+        ({ data, error } = await attemptUpsert(basePayload, 'id'));
+      }
+    }
 
     if (error) {
       console.log('Error saving profile:', error);
@@ -2102,8 +2221,8 @@ const getFinanceSummaryForDate = (date) => {
 
   const signOut = async () => {
     await supabase.auth.signOut();
+    await clearCachedSession();
     setAuthUser(null);
-    await AsyncStorage.removeItem(STORAGE_KEYS.AUTH_USER);
 
     setHasOnboarded(false);
     setProfile(defaultProfile);
@@ -2338,7 +2457,33 @@ const getFinanceSummaryForDate = (date) => {
       .sort((a, b) => new Date(a.date) - new Date(b.date));
   };
 
+  const computedProfile = useMemo(() => {
+    const bestName =
+      profile.name && profile.name !== defaultProfile.name
+        ? profile.name
+        : authUser?.user_metadata?.full_name ||
+          authUser?.user_metadata?.name ||
+          authUser?.user_metadata?.username ||
+          authUser?.email ||
+          profile.name ||
+          defaultProfile.name;
+
+    const bestEmail =
+      profile.email && profile.email !== defaultProfile.email
+        ? profile.email
+        : authUser?.email || profile.email || defaultProfile.email;
+
+    const bestUsername =
+      profile.username ||
+      authUser?.user_metadata?.username ||
+      '';
+
+    return { ...profile, name: bestName, email: bestEmail, username: bestUsername };
+  }, [profile, authUser]);
+
   const value = {
+    profile: computedProfile,
+
     // Loading
     isLoading,
     hasNotificationPermission,
@@ -2416,7 +2561,6 @@ const getFinanceSummaryForDate = (date) => {
     getFinanceSummaryForDate,
 
     // Profile
-    profile,
     updateProfile,
     userSettings,
     updateUserSettings,
