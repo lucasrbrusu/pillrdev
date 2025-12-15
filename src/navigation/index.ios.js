@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, useNavigation } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,6 +24,7 @@ import OnboardingScreen from '../screens/OnboardingScreen';
 import AuthScreen from '../screens/AuthScreen';
 import AppearanceScreen from '../screens/AppearanceScreen';
 import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';
+import ChatScreen from '../screens/ChatScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -152,6 +153,24 @@ const TabNavigator = ({ styles }) => {
   );
 };
 
+const MainWithChatButton = ({ styles }) => {
+  const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View style={{ flex: 1 }}>
+      <TabNavigator styles={styles} />
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={() => navigation.navigate('Chat')}
+        style={[styles.chatButton, { bottom: (insets.bottom || 0) + 86 }]}
+      >
+        <Ionicons name="chatbubbles-outline" size={24} color="#FFFFFF" />
+      </TouchableOpacity>
+    </View>
+  );
+};
+
 const Navigation = () => {
   const { isLoading, authUser, hasOnboarded, themeColors } = useApp();
   const styles = React.useMemo(() => createStyles(), [themeColors]);
@@ -187,7 +206,7 @@ const Navigation = () => {
           }}
         >
           <Stack.Screen name="Main">
-            {() => <TabNavigator styles={styles} />}
+            {() => <MainWithChatButton styles={styles} />}
           </Stack.Screen>
           <Stack.Screen name="Profile" component={ProfileScreen} />
           <Stack.Screen name="EditProfile" component={EditProfileScreen} />
@@ -196,6 +215,7 @@ const Navigation = () => {
           <Stack.Screen name="Calendar" component={CalendarScreen} />
           <Stack.Screen name="Appearance" component={AppearanceScreen} />
           <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
+          <Stack.Screen name="Chat" component={ChatScreen} />
         </Stack.Navigator>
       ) : (
         <Stack.Navigator
@@ -255,6 +275,17 @@ const createStyles = () =>
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: colors.background,
+    },
+    chatButton: {
+      position: 'absolute',
+      right: 24,
+      width: 56,
+      height: 56,
+      borderRadius: borderRadius.full,
+      backgroundColor: colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      ...shadows.medium,
     },
   });
 
