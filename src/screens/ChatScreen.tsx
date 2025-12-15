@@ -1,313 +1,240 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
+  SafeAreaView,
   Text,
   TextInput,
   TouchableOpacity,
   View,
-  TextStyle,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+} from "react-native";
 
-import { sendToAgent } from '../utils/agent';
-import { borderRadius, colors, shadows, spacing, typography } from '../utils/theme';
+import {
+  applyProposal,
+  cancelProposal,
+  fetchProposalsByIds,
+  ProposalRow,
+  sendToAgent,
+} from "../utils/agent";
 
-type Message = {
-  id: string;
-  role: 'user' | 'assistant';
-  text: string;
-};
+type ChatMsg = { id: string; role: "user" | "assistant"; text: string };
 
-type ProposedAction = {
-  type: string;
-  payload: any;
-};
+function prettyActionTitle(actionType: string) {
+  switch (actionType) {
+    case "create_task": return "Create task";
+    case "update_task": return "Update task";
+    case "create_habit": return "Create habit";
+    case "complete_habit": return "Complete habit";
+    case "create_note": return "Create note";
+    case "log_health_daily": return "Log health (daily)";
+    case "add_food_entry": return "Add food entry";
+    case "create_routine": return "Create routine";
+    case "add_routine_task": return "Add routine task";
+    case "create_reminder": return "Create reminder";
+    case "create_chore": return "Create chore";
+    case "create_grocery": return "Add grocery item";
+    default: return actionType;
+  }
+}
 
-const ChatScreen: React.FC = () => {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      text: 'Hi there! Ask me anything about your routines, tasks, finances, or habits.',
-    },
+export default function AIAgentScreen() {
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const [messages, setMessages] = useState<ChatMsg[]>([
+    { id: "m0", role: "assistant", text: "Tell me what you want to do — tasks, habits, routines, reminders, groceries, health logs, notes." },
   ]);
-  const [inputText, setInputText] = useState('');
-  const [isSending, setIsSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [conversationId, setConversationId] = useState<string | undefined>(undefined);
-  const [proposedActions, setProposedActions] = useState<ProposedAction[]>([]);
-  const listRef = useRef<FlatList<Message>>(null);
-  const insets = useSafeAreaInsets();
 
-  const styles = useMemo(() => createStyles(), []);
+  const [pendingProposals, setPendingProposals] = useState<ProposalRow[]>([]);
+  const hasPending = pendingProposals.some((p) => p.status === "pending");
 
-  const scrollToEnd = () => {
-    requestAnimationFrame(() => {
-      listRef.current?.scrollToEnd({ animated: true });
-    });
-  };
+  const listData = useMemo(() => {
+    // Show chat first, then proposal cards
+    return { messages, proposals: pendingProposals };
+  }, [messages, pendingProposals]);
 
-  const handleSend = async () => {
-    const trimmed = inputText.trim();
-    if (!trimmed || isSending) return;
+  async function onSend() {
+    const text = input.trim();
+    if (!text || sending) return;
 
-    const userMessage: Message = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      text: trimmed,
-    };
+    setInput("");
+    setSending(true);
 
-    setMessages((prev) => [...prev, userMessage]);
-    setInputText('');
-    setIsSending(true);
-    setError(null);
+    const userMsg: ChatMsg = { id: `u-${Date.now()}`, role: "user", text };
+    setMessages((prev) => [userMsg, ...prev]);
 
     try {
-      const response = await sendToAgent(trimmed, conversationId);
-      const assistantMessage: Message = {
-        id: `assistant-${Date.now()}`,
-        role: 'assistant',
-        text: response?.assistantText || 'I did not receive a response.',
-      };
+      const res = await sendToAgent(text);
 
-      setMessages((prev) => [...prev, assistantMessage]);
-      setProposedActions(response?.proposed_actions || []);
+      const botMsg: ChatMsg = { id: `a-${Date.now()}`, role: "assistant", text: res.assistantText || "(no response)" };
+      setMessages((prev) => [botMsg, ...prev]);
 
-      const maybeConversationId = (response as any)?.conversationId;
-      if (maybeConversationId) {
-        setConversationId(maybeConversationId);
+      if (res.proposals?.length) {
+        const proposalRows = await fetchProposalsByIds(res.proposals);
+
+        // Keep any older proposals; add new ones
+        setPendingProposals((prev) => {
+          const seen = new Set(prev.map((p) => p.id));
+          const merged = [...prev];
+          for (const p of proposalRows) {
+            if (!seen.has(p.id)) merged.push(p);
+          }
+          return merged;
+        });
       }
-
-      scrollToEnd();
-    } catch (err: any) {
-      setError(err?.message || 'Unable to reach the assistant right now.');
+    } catch (e: any) {
+      setMessages((prev) => [
+        { id: `err-${Date.now()}`, role: "assistant", text: `Error: ${e?.message ?? String(e)}` },
+        ...prev,
+      ]);
     } finally {
-      setIsSending(false);
+      setSending(false);
     }
-  };
+  }
 
-  const renderMessage = ({ item }: { item: Message }) => (
-    <View
-      style={[
-        styles.messageBubble,
-        item.role === 'assistant' ? styles.assistantBubble : styles.userBubble,
-      ]}
-    >
-      <Text
-        style={[
-          styles.messageText,
-          item.role === 'assistant' ? styles.assistantText : styles.userText,
-        ]}
-      >
-        {item.text}
-      </Text>
-    </View>
-  );
+  async function onApprove(proposalId: string) {
+    // Optimistic UI
+    setPendingProposals((prev) => prev.map((p) => (p.id === proposalId ? { ...p, status: "applied" } : p)));
+
+    try {
+      const res = await applyProposal(proposalId);
+      setMessages((prev) => [
+        { id: `ok-${Date.now()}`, role: "assistant", text: "✅ Done. Saved to your account." },
+        ...prev,
+      ]);
+    } catch (e: any) {
+      // Revert if failed
+      setPendingProposals((prev) => prev.map((p) => (p.id === proposalId ? { ...p, status: "failed" as any } : p)));
+      setMessages((prev) => [
+        { id: `fail-${Date.now()}`, role: "assistant", text: `❌ Couldn’t apply that: ${e?.message ?? String(e)}` },
+        ...prev,
+      ]);
+    }
+  }
+
+  async function onCancel(proposalId: string) {
+    setPendingProposals((prev) => prev.map((p) => (p.id === proposalId ? { ...p, status: "cancelled" } : p)));
+    try {
+      await cancelProposal(proposalId);
+    } catch {
+      // If policy disallows update, this might fail—UI will still hide it. You can ignore or show a warning.
+    }
+  }
 
   return (
-    <View
-      style={[
-        styles.container,
-        { paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, spacing.md) },
-      ]}
-    >
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
-        <View style={styles.header}>
-          <Text style={styles.title}>AI Assistant</Text>
-          <View style={styles.subtitleRow}>
-            <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
-            <Text style={styles.subtitle}>Powered by your Supabase agent</Text>
-          </View>
-        </View>
-
+    <SafeAreaView style={{ flex: 1 }}>
+      <View style={{ flex: 1, padding: 12 }}>
         <FlatList
-          ref={listRef}
-          data={messages}
+          inverted
+          data={listData.messages}
           keyExtractor={(item) => item.id}
-          renderItem={renderMessage}
-          contentContainerStyle={styles.messagesContainer}
-          showsVerticalScrollIndicator={false}
-          onContentSizeChange={scrollToEnd}
+          renderItem={({ item }) => (
+            <View
+              style={{
+                alignSelf: item.role === "user" ? "flex-end" : "flex-start",
+                backgroundColor: item.role === "user" ? "#2b2b2b" : "#1a1a1a",
+                padding: 10,
+                borderRadius: 12,
+                marginVertical: 6,
+                maxWidth: "85%",
+              }}
+            >
+              <Text style={{ color: "white" }}>{item.text}</Text>
+            </View>
+          )}
         />
 
-        {proposedActions.length > 0 && (
-          <View style={styles.actionsContainer}>
-            <Text style={styles.actionsTitle}>Suggested actions</Text>
-            <View style={styles.actionsRow}>
-              {proposedActions.map((action, index) => (
-                <View key={`${action.type}-${index}`} style={styles.actionChip}>
-                  <Text style={styles.actionChipText}>{action.type}</Text>
+        {/* Proposal cards */}
+        {pendingProposals.length > 0 && (
+          <View style={{ marginTop: 10 }}>
+            <Text style={{ color: "white", marginBottom: 6, fontWeight: "600" }}>
+              Suggested actions
+            </Text>
+
+            {pendingProposals
+              .slice()
+              .reverse()
+              .filter((p) => p.status === "pending")
+              .map((p) => (
+                <View
+                  key={p.id}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: "#333",
+                    borderRadius: 12,
+                    padding: 10,
+                    marginBottom: 10,
+                  }}
+                >
+                  <Text style={{ color: "white", fontWeight: "700" }}>
+                    {prettyActionTitle(p.action_type)}
+                  </Text>
+
+                  <Text style={{ color: "#bbb", marginTop: 6 }}>
+                    {JSON.stringify(p.action_payload, null, 2)}
+                  </Text>
+
+                  <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
+                    <TouchableOpacity
+                      onPress={() => onApprove(p.id)}
+                      style={{
+                        backgroundColor: "#4b2cff",
+                        paddingVertical: 10,
+                        paddingHorizontal: 14,
+                        borderRadius: 10,
+                      }}
+                    >
+                      <Text style={{ color: "white", fontWeight: "700" }}>Approve</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => onCancel(p.id)}
+                      style={{
+                        backgroundColor: "#333",
+                        paddingVertical: 10,
+                        paddingHorizontal: 14,
+                        borderRadius: 10,
+                      }}
+                    >
+                      <Text style={{ color: "white", fontWeight: "700" }}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               ))}
-            </View>
           </View>
         )}
 
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-        <View style={styles.inputContainer}>
+        {/* Input */}
+        <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
           <TextInput
-            value={inputText}
-            onChangeText={setInputText}
-            placeholder="Type a message..."
-            placeholderTextColor={colors.placeholder}
-            style={styles.textInput}
-            multiline
-            onSubmitEditing={handleSend}
-            blurOnSubmit={false}
+            value={input}
+            onChangeText={setInput}
+            placeholder="e.g. Create a task tomorrow at 5pm to submit coursework"
+            placeholderTextColor="#777"
+            style={{
+              flex: 1,
+              borderWidth: 1,
+              borderColor: "#333",
+              borderRadius: 12,
+              padding: 12,
+              color: "white",
+            }}
           />
           <TouchableOpacity
-            onPress={handleSend}
-            disabled={!inputText.trim() || isSending}
-            style={[
-              styles.sendButton,
-              (!inputText.trim() || isSending) && styles.sendButtonDisabled,
-            ]}
+            onPress={onSend}
+            disabled={sending}
+            style={{
+              width: 90,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: sending ? "#222" : "#4b2cff",
+              borderRadius: 12,
+            }}
           >
-            {isSending ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <Ionicons name="send" size={18} color="#FFFFFF" />
-            )}
+            {sending ? <ActivityIndicator /> : <Text style={{ color: "white", fontWeight: "700" }}>Send</Text>}
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
-    </View>
+      </View>
+    </SafeAreaView>
   );
-};
-
-const asTextStyle = (style: any): TextStyle => style as TextStyle;
-
-const createStyles = () =>
-  StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
-    flex: {
-      flex: 1,
-    },
-    header: {
-      paddingHorizontal: spacing.xl,
-      paddingBottom: spacing.sm,
-      paddingTop: spacing.md,
-    },
-    title: {
-      ...asTextStyle(typography.h2),
-    },
-    subtitleRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginTop: spacing.xs,
-    },
-    subtitle: {
-      ...asTextStyle(typography.bodySmall),
-      marginLeft: spacing.xs,
-      color: colors.textSecondary,
-    },
-    messagesContainer: {
-      paddingHorizontal: spacing.xl,
-      paddingBottom: spacing.lg,
-    },
-    messageBubble: {
-      padding: spacing.md,
-      borderRadius: borderRadius.lg,
-      marginBottom: spacing.sm,
-      maxWidth: '90%',
-      ...shadows.small,
-    },
-    userBubble: {
-      alignSelf: 'flex-end',
-      backgroundColor: colors.primary,
-    },
-    assistantBubble: {
-      alignSelf: 'flex-start',
-      backgroundColor: colors.card,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    messageText: {
-      ...asTextStyle(typography.body),
-    },
-    userText: {
-      color: '#FFFFFF',
-    },
-    assistantText: {
-      color: colors.text,
-    },
-    actionsContainer: {
-      paddingHorizontal: spacing.xl,
-      paddingBottom: spacing.md,
-    },
-    actionsTitle: {
-      ...asTextStyle(typography.label),
-      marginBottom: spacing.xs,
-      color: colors.textSecondary,
-    },
-    actionsRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      marginHorizontal: -spacing.xs,
-    },
-    actionChip: {
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.xs,
-      backgroundColor: colors.inputBackground,
-      borderRadius: borderRadius.full,
-      marginHorizontal: spacing.xs,
-      marginBottom: spacing.xs,
-    },
-    actionChipText: {
-      ...asTextStyle(typography.bodySmall),
-      color: colors.text,
-    },
-    errorText: {
-      color: colors.danger,
-      ...asTextStyle(typography.bodySmall),
-      paddingHorizontal: spacing.xl,
-      marginBottom: spacing.xs,
-    },
-    inputContainer: {
-      flexDirection: 'row',
-      alignItems: 'flex-end',
-      paddingHorizontal: spacing.xl,
-      paddingVertical: spacing.md,
-      borderTopWidth: 1,
-      borderTopColor: colors.divider,
-      backgroundColor: colors.background,
-    },
-    textInput: {
-      flex: 1,
-      minHeight: 44,
-      maxHeight: 120,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm,
-      backgroundColor: colors.inputBackground,
-      borderRadius: borderRadius.lg,
-      ...asTextStyle(typography.body),
-    },
-    sendButton: {
-      width: 44,
-      height: 44,
-      borderRadius: borderRadius.full,
-      backgroundColor: colors.primary,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginLeft: spacing.sm,
-      ...shadows.medium,
-    },
-    sendButtonDisabled: {
-      backgroundColor: colors.navInactive,
-    },
-  });
-
-export default ChatScreen;
+}
