@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Image,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,7 +27,7 @@ import {
 const EditProfileScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { profile, updateProfile, themeColors } = useApp();
+  const { profile, updateProfile, deleteAccount, themeColors } = useApp();
   const styles = React.useMemo(() => createStyles(), [themeColors]);
 
   const [name, setName] = useState(profile.name);
@@ -35,6 +36,7 @@ const EditProfileScreen = () => {
   const [calorieGoal, setCalorieGoal] = useState(String(profile.dailyCalorieGoal));
   const [waterGoal, setWaterGoal] = useState(String(profile.dailyWaterGoal));
   const [sleepGoal, setSleepGoal] = useState(String(profile.dailySleepGoal));
+  const [deleting, setDeleting] = useState(false);
 
   const handleSave = async () => {
     await updateProfile({
@@ -84,8 +86,16 @@ const EditProfileScreen = () => {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
-            // Handle deletion
+          onPress: async () => {
+            if (deleting) return;
+            try {
+              setDeleting(true);
+              await deleteAccount();
+            } catch (error) {
+              Alert.alert('Delete failed', error?.message || 'Unable to delete your account.');
+            } finally {
+              setDeleting(false);
+            }
           },
         },
       ]
@@ -199,11 +209,15 @@ const EditProfileScreen = () => {
           <TouchableOpacity
             style={[styles.actionItem, styles.dangerItem]}
             onPress={handleDeleteAccount}
+            disabled={deleting}
           >
             <Ionicons name="trash-outline" size={20} color={colors.danger} />
-            <Text style={[styles.actionText, styles.dangerText]}>
-              Delete Account
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+              <Text style={[styles.actionText, styles.dangerText]}>
+                {deleting ? 'Deleting...' : 'Delete Account'}
+              </Text>
+              {deleting && <ActivityIndicator size="small" color={colors.danger} style={{ marginLeft: spacing.sm }} />}
+            </View>
             <Ionicons name="chevron-forward" size={20} color={colors.danger} />
           </TouchableOpacity>
         </Card>

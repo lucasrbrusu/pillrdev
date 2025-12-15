@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useApp } from "../context/AppContext";
 
 import {
   applyProposal,
@@ -53,6 +54,20 @@ function prettyActionTitle(actionType: string) {
 }
 
 export default function ChatScreen() {
+  const { profile, themeColors } = useApp();
+  const isPremium = !!profile?.isPremium;
+  const backgroundColor = themeColors?.background ?? "#0f0f0f";
+  const surfaceColor = themeColors?.card ?? "#1a1a1a";
+  const textColor = themeColors?.text ?? "white";
+  const mutedTextColor = themeColors?.textSecondary ?? "#888";
+  const userBubbleColor = themeColors?.primary ?? "#2b2b2b";
+  const assistantBubbleColor = surfaceColor;
+  const borderColor = themeColors?.border ?? "#333";
+  const inputBackground = themeColors?.inputBackground ?? surfaceColor;
+  const placeholderTextColor = themeColors?.placeholder ?? "#777";
+  const primaryColor = themeColors?.primary ?? "#4b2cff";
+  const disabledButtonColor = surfaceColor;
+  const buttonTextColor = "#fff";
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
 
@@ -67,6 +82,7 @@ export default function ChatScreen() {
   const [pendingProposals, setPendingProposals] = useState<ProposalRow[]>([]);
 
   async function onSend() {
+    if (!isPremium) return;
     const text = input.trim();
     if (!text || sending) return;
 
@@ -149,13 +165,47 @@ export default function ChatScreen() {
     }
   }
 
+  if (!isPremium) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor }}>
+        <View
+          style={{
+            flex: 1,
+            padding: 20,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <View
+            style={{
+              width: "100%",
+              maxWidth: 460,
+              padding: 20,
+              borderRadius: 16,
+              backgroundColor: surfaceColor,
+              borderWidth: 1,
+              borderColor: "#222",
+            }}
+          >
+            <Text style={{ color: textColor, fontSize: 18, fontWeight: "700", marginBottom: 8 }}>
+              Premium required
+            </Text>
+            <Text style={{ color: mutedTextColor, fontSize: 15, lineHeight: 22 }}>
+              Upgrade to a premium plan to unlock the Pillr AI agent and start chatting.
+            </Text>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 0}
     >
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor }}>
         <View style={{ flex: 1, padding: 12 }}>
           <FlatList
             data={messages}
@@ -165,14 +215,14 @@ export default function ChatScreen() {
               <View
                 style={{
                   alignSelf: item.role === "user" ? "flex-end" : "flex-start",
-                  backgroundColor: item.role === "user" ? "#2b2b2b" : "#1a1a1a",
+                  backgroundColor: item.role === "user" ? userBubbleColor : assistantBubbleColor,
                   padding: 10,
                   borderRadius: 12,
                   marginVertical: 6,
                   maxWidth: "85%",
                 }}
               >
-                <Text style={{ color: "white" }}>{item.text}</Text>
+                <Text style={{ color: item.role === "user" ? "#fff" : textColor }}>{item.text}</Text>
               </View>
             )}
           />
@@ -180,7 +230,7 @@ export default function ChatScreen() {
           {/* Proposal cards */}
           {pendingProposals.length > 0 && (
             <View style={{ marginTop: 10 }}>
-              <Text style={{ color: "white", marginBottom: 6, fontWeight: "600" }}>
+              <Text style={{ color: textColor, marginBottom: 6, fontWeight: "600" }}>
                 Suggested actions
               </Text>
 
@@ -193,17 +243,17 @@ export default function ChatScreen() {
                     key={p.id}
                     style={{
                       borderWidth: 1,
-                      borderColor: "#333",
+                      borderColor,
                       borderRadius: 12,
                       padding: 10,
                       marginBottom: 10,
                     }}
                   >
-                    <Text style={{ color: "white", fontWeight: "700" }}>
+                    <Text style={{ color: textColor, fontWeight: "700" }}>
                       {prettyActionTitle(p.action_type)}
                     </Text>
 
-                    <Text style={{ color: "#bbb", marginTop: 6 }}>
+                    <Text style={{ color: mutedTextColor, marginTop: 6 }}>
                       {JSON.stringify(p.action_payload, null, 2)}
                     </Text>
 
@@ -243,14 +293,15 @@ export default function ChatScreen() {
               value={input}
               onChangeText={setInput}
               placeholder="e.g. Create a task tomorrow at 5pm to submit coursework"
-              placeholderTextColor="#777"
+              placeholderTextColor={placeholderTextColor}
               style={{
                 flex: 1,
                 borderWidth: 1,
-                borderColor: "#333",
+                borderColor,
                 borderRadius: 12,
                 padding: 12,
-                color: "white",
+                color: textColor,
+                backgroundColor: inputBackground,
               }}
               multiline
               blurOnSubmit={false}
@@ -263,14 +314,14 @@ export default function ChatScreen() {
                 width: 90,
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: sending ? "#222" : "#4b2cff",
+                backgroundColor: sending ? disabledButtonColor : primaryColor,
                 borderRadius: 12,
               }}
             >
               {sending ? (
-                <ActivityIndicator />
+                <ActivityIndicator color={buttonTextColor} />
               ) : (
-                <Text style={{ color: "white", fontWeight: "700" }}>Send</Text>
+                <Text style={{ color: buttonTextColor, fontWeight: "700" }}>Send</Text>
               )}
             </TouchableOpacity>
           </View>

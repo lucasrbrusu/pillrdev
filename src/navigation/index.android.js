@@ -164,27 +164,30 @@ const TabNavigator = ({ styles }) => {
   );
 };
 
-const MainWithChatButton = ({ styles }) => {
+const MainWithChatButton = ({ styles, isPremium }) => {
   const navigation = useNavigation();
   const bottomPadding = useBottomOffset();
 
   return (
     <View style={{ flex: 1 }}>
       <TabNavigator styles={styles} />
-      <Pressable
-        onPress={() => navigation.navigate('Chat')}
-        android_ripple={{ color: '#FFFFFF33', borderless: true }}
-        style={[styles.chatButton, { bottom: bottomPadding + 72 }]}
-      >
-        <Ionicons name="chatbubbles-outline" size={24} color="#FFFFFF" />
-      </Pressable>
+      {isPremium && (
+        <Pressable
+          onPress={() => navigation.navigate('Chat')}
+          android_ripple={{ color: '#FFFFFF33', borderless: true }}
+          style={[styles.chatButton, { bottom: bottomPadding + 72 }]}
+        >
+          <Ionicons name="chatbubbles-outline" size={24} color="#FFFFFF" />
+        </Pressable>
+      )}
     </View>
   );
 };
 
 const Navigation = () => {
-  const { isLoading, authUser, hasOnboarded, themeColors } = useApp();
+  const { isLoading, authUser, hasOnboarded, themeColors, profile } = useApp();
   const styles = React.useMemo(() => createStyles(), [themeColors]);
+  const isPremium = !!profile?.isPremium;
 
   const navTheme = React.useMemo(
     () => ({
@@ -217,7 +220,7 @@ const Navigation = () => {
           }}
         >
           <Stack.Screen name="Main">
-            {() => <MainWithChatButton styles={styles} />}
+            {() => <MainWithChatButton styles={styles} isPremium={isPremium} />}
           </Stack.Screen>
           <Stack.Screen name="Profile" component={ProfileScreen} />
           <Stack.Screen name="EditProfile" component={EditProfileScreen} />

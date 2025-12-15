@@ -153,27 +153,30 @@ const TabNavigator = ({ styles }) => {
   );
 };
 
-const MainWithChatButton = ({ styles }) => {
+const MainWithChatButton = ({ styles, isPremium }) => {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
 
   return (
     <View style={{ flex: 1 }}>
       <TabNavigator styles={styles} />
-      <TouchableOpacity
-        activeOpacity={0.9}
-        onPress={() => navigation.navigate('Chat')}
-        style={[styles.chatButton, { bottom: (insets.bottom || 0) + 86 }]}
-      >
-        <Ionicons name="chatbubbles-outline" size={24} color="#FFFFFF" />
-      </TouchableOpacity>
+      {isPremium && (
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => navigation.navigate('Chat')}
+          style={[styles.chatButton, { bottom: (insets.bottom || 0) + 86 }]}
+        >
+          <Ionicons name="chatbubbles-outline" size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
 
 const Navigation = () => {
-  const { isLoading, authUser, hasOnboarded, themeColors } = useApp();
+  const { isLoading, authUser, hasOnboarded, themeColors, profile } = useApp();
   const styles = React.useMemo(() => createStyles(), [themeColors]);
+  const isPremium = !!profile?.isPremium;
 
   const navTheme = React.useMemo(
     () => ({
@@ -206,7 +209,7 @@ const Navigation = () => {
           }}
         >
           <Stack.Screen name="Main">
-            {() => <MainWithChatButton styles={styles} />}
+            {() => <MainWithChatButton styles={styles} isPremium={isPremium} />}
           </Stack.Screen>
           <Stack.Screen name="Profile" component={ProfileScreen} />
           <Stack.Screen name="EditProfile" component={EditProfileScreen} />

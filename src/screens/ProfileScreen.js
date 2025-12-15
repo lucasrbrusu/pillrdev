@@ -27,6 +27,7 @@ const ProfileScreen = () => {
   const navigation = useNavigation();
   const { profile, signOut, themeColors, t } = useApp();
   const styles = React.useMemo(() => createStyles(), [themeColors]);
+  const isPremium = !!profile?.isPremium;
 
   const settingsOptions = [
     {
@@ -108,7 +109,18 @@ const ProfileScreen = () => {
               </View>
             )}
           </View>
-          <Text style={styles.profileName}>{profile.name}</Text>
+          <View style={styles.nameRow}>
+            <Text style={styles.profileName}>{profile.name}</Text>
+            {isPremium && (
+              <View style={styles.premiumBadge}>
+                <Ionicons name="crown" size={14} color="#FACC15" style={styles.premiumIcon} />
+                <Text style={styles.premiumText}>{t('Premium')}</Text>
+              </View>
+            )}
+          </View>
+          {!!profile.username && (
+            <Text style={styles.profileUsername}>@{profile.username}</Text>
+          )}
           <Text style={styles.profileEmail}>{profile.email}</Text>
           <TouchableOpacity
             style={styles.editProfileButton}
@@ -207,14 +219,41 @@ const createStyles = () =>
       alignItems: 'center',
       justifyContent: 'center',
     },
+    nameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+      marginBottom: spacing.xs,
+    },
     profileName: {
       ...typography.h2,
+    },
+    profileUsername: {
+      ...typography.bodySmall,
+      color: colors.textSecondary,
       marginBottom: spacing.xs,
     },
     profileEmail: {
       ...typography.bodySmall,
       color: colors.textSecondary,
       marginBottom: spacing.lg,
+    },
+    premiumBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.primaryLight,
+      borderRadius: borderRadius.full,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+    },
+    premiumIcon: {
+      marginRight: spacing.xs,
+    },
+    premiumText: {
+      ...typography.caption,
+      color: colors.primary,
+      fontWeight: '700',
     },
     editProfileButton: {
       paddingVertical: spacing.sm,

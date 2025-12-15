@@ -63,6 +63,9 @@ const defaultProfile = {
   dailyWaterGoal: 8,
   dailySleepGoal: 8,
   profileId: null,
+  plan: 'free',
+  premiumExpiresAt: null,
+  isPremium: false,
 };
 
 const defaultHealthDay = () => ({
@@ -92,6 +95,17 @@ const defaultUserSettings = {
 const DEFAULT_EVENT_TIME = { hour: 9, minute: 0 };
 const HABIT_REMINDER_TIME = { hour: 8, minute: 0 };
 const ROUTINE_REMINDER_TIME = { hour: 7, minute: 30 };
+
+const computeIsPremium = (plan, premiumExpiresAt) => {
+  const normalizedPlan = (plan || '').toLowerCase();
+  const isPremiumPlan = normalizedPlan === 'premium' || normalizedPlan === 'pro';
+  if (!isPremiumPlan) return false;
+
+  if (!premiumExpiresAt) return true;
+  const expiry = new Date(premiumExpiresAt);
+  if (Number.isNaN(expiry.getTime())) return true;
+  return expiry.getTime() > Date.now();
+};
 
 const asNumber = (value, fallback = null) => {
   const n = Number(value);
@@ -1864,6 +1878,9 @@ const getFinanceSummaryForDate = (date) => {
     dailyCalorieGoal: row?.daily_calorie_goal ?? defaultProfile.dailyCalorieGoal,
     dailyWaterGoal: row?.daily_water_goal ?? defaultProfile.dailyWaterGoal,
     dailySleepGoal: row?.daily_sleep_goal ?? defaultProfile.dailySleepGoal,
+    plan: row?.plan || defaultProfile.plan,
+    premiumExpiresAt: row?.premium_expires_at || row?.premiumExpiresAt || defaultProfile.premiumExpiresAt,
+    isPremium: computeIsPremium(row?.plan || defaultProfile.plan, row?.premium_expires_at || row?.premiumExpiresAt),
   });
 
   // Ensure profile state has at least auth-derived values when we gain an auth user
@@ -1971,6 +1988,12 @@ const getFinanceSummaryForDate = (date) => {
       daily_calorie_goal: fields.daily_calorie_goal ?? fields.dailyCalorieGoal ?? profile.dailyCalorieGoal,
       daily_water_goal: fields.daily_water_goal ?? fields.dailyWaterGoal ?? profile.dailyWaterGoal,
       daily_sleep_goal: fields.daily_sleep_goal ?? fields.dailySleepGoal ?? profile.dailySleepGoal,
+      plan: fields.plan ?? profile.plan ?? defaultProfile.plan,
+      premium_expires_at:
+        fields.premium_expires_at ??
+        fields.premiumExpiresAt ??
+        profile.premiumExpiresAt ??
+        defaultProfile.premiumExpiresAt,
       updated_at: nowISO,
     };
 
@@ -2231,6 +2254,48 @@ const getFinanceSummaryForDate = (date) => {
     applyTheme('default');
   };
 
+  const deleteAccount = async () => {
+    if (!authUser?.id) {
+      throw new Error('You must be signed in to delete your account.');
+    }
+    const userId = authUser.id;
+
+    const safeDelete = async (table, column = 'user_id') => {
+      const { error } = await supabase.from(table).delete().eq(column, userId);
+      if (error && error.code !== 'PGRST116') {
+        throw error;
+      }
+    };
+
+    try {
+      // Child rows first
+      await safeDelete('habit_completions');
+      await safeDelete('health_food_entries');
+      await safeDelete('health_daily');
+
+      // Primary entities
+      await safeDelete('habits');
+      await safeDelete('tasks');
+      await safeDelete('notes');
+      await safeDelete('routines');
+      await safeDelete('chores');
+      await safeDelete('reminders');
+      await safeDelete('groceries');
+      await safeDelete('finance_transactions');
+
+      // Settings/profile
+      await safeDelete('user_settings');
+      await safeDelete('profiles', 'id');
+      await safeDelete('profiles');
+    } catch (error) {
+      const message = error?.message || 'Unable to delete account.';
+      throw new Error(message);
+    } finally {
+      // Always sign out and clear local state
+      await signOut();
+    }
+  };
+
   const changeTheme = async (name) => {
     setThemeName(name);
     applyTheme(name);
@@ -2478,11 +2543,25 @@ const getFinanceSummaryForDate = (date) => {
       authUser?.user_metadata?.username ||
       '';
 
-    return { ...profile, name: bestName, email: bestEmail, username: bestUsername };
+    const plan = profile.plan || defaultProfile.plan;
+    const premiumExpiresAt =
+      profile.premiumExpiresAt || profile.premium_expires_at || defaultProfile.premiumExpiresAt;
+    const isPremium = computeIsPremium(plan, premiumExpiresAt);
+
+    return {
+      ...profile,
+      name: bestName,
+      email: bestEmail,
+      username: bestUsername,
+      plan,
+      premiumExpiresAt,
+      isPremium,
+    };
   }, [profile, authUser]);
 
   const value = {
     profile: computedProfile,
+    isPremium: computedProfile?.isPremium,
 
     // Loading
     isLoading,
@@ -2574,6 +2653,7 @@ const getFinanceSummaryForDate = (date) => {
     signIn,
     signUp,
     signOut,
+    deleteAccount,
     persistOnboarding,
 
     // Theme

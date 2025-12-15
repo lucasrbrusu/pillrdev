@@ -33,18 +33,18 @@ const MOOD_OPTIONS = [
 const HomeScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { themeColors } = useApp();
-  const styles = React.useMemo(() => createStyles(), [themeColors]);
   const {
+    themeColors,
+    profile,
     habits,
     tasks,
     todayHealth,
     chores,
     reminders,
     groceries,
-    profile,
     getTodayTasks,
   } = useApp();
+  const styles = React.useMemo(() => createStyles(), [themeColors]);
 
   const today = new Date();
   const formattedDate = today.toLocaleDateString('en-US', {
@@ -329,6 +329,21 @@ const HomeScreen = () => {
             <Text style={[styles.emptyText, styles.choresText]}>No upcoming chores or grocery items</Text>
           )}
         </Card>
+
+        {/* Premium Upsell for free users */}
+        {!profile?.isPremium && (
+          <View style={styles.premiumUpsell}>
+            <View style={styles.premiumIconWrap}>
+              <Ionicons name="crown" size={28} color="#b8860b" />
+            </View>
+            <View style={styles.premiumTextWrap}>
+              <Text style={styles.premiumTitle}>Upgrade to Premium!</Text>
+              <Text style={styles.premiumSubtitle}>
+                Unlock the AI agent and premium features tailored to power up your day.
+              </Text>
+            </View>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -629,6 +644,41 @@ const createStyles = () =>
     },
     habitsText: {
       color: '#FFFFFF',
+    },
+    premiumUpsell: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#FACC15',
+      borderColor: '#b8860b',
+      borderWidth: 3,
+      borderRadius: borderRadius.xl,
+      padding: spacing.xl,
+      marginTop: spacing.lg,
+      marginBottom: spacing.xxxl,
+      ...shadows.medium,
+    },
+    premiumIconWrap: {
+      width: 56,
+      height: 56,
+      borderRadius: borderRadius.full,
+      backgroundColor: '#f1c232',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.lg,
+      borderWidth: 2,
+      borderColor: '#b8860b',
+    },
+    premiumTextWrap: {
+      flex: 1,
+    },
+    premiumTitle: {
+      ...typography.h2,
+      color: '#4a3b00',
+      marginBottom: spacing.xs,
+    },
+    premiumSubtitle: {
+      ...typography.body,
+      color: '#4a3b00',
     },
   });
 
