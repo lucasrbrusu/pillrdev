@@ -46,9 +46,9 @@ const useBottomOffset = () => {
   // When Android gesture/navbar hides, windowHeight grows; clamp the offset so
   // the tab bar stays near the bottom even when on-screen buttons are present.
   const softNavHeight = Math.max(screenHeight - windowHeight - insets.top, 0);
-  const clampedNav = Math.min(softNavHeight, 12); // avoid jumping too high
-  const minGap = 4;
-  const baseGap = 6;
+  const clampedNav = Math.min(softNavHeight, 16); // allow a bit more offset
+  const minGap = 2;
+  const baseGap = 8;
 
   return Math.max(insets.bottom, clampedNav, minGap) + baseGap;
 };
