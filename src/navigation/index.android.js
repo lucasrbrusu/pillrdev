@@ -43,13 +43,14 @@ const useBottomOffset = () => {
   const { height: windowHeight } = useWindowDimensions();
   const screenHeight = React.useMemo(() => Dimensions.get('screen').height, []);
 
-  // When Android gesture/navbar hides, windowHeight grows; keep spacing tight
-  // so the tab bar hugs the bottom with a small buffer even with on-screen buttons.
+  // When Android gesture/navbar hides, windowHeight grows; clamp the offset so
+  // the tab bar stays near the bottom even when on-screen buttons are present.
   const softNavHeight = Math.max(screenHeight - windowHeight - insets.top, 0);
-  const minGap = 0;
-  const baseGap = 0;
+  const clampedNav = Math.min(softNavHeight, 12); // avoid jumping too high
+  const minGap = 4;
+  const baseGap = 6;
 
-  return Math.max(insets.bottom, softNavHeight, minGap) + baseGap;
+  return Math.max(insets.bottom, clampedNav, minGap) + baseGap;
 };
 
 const TabBarIcon = ({ name, type, color, size }) => {
