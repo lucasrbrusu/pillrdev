@@ -632,7 +632,7 @@ const HomeScreen = () => {
           {currentMood ? (
             <View style={styles.healthContent}>
               <Text style={styles.moodEmoji}>{currentMood.emoji}</Text>
-              <Text style={[styles.moodLabel, styles.healthText]}>Feeling {currentMood.label.toLowerCase()}</Text>
+              <Text style={[styles.moodLabel, styles.healthText]}>Today's mood</Text>
             </View>
           ) : (
             <View style={styles.healthPrompt}>

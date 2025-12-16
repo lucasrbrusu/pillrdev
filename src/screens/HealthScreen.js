@@ -52,8 +52,7 @@ const HealthScreen = () => {
   const [foodName, setFoodName] = useState('');
   const [foodCalories, setFoodCalories] = useState('');
   const [showMoodModal, setShowMoodModal] = useState(false);
-  const [moodSliderIndex, setMoodSliderIndex] = useState(6);
-  const [moodSliderWidth, setMoodSliderWidth] = useState(0);
+  const [selectedMoodIndex, setSelectedMoodIndex] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [sleepForm, setSleepForm] = useState({
     sleepTime: null,
@@ -206,7 +205,7 @@ const HealthScreen = () => {
   };
 
   const openMoodPicker = () => {
-    setMoodSliderIndex(currentMoodIndex());
+    setSelectedMoodIndex(currentMoodIndex());
     setShowMoodModal(true);
   };
 
@@ -218,22 +217,9 @@ const HealthScreen = () => {
   }, [navigation, route.params?.openMoodPicker]);
 
   const handleMoodSave = async () => {
-    await updateHealthForDate(selectedDateISO, { mood: moodSliderIndex + 1 });
+    const idx = typeof selectedMoodIndex === 'number' ? selectedMoodIndex : currentMoodIndex();
+    await updateHealthForDate(selectedDateISO, { mood: idx + 1 });
     setShowMoodModal(false);
-  };
-
-  const handleMoodSlide = (locationX) => {
-    if (!moodSliderWidth || moodSliderWidth <= 0) return;
-    const boundedX = Math.max(0, Math.min(locationX, moodSliderWidth));
-    const ratio = boundedX / moodSliderWidth;
-    const idx = Math.round(ratio * (moodOptions.length - 1));
-    setMoodSliderIndex(idx);
-  };
-
-  const thumbLeft = () => {
-    const thumbWidth = 24;
-    const usableWidth = Math.max(1, moodSliderWidth - thumbWidth);
-    return (moodSliderIndex / Math.max(1, moodOptions.length - 1)) * usableWidth;
   };
 
   return (
@@ -392,7 +378,7 @@ const HealthScreen = () => {
                   {moodOptions[currentMoodIndex()].emoji}
                 </Text>
                 <Text style={styles.moodSummaryLabel}>
-                  {moodOptions[currentMoodIndex()].label}
+                  Today's mood
                 </Text>
                 <Text style={styles.moodHint}>Tap to change</Text>
               </View>
@@ -576,33 +562,35 @@ const HealthScreen = () => {
         fullScreen
       >
         <View style={styles.moodModalContent} pointerEvents="box-none">
-          <Text style={styles.moodPreviewEmoji}>{moodOptions[moodSliderIndex].emoji}</Text>
-          <Text style={styles.moodPreviewLabel}>{moodOptions[moodSliderIndex].label}</Text>
+          <Text style={styles.moodPreviewEmoji}>
+            {moodOptions[selectedMoodIndex ?? currentMoodIndex()].emoji}
+          </Text>
+          <Text style={styles.moodPreviewLabel}>
+            {moodOptions[selectedMoodIndex ?? currentMoodIndex()].label}
+          </Text>
 
-          <View
-            style={styles.sliderTrack}
-            onLayout={(e) => setMoodSliderWidth(e.nativeEvent.layout.width)}
-            onStartShouldSetResponder={() => true}
-            onStartShouldSetResponderCapture={() => true}
-            onMoveShouldSetResponder={() => true}
-            onResponderGrant={(e) => handleMoodSlide(e.nativeEvent.locationX)}
-            onResponderMove={(e) => handleMoodSlide(e.nativeEvent.locationX)}
-            onResponderRelease={(e) => handleMoodSlide(e.nativeEvent.locationX)}
-          >
-            <View style={styles.sliderRail} />
-            <View
-              style={[
-                styles.sliderThumb,
-                {
-                  left: thumbLeft(),
-                },
-              ]}
-            />
-          </View>
-
-          <View style={styles.moodScaleLabels}>
-            <Text style={styles.moodScaleText}>Worse</Text>
-            <Text style={styles.moodScaleText}>Better</Text>
+          <View style={styles.moodGrid}>
+            {moodOptions.map((option, idx) => {
+              const isActive = (selectedMoodIndex ?? currentMoodIndex()) === idx;
+              return (
+                <TouchableOpacity
+                  key={option.label}
+                  style={[styles.moodEmojiButton, isActive && styles.moodEmojiButtonActive]}
+                  onPress={() => setSelectedMoodIndex(idx)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.moodEmoji}>{option.emoji}</Text>
+                  <Text
+                    style={[
+                      styles.moodEmojiLabel,
+                      isActive && styles.moodEmojiLabelActive,
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           <View style={styles.modalButtons}>
@@ -948,37 +936,36 @@ const createStyles = () => StyleSheet.create({
     marginBottom: spacing.lg,
     textAlign: 'center',
   },
-  sliderTrack: {
-    width: '100%',
-    height: 48,
-    justifyContent: 'center',
-  },
-  sliderRail: {
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: colors.divider,
-  },
-  sliderThumb: {
-    position: 'absolute',
-    top: 12,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: colors.primary,
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-    elevation: 2,
-    pointerEvents: 'none',
-  },
-  moodScaleLabels: {
+  moodGrid: {
     width: '100%',
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
-    marginTop: spacing.xs,
+    marginVertical: spacing.md,
   },
-  moodScaleText: {
-    ...typography.caption,
-    color: colors.textSecondary,
+  moodEmojiButton: {
+    width: '22%',
+    aspectRatio: 1,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.inputBackground,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+  },
+  moodEmojiButtonActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryLight,
+  },
+  moodEmoji: {
+    fontSize: 36,
+  },
+  moodEmojiLabel: {
+    display: 'none',
+  },
+  moodEmojiLabelActive: {
+    display: 'none',
   },
   modalButtons: {
     flexDirection: 'row',
