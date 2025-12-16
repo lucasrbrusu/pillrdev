@@ -28,12 +28,59 @@ const formatTimeAgo = (value) => {
   return `${days}d ago`;
 };
 
+const groupNotifications = (items) => {
+  const now = new Date();
+  const isSameDay = (d1, d2) =>
+    d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate();
+
+  const buckets = {
+    today: [],
+    earlierToday: [],
+    yesterday: [],
+    lastWeek: [],
+    older: [],
+  };
+
+  items.forEach((item) => {
+    const date = item.timestamp ? new Date(item.timestamp) : null;
+    if (!date || Number.isNaN(date.getTime())) return;
+
+    const diffMs = now.getTime() - date.getTime();
+    const diffHours = diffMs / (1000 * 60 * 60);
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+
+    if (diffDays >= 14) {
+      buckets.older.push(item);
+    } else if (diffDays >= 7) {
+      buckets.lastWeek.push(item);
+    } else if (!isSameDay(now, date) && diffHours >= 6) {
+      // crossed midnight and older than 6h
+      buckets.yesterday.push(item);
+    } else if (isSameDay(now, date) && diffHours >= 6) {
+      buckets.earlierToday.push(item);
+    } else {
+      buckets.today.push(item);
+    }
+  });
+
+  const ordered = [];
+  if (buckets.today.length) ordered.push({ label: 'Today', data: buckets.today });
+  if (buckets.earlierToday.length) ordered.push({ label: 'Earlier Today', data: buckets.earlierToday });
+  if (buckets.yesterday.length) ordered.push({ label: 'Yesterday', data: buckets.yesterday });
+  if (buckets.lastWeek.length) ordered.push({ label: 'Last Week', data: buckets.lastWeek });
+  if (buckets.older.length) ordered.push({ label: 'Older Notifications', data: buckets.older });
+  return ordered;
+};
+
 const NotificationCenterScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { themeColors, friendRequests, respondToFriendRequest } = useApp();
   const [respondingMap, setRespondingMap] = React.useState({});
   const pendingRequests = friendRequests?.incoming || [];
+  const responseNotifications = friendRequests?.responses || [];
 
   const handleRespond = async (requestId, status) => {
     setRespondingMap((prev) => ({ ...prev, [requestId]: status }));
@@ -47,6 +94,79 @@ const NotificationCenterScreen = () => {
   };
 
   const themedStyles = React.useMemo(() => createStyles(themeColors || colors), [themeColors]);
+
+  const groupedPending = React.useMemo(() => {
+    const items = (pendingRequests || []).map((item) => ({
+      key: `pending-${item.id}`,
+      component: (
+        <View key={item.id} style={themedStyles.card}>
+          <View style={[themedStyles.iconWrap, { backgroundColor: `${colors.primary}15` }]}>
+            <Feather name="user-plus" size={20} color={colors.primary} />
+          </View>
+          <View style={themedStyles.textWrap}>
+            <Text style={themedStyles.cardTitle}>
+              {(item.fromUser?.name || item.fromUser?.username || 'Someone')} added you as a friend
+            </Text>
+            <Text style={themedStyles.cardBody}>
+              @{item.fromUser?.username || 'unknown'}
+              {item.created_at ? ` - ${formatTimeAgo(item.created_at)}` : ''}
+            </Text>
+            <View style={themedStyles.actionRow}>
+              <TouchableOpacity
+                onPress={() => handleRespond(item.id, 'accepted')}
+                style={themedStyles.primaryButton}
+                disabled={!!respondingMap[item.id]}
+              >
+                {respondingMap[item.id] === 'accepted' ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={themedStyles.primaryButtonText}>Accept</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleRespond(item.id, 'declined')}
+                style={themedStyles.secondaryButton}
+                disabled={!!respondingMap[item.id]}
+              >
+                {respondingMap[item.id] === 'declined' ? (
+                  <ActivityIndicator color={themedStyles.subduedText} size="small" />
+                ) : (
+                  <Text style={themedStyles.secondaryButtonText}>Decline</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      ),
+      timestamp: item.created_at,
+    }));
+    return groupNotifications(items);
+  }, [pendingRequests, themedStyles, respondingMap]);
+
+  const groupedResponses = React.useMemo(() => {
+    const items = (responseNotifications || []).map((item) => ({
+      key: `response-${item.id}`,
+      component: (
+        <View key={item.id} style={themedStyles.card}>
+          <View style={[themedStyles.iconWrap, { backgroundColor: `${colors.primary}15` }]}>
+            <Feather name={item.status === 'accepted' ? 'user-check' : 'user-minus'} size={20} color={colors.primary} />
+          </View>
+          <View style={themedStyles.textWrap}>
+            <Text style={themedStyles.cardTitle}>
+              {(item.toUser?.name || item.toUser?.username || 'Someone')}{' '}
+              {item.status === 'accepted' ? 'accepted' : 'declined'} your request
+            </Text>
+            <Text style={themedStyles.cardBody}>
+              @{item.toUser?.username || 'unknown'}
+              {item.responded_at ? ` - ${formatTimeAgo(item.responded_at)}` : ''}
+            </Text>
+          </View>
+        </View>
+      ),
+      timestamp: item.responded_at || item.updated_at || item.created_at,
+    }));
+    return groupNotifications(items);
+  }, [responseNotifications, themedStyles]);
 
   return (
     <View style={[themedStyles.container, { paddingTop: insets.top || spacing.lg }]}>
@@ -75,44 +195,27 @@ const NotificationCenterScreen = () => {
             </Text>
           </View>
         ) : (
-          pendingRequests.map((item) => (
-            <View key={item.id} style={themedStyles.card}>
-              <View style={[themedStyles.iconWrap, { backgroundColor: `${colors.primary}15` }]}>
-                <Feather name="user-plus" size={20} color={colors.primary} />
-              </View>
-              <View style={themedStyles.textWrap}>
-                <Text style={themedStyles.cardTitle}>
-                  {(item.fromUser?.name || item.fromUser?.username || 'Someone')} added you as a friend
-                </Text>
-                <Text style={themedStyles.cardBody}>
-                  @{item.fromUser?.username || 'unknown'}
-                  {item.created_at ? ` - ${formatTimeAgo(item.created_at)}` : ''}
-                </Text>
-                <View style={themedStyles.actionRow}>
-                  <TouchableOpacity
-                    onPress={() => handleRespond(item.id, 'accepted')}
-                    style={themedStyles.primaryButton}
-                    disabled={!!respondingMap[item.id]}
-                  >
-                    {respondingMap[item.id] === 'accepted' ? (
-                      <ActivityIndicator color="#FFFFFF" size="small" />
-                    ) : (
-                      <Text style={themedStyles.primaryButtonText}>Accept</Text>
-                    )}
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => handleRespond(item.id, 'declined')}
-                    style={themedStyles.secondaryButton}
-                    disabled={!!respondingMap[item.id]}
-                  >
-                    {respondingMap[item.id] === 'declined' ? (
-                      <ActivityIndicator color={themedStyles.subduedText} size="small" />
-                    ) : (
-                      <Text style={themedStyles.secondaryButtonText}>Decline</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
+          groupedPending.map((group) => (
+            <View key={group.label}>
+              <Text style={themedStyles.groupLabel}>{group.label}</Text>
+              {group.data.map((n) => n.component)}
+            </View>
+          ))
+        )}
+
+        <Text style={[themedStyles.sectionLabel, { marginTop: spacing.lg }]}>Updates</Text>
+        {responseNotifications.length === 0 ? (
+          <View style={themedStyles.placeholderBox}>
+            <Ionicons name="information-circle-outline" size={20} color={themedStyles.subduedText} />
+            <Text style={themedStyles.placeholderText}>
+              When someone responds to your friend request, it will appear here.
+            </Text>
+          </View>
+        ) : (
+          groupedResponses.map((group) => (
+            <View key={group.label}>
+              <Text style={themedStyles.groupLabel}>{group.label}</Text>
+              {group.data.map((n) => n.component)}
             </View>
           ))
         )}
@@ -248,6 +351,12 @@ const createStyles = (themeColors) => {
       flex: 1,
     },
     subduedText: subdued,
+    groupLabel: {
+      ...typography.caption,
+      color: subdued,
+      marginBottom: spacing.xs,
+      marginTop: spacing.xs,
+    },
   });
 };
 

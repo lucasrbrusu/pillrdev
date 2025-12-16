@@ -50,6 +50,7 @@ const FriendsScreen = () => {
     getFriendRelationship,
     isUserOnline,
     refreshFriendData,
+    deleteFriend,
   } = useApp();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
@@ -77,7 +78,7 @@ const FriendsScreen = () => {
       } finally {
         setSearching(false);
       }
-    }, 250);
+    }, 120);
 
     return () => clearTimeout(handle);
   }, [query, searchUsersByUsername]);
@@ -112,6 +113,32 @@ const FriendsScreen = () => {
     } finally {
       setLoading(key, null);
     }
+  };
+
+  const handleDeleteFriend = (userId, displayName) => {
+    if (!userId) return;
+    Alert.alert(
+      'Remove friend?',
+      `Remove ${displayName || 'this user'} from your friends list?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setLoading(userId, 'deleting');
+            try {
+              await deleteFriend(userId);
+              await refreshFriendData();
+            } catch (err) {
+              Alert.alert('Unable to remove friend', err?.message || 'Please try again.');
+            } finally {
+              setLoading((prev) => ({ ...prev, [userId]: null }));
+            }
+          },
+        },
+      ]
+    );
   };
 
   const renderAvatar = (user, size = 48) => {
@@ -156,9 +183,22 @@ const FriendsScreen = () => {
 
         <View style={themedStyles.friendActions}>
           {relationship.isFriend ? (
-            <View style={themedStyles.friendTag}>
-              <Ionicons name="checkmark-circle" size={16} color={colors.success} />
-              <Text style={themedStyles.friendTagText}>Friends</Text>
+            <View style={themedStyles.inlineActions}>
+              <View style={themedStyles.friendTag}>
+                <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+                <Text style={themedStyles.friendTagText}>Friends</Text>
+              </View>
+              <TouchableOpacity
+                style={themedStyles.actionDestructive}
+                disabled={!!loadingState}
+                onPress={() => handleDeleteFriend(user.id, user.username || user.name)}
+              >
+                {loadingState === 'deleting' ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={themedStyles.actionDestructiveText}>Delete</Text>
+                )}
+              </TouchableOpacity>
             </View>
           ) : relationship.incoming ? (
             <View style={themedStyles.inlineActions}>
@@ -485,6 +525,19 @@ const createStyles = (themeColorsParam = colors) => {
       ...typography.body,
       color: baseText,
       fontWeight: '600',
+    },
+    actionDestructive: {
+      backgroundColor: '#d9534f',
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      borderRadius: borderRadius.md,
+      minWidth: 96,
+      alignItems: 'center',
+    },
+    actionDestructiveText: {
+      ...typography.body,
+      color: '#ffffff',
+      fontWeight: '700',
     },
     avatarFallback: {
       backgroundColor: `${colors.primary}15`,

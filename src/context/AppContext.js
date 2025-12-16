@@ -113,6 +113,7 @@ const computeIsPremium = (plan, premiumExpiresAt) => {
 
 const getLastActiveKey = (userId) => `${STORAGE_KEYS.LAST_ACTIVE_PREFIX}${userId}`;
 const getStreakFrozenKey = (userId) => `${STORAGE_KEYS.STREAK_FROZEN_PREFIX}${userId}`;
+const getFoodLogsKey = (userId) => `${STORAGE_KEYS.HEALTH_FOOD_LOGS}_${userId || 'anon'}`;
 
 const readLastActive = async (userId) => {
   if (!userId) return null;
@@ -197,6 +198,28 @@ const parseDateTimeParts = (value) => {
   };
 };
 
+const getAvatarPublicUrl = (path) => {
+  if (!path) return null;
+  if (typeof path !== 'string') return null;
+  // Allow direct data URIs or remote URLs to be used as-is
+  if (
+    path.startsWith('data:image') ||
+    path.startsWith('http://') ||
+    path.startsWith('https://')
+  ) {
+    return path;
+  }
+  return null;
+};
+
+const pruneUndefined = (obj = {}) => {
+  const clean = {};
+  Object.entries(obj).forEach(([k, v]) => {
+    if (v !== undefined) clean[k] = v;
+  });
+  return clean;
+};
+
 
 export const AppProvider = ({ children }) => {
   // Habits State
@@ -223,8 +246,9 @@ export const AppProvider = ({ children }) => {
 
   // Social/Friends State
   const [friends, setFriends] = useState([]);
-  const [friendRequests, setFriendRequests] = useState({ incoming: [], outgoing: [] });
+  const [friendRequests, setFriendRequests] = useState({ incoming: [], outgoing: [], responses: [] });
   const [userStatuses, setUserStatuses] = useState({});
+  const friendResponseSignatureRef = useRef('');
 
  // Profile State
   const [profile, setProfile] = useState(defaultProfile);
@@ -294,16 +318,7 @@ export const AppProvider = ({ children }) => {
       applyTheme('default');
       setThemeReady(true);
     }
-    const storedFoodLogs = await AsyncStorage.getItem(STORAGE_KEYS.HEALTH_FOOD_LOGS);
     const storedRoutines = await AsyncStorage.getItem(STORAGE_KEYS.ROUTINES);
-
-    if (storedFoodLogs) {
-      try {
-        setFoodLogs(JSON.parse(storedFoodLogs));
-      } catch (err) {
-        console.log('Error parsing stored food logs', err);
-      }
-    }
 
     if (storedRoutines) {
       try {
@@ -358,6 +373,16 @@ const loadUserDataFromSupabase = async (userId) => {
       fetchGroceriesFromSupabase(userId),
       fetchFinancesFromSupabase(userId),
     ]);
+
+    // Load user-scoped cached food logs (offline entries) after Supabase fetch
+    const storedFoodLogs = await AsyncStorage.getItem(getFoodLogsKey(userId));
+    if (storedFoodLogs) {
+      try {
+        setFoodLogs(JSON.parse(storedFoodLogs));
+      } catch (err) {
+        console.log('Error parsing stored food logs', err);
+      }
+    }
   } catch (error) {
     console.error('Error loading user data from Supabase:', error);
   }
@@ -380,8 +405,9 @@ const loadUserDataFromSupabase = async (userId) => {
       setGroceries([]);
       setFinances([]);
       setFriends([]);
-      setFriendRequests({ incoming: [], outgoing: [] });
+      setFriendRequests({ incoming: [], outgoing: [], responses: [] });
       setUserStatuses({});
+      setFoodLogs({});
       setProfile(defaultProfile);
       setProfileLoaded(false);
       setUserSettings(defaultUserSettings);
@@ -475,12 +501,17 @@ const loadUserDataFromSupabase = async (userId) => {
     await saveToStorage(STORAGE_KEYS.ROUTINES, data);
   };
 
-  const mapProfileSummary = (row) => ({
-    id: row?.id || null,
-    username: row?.username || '',
-    name: row?.full_name || row?.name || row?.email || 'Unknown user',
-    avatarUrl: row?.avatar_url || row?.photo || null,
-  });
+  const persistFoodLogsLocally = async (data, userId) => {
+    if (!userId) return;
+    await saveToStorage(getFoodLogsKey(userId), data);
+  };
+
+const mapProfileSummary = (row) => ({
+  id: row?.id || null,
+  username: row?.username || '',
+  name: row?.full_name || row?.name || row?.email || 'Unknown user',
+  avatarUrl: getAvatarPublicUrl(row?.photo || row?.avatar_url || row?.avatar) || null,
+});
 
   const updateUserPresence = useCallback(async () => {
     if (!authUser?.id) return;
@@ -608,7 +639,7 @@ const loadUserDataFromSupabase = async (userId) => {
   const fetchFriendRequests = useCallback(
     async (userIdParam) => {
       const userId = userIdParam || authUser?.id;
-      if (!userId) return { incoming: [], outgoing: [] };
+      if (!userId) return { incoming: [], outgoing: [], responses: [] };
 
       const { data, error } = await supabase
         .from('friend_requests')
@@ -660,11 +691,25 @@ const loadUserDataFromSupabase = async (userId) => {
       const outgoing = mapped.filter(
         (row) => row.from_user_id === userId && row.status === 'pending'
       );
+      const responses = mapped.filter(
+        (row) => row.from_user_id === userId && row.status !== 'pending'
+      );
 
-      setFriendRequests({ incoming, outgoing });
-      return { incoming, outgoing };
+      setFriendRequests({ incoming, outgoing, responses });
+
+      const signature = responses.map((r) => `${r.id}:${r.status}`).join('|');
+      if (signature !== friendResponseSignatureRef.current) {
+        friendResponseSignatureRef.current = signature;
+        if (responses.length) {
+          // A response happened; refresh friendships so both sides see the new link
+          await fetchFriendships(userId);
+          await refreshFriendStatuses();
+        }
+      }
+
+      return { incoming, outgoing, responses };
     },
-    [authUser?.id]
+    [authUser?.id, fetchFriendships, refreshFriendStatuses]
   );
 
   const refreshFriendStatuses = useCallback(
@@ -740,18 +785,36 @@ const loadUserDataFromSupabase = async (userId) => {
       if (!authUser?.id) return [];
       const trimmed = (query || '').trim();
       if (trimmed.length < 2) return [];
-      const { data, error } = await supabase
+      const exactPattern = trimmed; // exact match (case-insensitive)
+      const prefixPattern = `${trimmed}%`; // prefix search hits index on username
+
+      // Try exact match first (fast, small result)
+      const { data: exactData, error: exactError } = await supabase
         .from('profiles')
         .select('id, username, full_name, avatar_url')
-        .ilike('username', `%${trimmed}%`)
-        .limit(15);
+        .ilike('username', exactPattern)
+        .order('username', { ascending: true })
+        .limit(5);
 
+      let rows = exactData || [];
+
+      // Primary: fast prefix search if exact returned nothing
+      let error = exactError;
+      if (!rows.length) {
+        const { data, error: prefixError } = await supabase
+        .from('profiles')
+        .select('id, username, full_name, avatar_url')
+        .ilike('username', prefixPattern)
+        .order('username', { ascending: true })
+        .limit(20);
+        rows = data || [];
+        error = prefixError || exactError;
+      }
       if (error) {
         console.log('Error searching users:', error);
-        return [];
       }
 
-      return (data || [])
+      return (rows || [])
         .filter((row) => row.id !== authUser.id)
         .map((row) => {
           const relationship = getFriendRelationship(row.id);
@@ -823,11 +886,7 @@ const loadUserDataFromSupabase = async (userId) => {
         const { error: friendError } = await supabase
           .from('friendships')
           .upsert(
-            {
-              user_id: authUser.id,
-              friend_id: data.from_user_id,
-              created_at: nowISO,
-            },
+            { user_id: authUser.id, friend_id: data.from_user_id, created_at: nowISO },
             { onConflict: 'user_id,friend_id' }
           );
 
@@ -838,6 +897,31 @@ const loadUserDataFromSupabase = async (userId) => {
 
       await refreshFriendData(authUser.id);
       return data;
+    },
+    [authUser?.id, refreshFriendData]
+  );
+
+  const deleteFriend = useCallback(
+    async (friendId) => {
+      if (!authUser?.id || !friendId) return;
+      const ids = [authUser.id, friendId];
+      try {
+        const { error } = await supabase
+          .from('friendships')
+          .delete()
+          .or(
+            `and(user_id.eq.${ids[0]},friend_id.eq.${ids[1]}),and(user_id.eq.${ids[1]},friend_id.eq.${ids[0]})`
+          );
+        if (error) {
+          console.log('Error deleting friendship:', error);
+          throw error;
+        }
+      } catch (err) {
+        console.log('Error deleting friendship:', err);
+        throw err;
+      }
+      setFriends((prev) => prev.filter((f) => f.id !== friendId));
+      await refreshFriendData(authUser.id);
     },
     [authUser?.id, refreshFriendData]
   );
@@ -1558,10 +1642,10 @@ const upsertHealthDayRecord = async (dateISO, healthDay) => {
   return data || null;
 };
 
-const updateHealthForDate = async (dateISO, updates = {}) => {
-  if (!authUser?.id) {
-    throw new Error('You must be logged in to update health data.');
-  }
+  const updateHealthForDate = async (dateISO, updates = {}) => {
+    if (!authUser?.id) {
+      throw new Error('You must be logged in to update health data.');
+    }
 
   const normalizedDate = normalizeDateKey(dateISO);
   const base = healthData[normalizedDate] || defaultHealthDay();
@@ -1586,13 +1670,13 @@ const updateHealthForDate = async (dateISO, updates = {}) => {
     setTodayHealth(newHealth);
   }
 
-  // Persist food logs locally so they survive logout/app close
-  if (updates.foods !== undefined) {
-    const updatedFoodLogs = { ...(foodLogs || {}) };
-    updatedFoodLogs[normalizedDate] = updates.foods;
-    setFoodLogs(updatedFoodLogs);
-    await saveToStorage(STORAGE_KEYS.HEALTH_FOOD_LOGS, updatedFoodLogs);
-  }
+    // Persist food logs locally so they survive logout/app close
+    if (updates.foods !== undefined) {
+      const updatedFoodLogs = { ...(foodLogs || {}) };
+      updatedFoodLogs[normalizedDate] = updates.foods;
+      setFoodLogs(updatedFoodLogs);
+      await persistFoodLogsLocally(updatedFoodLogs, authUser.id);
+    }
 
   const healthDayRecord = await upsertHealthDayRecord(normalizedDate, newHealth);
   if (healthDayRecord) {
@@ -2066,7 +2150,7 @@ const deleteChore = async (choreId) => {
 };
 
 const mapReminderRow = (row) => {
-  const parts = parseDateTimeParts(row?.date_time || row?.date || null);
+  const parts = parseDateTimeParts(row?.date || null);
   return {
     id: row?.id,
     title: row?.title,
@@ -2115,7 +2199,6 @@ const addReminder = async (reminder) => {
   };
 
   if (combinedDate) {
-    payload.date_time = combinedDate.toISOString();
     payload.date = combinedDate.toISOString().slice(0, 10);
     payload.time = reminder.time || formatTimeFromDate(combinedDate);
   } else {
@@ -2131,35 +2214,13 @@ const addReminder = async (reminder) => {
 
   if (error) {
     console.log('Error adding reminder:', error);
-    const { data: fallbackData, error: fallbackError } = await supabase
-      .from('reminders')
-      .insert({
-        user_id: authUser.id,
-        title: reminder.title,
-        date: reminder.dateTime || reminder.date || null,
-      })
-      .select()
-      .single();
-
-    if (fallbackError) {
-      console.log('Error adding reminder with fallback payload:', fallbackError);
-      throw fallbackError;
-    }
-    const fallbackMapped = mapReminderRow({
-      ...fallbackData,
-      description: reminder.description,
-      time: reminder.time,
-      date_time: combinedDate ? combinedDate.toISOString() : null,
-    });
-    setReminders((prev) => [...prev, fallbackMapped]);
-    return fallbackMapped;
+    throw error;
   }
 
   const newReminder = mapReminderRow({
     ...data,
     description: data?.description ?? reminder.description,
     time: data?.time ?? reminder.time,
-    date_time: data?.date_time ?? (combinedDate ? combinedDate.toISOString() : null),
   });
 
   setReminders((prev) => [...prev, newReminder]);
@@ -2432,7 +2493,7 @@ const getFinanceSummaryForDate = (date) => {
       defaultProfile.name,
     username: row?.username || authUser?.user_metadata?.username || '',
     email: row?.email || authUser?.email || profile.email || defaultProfile.email,
-    photo: row?.avatar_url || row?.photo || null,
+    photo: getAvatarPublicUrl(row?.photo || row?.avatar_url || row?.avatar) || null,
     dailyCalorieGoal: row?.daily_calorie_goal ?? defaultProfile.dailyCalorieGoal,
     dailyWaterGoal: row?.daily_water_goal ?? defaultProfile.dailyWaterGoal,
     dailySleepGoal: row?.daily_sleep_goal ?? defaultProfile.dailySleepGoal,
@@ -2527,6 +2588,7 @@ const getFinanceSummaryForDate = (date) => {
     const userId = authUser?.id || fields.id;
     if (!userId) return null;
     const nowISO = new Date().toISOString();
+
     const basePayload = {
       id: userId,
       full_name:
@@ -2539,14 +2601,15 @@ const getFinanceSummaryForDate = (date) => {
       username:
         fields.username ??
         authUser?.user_metadata?.username ??
-        profile.username ??
-        null,
-      email: fields.email ?? authUser?.email ?? profile.email ?? defaultProfile.email,
-      avatar_url: fields.avatar_url ?? fields.photo ?? profile.photo,
-      has_onboarded: fields.has_onboarded ?? hasOnboarded,
-      daily_calorie_goal: fields.daily_calorie_goal ?? fields.dailyCalorieGoal ?? profile.dailyCalorieGoal,
-      daily_water_goal: fields.daily_water_goal ?? fields.dailyWaterGoal ?? profile.dailyWaterGoal,
-      daily_sleep_goal: fields.daily_sleep_goal ?? fields.dailySleepGoal ?? profile.dailySleepGoal,
+      profile.username ??
+      null,
+    email: fields.email ?? authUser?.email ?? profile.email ?? defaultProfile.email,
+    avatar_url: fields.avatar_url ?? fields.photo ?? profile.photo ?? undefined,
+    photo: fields.photo ?? profile.photo ?? undefined,
+    has_onboarded: fields.has_onboarded ?? hasOnboarded,
+    daily_calorie_goal: fields.daily_calorie_goal ?? fields.dailyCalorieGoal ?? profile.dailyCalorieGoal,
+    daily_water_goal: fields.daily_water_goal ?? fields.dailyWaterGoal ?? profile.dailyWaterGoal,
+    daily_sleep_goal: fields.daily_sleep_goal ?? fields.dailySleepGoal ?? profile.dailySleepGoal,
       plan: fields.plan ?? profile.plan ?? defaultProfile.plan,
       premium_expires_at:
         fields.premium_expires_at ??
@@ -2555,6 +2618,8 @@ const getFinanceSummaryForDate = (date) => {
         defaultProfile.premiumExpiresAt,
       updated_at: nowISO,
     };
+
+    const payload = pruneUndefined(basePayload);
 
     const attemptUpsert = async (payload, onConflict) => {
       const options = onConflict ? { onConflict } : undefined;
@@ -2565,12 +2630,12 @@ const getFinanceSummaryForDate = (date) => {
     let error = null;
 
     // First try a schema that has user_id as the unique key
-    ({ data, error } = await attemptUpsert({ ...basePayload, user_id: userId }, 'user_id'));
+    ({ data, error } = await attemptUpsert({ ...payload, user_id: userId }, 'user_id'));
 
     // If that fails because the column is missing or not unique, fall back to the id-based schema
     if (error) {
       if (isMissingColumnError(error, 'user_id') || error.code === '23505') {
-        ({ data, error } = await attemptUpsert(basePayload, 'id'));
+        ({ data, error } = await attemptUpsert(payload, 'id'));
       }
     }
 
@@ -2588,23 +2653,30 @@ const getFinanceSummaryForDate = (date) => {
 
   const updateProfile = async (updates) => {
     const merged = { ...profile, ...updates };
-    setProfile(merged);
 
     let avatarUrl = merged.photo;
     if (updates.photo) {
-      avatarUrl = await uploadProfilePhoto(updates.photo);
+      const uploadResult = await uploadProfilePhoto(updates.photo);
+      avatarUrl = uploadResult?.url || avatarUrl;
     }
+
+    const newLocalProfile = {
+      ...merged,
+      photo: avatarUrl,
+      avatar_url: avatarUrl,
+    };
+    setProfile(newLocalProfile);
 
     const payload = {
       ...updates,
-      name: merged.name,
-      username: merged.username,
-      email: merged.email,
-      photo: avatarUrl,
+      name: newLocalProfile.name,
+      username: newLocalProfile.username,
+      email: newLocalProfile.email,
       avatar_url: avatarUrl,
-      dailyCalorieGoal: merged.dailyCalorieGoal,
-      dailyWaterGoal: merged.dailyWaterGoal,
-      dailySleepGoal: merged.dailySleepGoal,
+      photo: avatarUrl,
+      dailyCalorieGoal: newLocalProfile.dailyCalorieGoal,
+      dailyWaterGoal: newLocalProfile.dailyWaterGoal,
+      dailySleepGoal: newLocalProfile.dailySleepGoal,
     };
 
     return upsertProfileRow(payload);
@@ -2703,41 +2775,25 @@ const getFinanceSummaryForDate = (date) => {
   const t = (text) => translate(text, language || defaultUserSettings.language);
 
   const uploadProfilePhoto = async (uri) => {
-    if (!uri || uri.startsWith('http')) return uri;
-    if (!authUser?.id) return uri;
+    if (!uri) return { url: null };
+    // If already a remote URL or data URI, keep as-is (no upload)
+    if (uri.startsWith('http') || uri.startsWith('data:image')) {
+      return { url: uri };
+    }
     try {
       const response = await fetch(uri);
       const blob = await response.blob();
-      const extension = (uri.split('.').pop() || 'jpg').split('?')[0];
-      const path = `avatars/${authUser.id}/${Date.now()}.${extension}`;
-      const { error } = await supabase.storage
-        .from('avatars')
-        .upload(path, blob, {
-          cacheControl: '3600',
-          upsert: true,
-          contentType: blob.type || 'image/jpeg',
-        });
-
-      if (error) {
-        console.log('Error uploading avatar:', error);
-        return uri;
-      }
-
-      // Prefer a long-lived signed URL (works even if bucket is private). Fall back to public URL.
-      const { data: signedData, error: signedError } = await supabase.storage
-        .from('avatars')
-        .createSignedUrl(path, 60 * 60 * 24 * 365); // 1 year
-
-      if (signedError) {
-        console.log('Error creating signed avatar URL, falling back to public:', signedError);
-        const { data: publicData } = supabase.storage.from('avatars').getPublicUrl(path);
-        return publicData?.publicUrl || uri;
-      }
-
-      return signedData?.signedUrl || uri;
+      const reader = new FileReader();
+      const base64Promise = new Promise((resolve, reject) => {
+        reader.onerror = reject;
+        reader.onloadend = () => resolve(reader.result);
+      });
+      reader.readAsDataURL(blob);
+      const dataUrl = (await base64Promise) || uri;
+      return { url: typeof dataUrl === 'string' ? dataUrl : uri };
     } catch (err) {
       console.log('Error preparing avatar upload:', err);
-      return uri;
+      return { url: uri };
     }
   };
 
@@ -3224,6 +3280,7 @@ const getFinanceSummaryForDate = (date) => {
     onlineFriends,
     friendRequests,
     isUserOnline,
+    deleteFriend,
     refreshFriendData,
     searchUsersByUsername,
     sendFriendRequest,
@@ -3261,3 +3318,4 @@ const getFinanceSummaryForDate = (date) => {
 };
 
 export default AppContext;
+

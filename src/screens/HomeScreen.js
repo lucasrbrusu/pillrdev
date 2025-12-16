@@ -50,6 +50,7 @@ const HomeScreen = () => {
     friends,
     onlineFriends,
     friendRequests,
+    isUserOnline,
     getTodayTasks,
     getBestStreak,
     verifyNotePassword,
@@ -98,12 +99,26 @@ const HomeScreen = () => {
   const consumedCalories = todayHealth?.calories || 0;
   const calorieGoal = profile?.dailyCalorieGoal || 2000;
   const remainingCalories = Math.max(calorieGoal - consumedCalories, 0);
-  const onlinePreview = React.useMemo(() => onlineFriends.slice(0, 4), [onlineFriends]);
   const pendingFriendRequests = friendRequests?.incoming?.length || 0;
   const getInitial = React.useCallback((nameValue, usernameValue) => {
     const source = (nameValue || usernameValue || '?').trim();
     return (source[0] || '?').toUpperCase();
   }, []);
+  const displayedFriends = React.useMemo(() => {
+    const enriched = (friends || []).map((f) => ({
+      ...f,
+      isOnline: isUserOnline ? isUserOnline(f.id) : false,
+    }));
+    enriched.sort((a, b) => {
+      if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
+      const aName = (a.username || a.name || '').toLowerCase();
+      const bName = (b.username || b.name || '').toLowerCase();
+      if (aName < bName) return -1;
+      if (aName > bName) return 1;
+      return 0;
+    });
+    return enriched.slice(0, 20);
+  }, [friends, isUserOnline]);
   const [selectedNote, setSelectedNote] = React.useState(null);
   const [noteToUnlock, setNoteToUnlock] = React.useState(null);
   const [notePasswordInput, setNotePasswordInput] = React.useState('');
@@ -327,19 +342,14 @@ const HomeScreen = () => {
           </Card>
         </View>
 
-        {/* Online Friends */}
+        {/* Friends */}
         <Card style={[styles.sectionCard, styles.onlineFriendsCard]}>
           <TouchableOpacity
             activeOpacity={0.9}
             onPress={() => navigation.navigate('Friends')}
           >
             <View style={styles.cardHeader}>
-              <Text style={[styles.cardTitle, styles.onlineFriendsTitle]}>Online Friends</Text>
-              <View style={styles.onlineCountPill}>
-                <Text style={styles.onlineCountText}>
-                  {onlineFriends.length}/{friends.length || 0} online
-                </Text>
-              </View>
+              <Text style={[styles.cardTitle, styles.onlineFriendsTitle]}>Friends</Text>
             </View>
             {friends.length === 0 ? (
               <View style={styles.onlineFriendsBody}>
@@ -348,29 +358,25 @@ const HomeScreen = () => {
               </View>
             ) : (
               <View style={styles.onlineFriendsRow}>
-                {onlinePreview.length === 0 ? (
-                  <Text style={styles.onlineFriendsText}>No one is online right now.</Text>
-                ) : (
-                  onlinePreview.map((friend) => (
-                    <View key={friend.id} style={styles.onlineFriendItem}>
-                      <View style={styles.onlineAvatarWrap}>
-                        {friend.avatarUrl ? (
-                          <Image source={{ uri: friend.avatarUrl }} style={styles.onlineAvatar} />
-                        ) : (
-                          <View style={styles.onlineAvatarFallback}>
-                            <Text style={styles.onlineAvatarInitial}>
-                              {getInitial(friend.name, friend.username)}
-                            </Text>
-                          </View>
-                        )}
-                        <View style={styles.onlineDot} />
-                      </View>
-                      <Text style={styles.onlineName} numberOfLines={1}>
-                        {friend.username || friend.name}
-                      </Text>
+                {displayedFriends.map((friend) => (
+                  <View key={friend.id} style={styles.onlineFriendItem}>
+                    <View style={styles.onlineAvatarWrap}>
+                      {friend.avatarUrl ? (
+                        <Image source={{ uri: friend.avatarUrl }} style={styles.onlineAvatar} />
+                      ) : (
+                        <View style={styles.onlineAvatarFallback}>
+                          <Text style={styles.onlineAvatarInitial}>
+                            {getInitial(friend.name, friend.username)}
+                          </Text>
+                        </View>
+                      )}
+                      {friend.isOnline && <View style={styles.onlineDot} />}
                     </View>
-                  ))
-                )}
+                    <Text style={styles.onlineName} numberOfLines={1}>
+                      {friend.username || friend.name}
+                    </Text>
+                  </View>
+                ))}
               </View>
             )}
           </TouchableOpacity>
@@ -1156,19 +1162,7 @@ const createStyles = (themeColorsParam = colors) => {
     },
     onlineFriendsTitle: {
       color: themeColorsParam?.text || colors.text,
-    },
-    onlineCountPill: {
-      paddingVertical: spacing.xs,
-      paddingHorizontal: spacing.md,
-      borderRadius: borderRadius.full,
-      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
-      borderWidth: 1,
-      borderColor: sectionBorderColor,
-    },
-    onlineCountText: {
-      ...typography.caption,
-      color: themeColorsParam?.textSecondary || colors.textSecondary,
-      fontWeight: '700',
+      marginLeft: spacing.md,
     },
     onlineFriendsBody: {
       paddingVertical: spacing.md,
@@ -1186,8 +1180,10 @@ const createStyles = (themeColorsParam = colors) => {
     onlineFriendsRow: {
       flexDirection: 'row',
       alignItems: 'center',
+      flexWrap: 'wrap',
       paddingHorizontal: spacing.md,
       paddingBottom: spacing.md,
+      rowGap: spacing.md,
     },
     onlineFriendItem: {
       alignItems: 'center',
@@ -1221,8 +1217,8 @@ const createStyles = (themeColorsParam = colors) => {
     },
     onlineDot: {
       position: 'absolute',
-      bottom: -2,
-      right: -2,
+      bottom: -4,
+      right: -4,
       width: 14,
       height: 14,
       borderRadius: borderRadius.full,
