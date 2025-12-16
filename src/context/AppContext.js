@@ -230,6 +230,7 @@ export const AppProvider = ({ children }) => {
   const [hasOnboarded, setHasOnboarded] = useState(false);
   const [themeName, setThemeName] = useState('default');
   const [themeColors, setThemeColors] = useState({ ...colors });
+  const [themeReady, setThemeReady] = useState(false);
 
   // Loading State
   const [isLoading, setIsLoading] = useState(true);
@@ -276,6 +277,16 @@ export const AppProvider = ({ children }) => {
 
   const loadAllData = async () => {
   try {
+    const cachedTheme = await AsyncStorage.getItem(STORAGE_KEYS.THEME);
+    if (cachedTheme) {
+      setThemeName(cachedTheme);
+      applyTheme(cachedTheme);
+      setThemeReady(true);
+    } else {
+      // Apply default once so UI has a theme before async fetches return
+      applyTheme('default');
+      setThemeReady(true);
+    }
     const storedFoodLogs = await AsyncStorage.getItem(STORAGE_KEYS.HEALTH_FOOD_LOGS);
     const storedRoutines = await AsyncStorage.getItem(STORAGE_KEYS.ROUTINES);
 
@@ -319,6 +330,7 @@ export const AppProvider = ({ children }) => {
   } catch (error) {
     console.error('Error loading data:', error);
   } finally {
+    if (!themeReady) setThemeReady(true);
     setIsLoading(false);
   }
 };
@@ -391,6 +403,18 @@ const loadUserDataFromSupabase = async (userId) => {
       await AsyncStorage.setItem(key, JSON.stringify(data));
     } catch (error) {
       console.error('Error saving data:', error);
+    }
+  };
+
+  const cacheThemeLocally = async (name) => {
+    try {
+      if (!name) {
+        await AsyncStorage.removeItem(STORAGE_KEYS.THEME);
+        return;
+      }
+      await AsyncStorage.setItem(STORAGE_KEYS.THEME, name);
+    } catch (err) {
+      console.log('Error caching theme:', err);
     }
   };
 
@@ -2219,6 +2243,7 @@ const getFinanceSummaryForDate = (date) => {
       const themeToApply = mapped.themeName || 'default';
       setThemeName(themeToApply);
       applyTheme(themeToApply);
+      cacheThemeLocally(themeToApply);
       setLanguage(mapped.language || defaultUserSettings.language);
     }
 
@@ -2384,6 +2409,7 @@ const getFinanceSummaryForDate = (date) => {
     setUserSettings(defaultUserSettings);
     setThemeName('default');
     applyTheme('default');
+    cacheThemeLocally('default');
   };
 
   const deleteAccount = async () => {
@@ -2431,6 +2457,7 @@ const getFinanceSummaryForDate = (date) => {
   const changeTheme = async (name) => {
     setThemeName(name);
     applyTheme(name);
+    cacheThemeLocally(name);
     await upsertUserSettings({ ...userSettings, themeName: name });
   };
 
@@ -2702,6 +2729,7 @@ const getFinanceSummaryForDate = (date) => {
 
     // Loading
     isLoading,
+    themeReady,
     hasNotificationPermission,
 
     // Habits
@@ -2799,6 +2827,10 @@ const getFinanceSummaryForDate = (date) => {
     themeColors,
     changeTheme,
   };
+
+  if (!themeReady) {
+    return null;
+  }
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };
