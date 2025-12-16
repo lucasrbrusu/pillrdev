@@ -25,6 +25,7 @@ import AuthScreen from '../screens/AuthScreen';
 import AppearanceScreen from '../screens/AppearanceScreen';
 import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';
 import NotificationCenterScreen from '../screens/NotificationCenterScreen';
+import FriendsScreen from '../screens/FriendsScreen';
 import ChatScreen from '../screens/ChatScreen';
 import FocusModeScreen from '../screens/FocusModeScreen';
 import CountdownTimerScreen from '../screens/CountdownTimerScreen';
@@ -222,6 +223,7 @@ const Navigation = () => {
           <Stack.Screen name="Appearance" component={AppearanceScreen} />
           <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
           <Stack.Screen name="NotificationCenter" component={NotificationCenterScreen} />
+          <Stack.Screen name="Friends" component={FriendsScreen} />
           <Stack.Screen name="Chat" component={ChatScreen} />
           <Stack.Screen name="FocusMode" component={FocusModeScreen} />
           <Stack.Screen name="CountdownTimer" component={CountdownTimerScreen} />

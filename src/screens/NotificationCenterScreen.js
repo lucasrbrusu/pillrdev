@@ -1,50 +1,49 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+  ActivityIndicator,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { colors, spacing, typography, borderRadius, shadows } from '../utils/theme';
 import { useNavigation } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
 
+const formatTimeAgo = (value) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const diffMs = Date.now() - date.getTime();
+  const minutes = Math.max(0, Math.round(diffMs / 60000));
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+};
+
 const NotificationCenterScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { themeColors } = useApp();
+  const { themeColors, friendRequests, respondToFriendRequest } = useApp();
+  const [respondingMap, setRespondingMap] = React.useState({});
+  const pendingRequests = friendRequests?.incoming || [];
 
-  // Placeholder data for future real notifications
-  const notifications = [
-    {
-      id: 'streak-warning',
-      type: 'streak',
-      title: 'Habit streak ending soon',
-      body: 'Your habit streak will expire in 1 hour. Log today to keep it alive.',
-      icon: 'flame',
-      color: colors.habits,
-    },
-    {
-      id: 'friend-request',
-      type: 'friend',
-      title: 'New friend request',
-      body: 'Alex sent you a friend request.',
-      icon: 'user-plus',
-      iconType: 'feather',
-      color: colors.primary,
-    },
-    {
-      id: 'shared-task',
-      type: 'task',
-      title: 'Shared task added',
-      body: 'Jamie added you to “Team Standup” tomorrow at 9:00 AM.',
-      icon: 'people',
-      color: colors.tasks,
-    },
-  ];
-
-  const renderIcon = (item) => {
-    if (item.iconType === 'feather') {
-      return <Feather name={item.icon} size={20} color={item.color} />;
+  const handleRespond = async (requestId, status) => {
+    setRespondingMap((prev) => ({ ...prev, [requestId]: status }));
+    try {
+      await respondToFriendRequest(requestId, status);
+    } catch (err) {
+      Alert.alert('Unable to update request', err?.message || 'Please try again.');
+    } finally {
+      setRespondingMap((prev) => ({ ...prev, [requestId]: null }));
     }
-    return <Ionicons name={item.icon} size={20} color={item.color} />;
   };
 
   const themedStyles = React.useMemo(() => createStyles(themeColors || colors), [themeColors]);
@@ -67,25 +66,56 @@ const NotificationCenterScreen = () => {
         contentContainerStyle={themedStyles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={themedStyles.sectionLabel}>Recent</Text>
-        {notifications.map((item) => (
-          <View key={item.id} style={themedStyles.card}>
-            <View style={[themedStyles.iconWrap, { backgroundColor: `${item.color}15` }]}>
-              {renderIcon(item)}
-            </View>
-            <View style={themedStyles.textWrap}>
-              <Text style={themedStyles.cardTitle}>{item.title}</Text>
-              <Text style={themedStyles.cardBody}>{item.body}</Text>
-            </View>
+        <Text style={themedStyles.sectionLabel}>Friend requests</Text>
+        {pendingRequests.length === 0 ? (
+          <View style={themedStyles.placeholderBox}>
+            <Ionicons name="notifications-outline" size={20} color={themedStyles.subduedText} />
+            <Text style={themedStyles.placeholderText}>
+              No new notifications. Friend requests and habit alerts will appear here.
+            </Text>
           </View>
-        ))}
-
-        <View style={themedStyles.placeholderBox}>
-          <Ionicons name="notifications-outline" size={20} color={themedStyles.subduedText} />
-          <Text style={themedStyles.placeholderText}>
-            Future notifications (streaks, friend requests, shared tasks) will appear here.
-          </Text>
-        </View>
+        ) : (
+          pendingRequests.map((item) => (
+            <View key={item.id} style={themedStyles.card}>
+              <View style={[themedStyles.iconWrap, { backgroundColor: `${colors.primary}15` }]}>
+                <Feather name="user-plus" size={20} color={colors.primary} />
+              </View>
+              <View style={themedStyles.textWrap}>
+                <Text style={themedStyles.cardTitle}>
+                  {(item.fromUser?.name || item.fromUser?.username || 'Someone')} added you as a friend
+                </Text>
+                <Text style={themedStyles.cardBody}>
+                  @{item.fromUser?.username || 'unknown'}
+                  {item.created_at ? ` - ${formatTimeAgo(item.created_at)}` : ''}
+                </Text>
+                <View style={themedStyles.actionRow}>
+                  <TouchableOpacity
+                    onPress={() => handleRespond(item.id, 'accepted')}
+                    style={themedStyles.primaryButton}
+                    disabled={!!respondingMap[item.id]}
+                  >
+                    {respondingMap[item.id] === 'accepted' ? (
+                      <ActivityIndicator color="#FFFFFF" size="small" />
+                    ) : (
+                      <Text style={themedStyles.primaryButtonText}>Accept</Text>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => handleRespond(item.id, 'declined')}
+                    style={themedStyles.secondaryButton}
+                    disabled={!!respondingMap[item.id]}
+                  >
+                    {respondingMap[item.id] === 'declined' ? (
+                      <ActivityIndicator color={themedStyles.subduedText} size="small" />
+                    ) : (
+                      <Text style={themedStyles.secondaryButtonText}>Decline</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          ))
+        )}
       </ScrollView>
     </View>
   );
@@ -94,6 +124,7 @@ const NotificationCenterScreen = () => {
 const createStyles = (themeColors) => {
   const baseText = themeColors?.text || colors.text;
   const subdued = themeColors?.textSecondary || colors.textSecondary;
+  const primary = themeColors?.primary || colors.primary;
   return StyleSheet.create({
     container: {
       flex: 1,
@@ -134,7 +165,7 @@ const createStyles = (themeColors) => {
     },
     card: {
       flexDirection: 'row',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       padding: spacing.md,
       borderRadius: borderRadius.lg,
       backgroundColor: themeColors?.card || colors.card,
@@ -164,6 +195,41 @@ const createStyles = (themeColors) => {
       ...typography.bodySmall,
       color: subdued,
       lineHeight: 18,
+    },
+    actionRow: {
+      flexDirection: 'row',
+      marginTop: spacing.sm,
+    },
+    primaryButton: {
+      backgroundColor: primary,
+      paddingVertical: 10,
+      paddingHorizontal: spacing.md,
+      borderRadius: borderRadius.md,
+      minWidth: 96,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    secondaryButton: {
+      backgroundColor: themeColors?.inputBackground || colors.inputBackground,
+      paddingVertical: 10,
+      paddingHorizontal: spacing.md,
+      borderRadius: borderRadius.md,
+      marginLeft: spacing.sm,
+      borderWidth: 1,
+      borderColor: themeColors?.border || colors.border,
+      minWidth: 96,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    primaryButtonText: {
+      ...typography.body,
+      color: '#ffffff',
+      fontWeight: '700',
+    },
+    secondaryButtonText: {
+      ...typography.body,
+      color: baseText,
+      fontWeight: '600',
     },
     placeholderBox: {
       marginTop: spacing.lg,

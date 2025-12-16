@@ -47,6 +47,9 @@ const HomeScreen = () => {
     reminders,
     groceries,
     notes,
+    friends,
+    onlineFriends,
+    friendRequests,
     getTodayTasks,
     getBestStreak,
     verifyNotePassword,
@@ -95,6 +98,12 @@ const HomeScreen = () => {
   const consumedCalories = todayHealth?.calories || 0;
   const calorieGoal = profile?.dailyCalorieGoal || 2000;
   const remainingCalories = Math.max(calorieGoal - consumedCalories, 0);
+  const onlinePreview = React.useMemo(() => onlineFriends.slice(0, 4), [onlineFriends]);
+  const pendingFriendRequests = friendRequests?.incoming?.length || 0;
+  const getInitial = React.useCallback((nameValue, usernameValue) => {
+    const source = (nameValue || usernameValue || '?').trim();
+    return (source[0] || '?').toUpperCase();
+  }, []);
   const [selectedNote, setSelectedNote] = React.useState(null);
   const [noteToUnlock, setNoteToUnlock] = React.useState(null);
   const [notePasswordInput, setNotePasswordInput] = React.useState('');
@@ -255,7 +264,10 @@ const HomeScreen = () => {
                 style={styles.headerIconButton}
                 onPress={() => navigation.navigate('NotificationCenter')}
               >
-                <Ionicons name="notifications-outline" size={22} color={colors.textSecondary} />
+                <View>
+                  <Ionicons name="notifications-outline" size={22} color={colors.textSecondary} />
+                  {pendingFriendRequests > 0 && <View style={styles.notificationDot} />}
+                </View>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.profileButton}
@@ -315,14 +327,53 @@ const HomeScreen = () => {
           </Card>
         </View>
 
-        {/* Online Friends (placeholder) */}
+        {/* Online Friends */}
         <Card style={[styles.sectionCard, styles.onlineFriendsCard]}>
-          <View style={styles.cardHeader}>
-            <Text style={[styles.cardTitle, styles.onlineFriendsTitle]}>Online Friends</Text>
-          </View>
-          <View style={styles.onlineFriendsBody}>
-            <Text style={styles.onlineFriendsText}>Friend system coming soon</Text>
-          </View>
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={() => navigation.navigate('Friends')}
+          >
+            <View style={styles.cardHeader}>
+              <Text style={[styles.cardTitle, styles.onlineFriendsTitle]}>Online Friends</Text>
+              <View style={styles.onlineCountPill}>
+                <Text style={styles.onlineCountText}>
+                  {onlineFriends.length}/{friends.length || 0} online
+                </Text>
+              </View>
+            </View>
+            {friends.length === 0 ? (
+              <View style={styles.onlineFriendsBody}>
+                <Text style={styles.onlineFriendsText}>Find friends to see who is online.</Text>
+                <Text style={styles.onlineFriendsSubtext}>Tap to search by username.</Text>
+              </View>
+            ) : (
+              <View style={styles.onlineFriendsRow}>
+                {onlinePreview.length === 0 ? (
+                  <Text style={styles.onlineFriendsText}>No one is online right now.</Text>
+                ) : (
+                  onlinePreview.map((friend) => (
+                    <View key={friend.id} style={styles.onlineFriendItem}>
+                      <View style={styles.onlineAvatarWrap}>
+                        {friend.avatarUrl ? (
+                          <Image source={{ uri: friend.avatarUrl }} style={styles.onlineAvatar} />
+                        ) : (
+                          <View style={styles.onlineAvatarFallback}>
+                            <Text style={styles.onlineAvatarInitial}>
+                              {getInitial(friend.name, friend.username)}
+                            </Text>
+                          </View>
+                        )}
+                        <View style={styles.onlineDot} />
+                      </View>
+                      <Text style={styles.onlineName} numberOfLines={1}>
+                        {friend.username || friend.name}
+                      </Text>
+                    </View>
+                  ))
+                )}
+              </View>
+            )}
+          </TouchableOpacity>
         </Card>
 
         {/* Focus Mode + Countdown */}
@@ -784,6 +835,17 @@ const createStyles = (themeColorsParam = colors) => {
       backgroundColor: colors.inputBackground,
       ...shadows.small,
     },
+    notificationDot: {
+      position: 'absolute',
+      top: -2,
+      right: -2,
+      width: 10,
+      height: 10,
+      borderRadius: borderRadius.full,
+      backgroundColor: colors.primary,
+      borderWidth: 1,
+      borderColor: colors.card,
+    },
     sectionButtonsContainer: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -1090,20 +1152,89 @@ const createStyles = (themeColorsParam = colors) => {
     onlineFriendsCard: {
       backgroundColor: sectionCardColor,
       borderColor: sectionBorderColor,
-      minHeight: 160,
+      paddingHorizontal: 0,
     },
     onlineFriendsTitle: {
       color: themeColorsParam?.text || colors.text,
     },
+    onlineCountPill: {
+      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.md,
+      borderRadius: borderRadius.full,
+      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
+      borderWidth: 1,
+      borderColor: sectionBorderColor,
+    },
+    onlineCountText: {
+      ...typography.caption,
+      color: themeColorsParam?.textSecondary || colors.textSecondary,
+      fontWeight: '700',
+    },
     onlineFriendsBody: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingVertical: spacing.lg,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
+      gap: spacing.xs,
     },
     onlineFriendsText: {
       ...typography.body,
       color: themeColorsParam?.textSecondary || colors.textSecondary,
+    },
+    onlineFriendsSubtext: {
+      ...typography.bodySmall,
+      color: themeColorsParam?.textSecondary || colors.textSecondary,
+    },
+    onlineFriendsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.md,
+    },
+    onlineFriendItem: {
+      alignItems: 'center',
+      marginRight: spacing.md,
+      width: 72,
+    },
+    onlineAvatarWrap: {
+      width: 56,
+      height: 56,
+      borderRadius: borderRadius.full,
+      overflow: 'hidden',
+      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
+      alignItems: 'center',
+      justifyContent: 'center',
+      position: 'relative',
+    },
+    onlineAvatar: {
+      width: '100%',
+      height: '100%',
+    },
+    onlineAvatarFallback: {
+      width: '100%',
+      height: '100%',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: `${colors.primary}15`,
+    },
+    onlineAvatarInitial: {
+      ...typography.h4,
+      color: themeColorsParam?.text || colors.text,
+    },
+    onlineDot: {
+      position: 'absolute',
+      bottom: -2,
+      right: -2,
+      width: 14,
+      height: 14,
+      borderRadius: borderRadius.full,
+      backgroundColor: colors.success,
+      borderWidth: 2,
+      borderColor: sectionCardColor,
+    },
+    onlineName: {
+      ...typography.bodySmall,
+      color: themeColorsParam?.text || colors.text,
+      marginTop: spacing.xs,
+      textAlign: 'center',
     },
     caloriesIconWrap: {
       width: 48,

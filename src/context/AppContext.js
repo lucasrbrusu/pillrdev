@@ -97,6 +97,8 @@ const defaultUserSettings = {
 const DEFAULT_EVENT_TIME = { hour: 9, minute: 0 };
 const HABIT_REMINDER_TIME = { hour: 8, minute: 0 };
 const ROUTINE_REMINDER_TIME = { hour: 7, minute: 30 };
+const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
+const STATUS_POLL_INTERVAL_MS = 45 * 1000;
 
 const computeIsPremium = (plan, premiumExpiresAt) => {
   const normalizedPlan = (plan || '').toLowerCase();
@@ -219,6 +221,11 @@ export const AppProvider = ({ children }) => {
   // Finance State
   const [finances, setFinances] = useState([]);
 
+  // Social/Friends State
+  const [friends, setFriends] = useState([]);
+  const [friendRequests, setFriendRequests] = useState({ incoming: [], outgoing: [] });
+  const [userStatuses, setUserStatuses] = useState({});
+
  // Profile State
   const [profile, setProfile] = useState(defaultProfile);
   const [profileLoaded, setProfileLoaded] = useState(false);
@@ -340,6 +347,7 @@ const loadUserDataFromSupabase = async (userId) => {
     await Promise.all([
       fetchProfileFromSupabase(userId),
       fetchUserSettings(userId),
+      refreshFriendData(userId),
       fetchHabitsFromSupabase(userId),
       fetchTasksFromSupabase(userId),
       fetchNotesFromSupabase(userId),
@@ -371,6 +379,9 @@ const loadUserDataFromSupabase = async (userId) => {
       setReminders([]);
       setGroceries([]);
       setFinances([]);
+      setFriends([]);
+      setFriendRequests({ incoming: [], outgoing: [] });
+      setUserStatuses({});
       setProfile(defaultProfile);
       setProfileLoaded(false);
       setUserSettings(defaultUserSettings);
@@ -396,6 +407,27 @@ const loadUserDataFromSupabase = async (userId) => {
       isMounted = false;
     };
   }, [authUser?.id]);
+
+  useEffect(() => {
+    if (!authUser?.id) return undefined;
+
+    let isCancelled = false;
+
+    const tick = async () => {
+      if (isCancelled) return;
+      await updateUserPresence();
+      await refreshFriendStatuses();
+      await fetchFriendRequests(authUser.id);
+    };
+
+    tick();
+    const interval = setInterval(tick, STATUS_POLL_INTERVAL_MS);
+
+    return () => {
+      isCancelled = true;
+      clearInterval(interval);
+    };
+  }, [authUser?.id, fetchFriendRequests, refreshFriendStatuses, updateUserPresence]);
 
   // Save helpers
   const saveToStorage = async (key, data) => {
@@ -442,6 +474,378 @@ const loadUserDataFromSupabase = async (userId) => {
   const persistRoutinesLocally = async (data) => {
     await saveToStorage(STORAGE_KEYS.ROUTINES, data);
   };
+
+  const mapProfileSummary = (row) => ({
+    id: row?.id || null,
+    username: row?.username || '',
+    name: row?.full_name || row?.name || row?.email || 'Unknown user',
+    avatarUrl: row?.avatar_url || row?.photo || null,
+  });
+
+  const updateUserPresence = useCallback(async () => {
+    if (!authUser?.id) return;
+    const nowISO = new Date().toISOString();
+    setUserStatuses((prev) => ({ ...prev, [authUser.id]: nowISO }));
+    try {
+      // Ensure the profile row exists to satisfy FK before presence upsert
+      if (!profileLoaded) {
+        await upsertProfileRow({
+          id: authUser.id,
+          username: authUser?.user_metadata?.username || profile.username,
+          full_name:
+            authUser?.user_metadata?.full_name ||
+            authUser?.user_metadata?.name ||
+            profile.name ||
+            authUser?.email,
+          email: authUser?.email || profile.email,
+        });
+      }
+
+      const { error } = await supabase
+        .from('user_status')
+        .upsert({ user_id: authUser.id, last_seen: nowISO }, { onConflict: 'user_id' });
+
+      // If FK fails because profile is missing, attempt to create the profile then retry once
+      if (error?.code === '23503') {
+        await upsertProfileRow({
+          id: authUser.id,
+          username: authUser?.user_metadata?.username || profile.username,
+          full_name:
+            authUser?.user_metadata?.full_name ||
+            authUser?.user_metadata?.name ||
+            profile.name ||
+            authUser?.email,
+          email: authUser?.email || profile.email,
+        });
+        const retry = await supabase
+          .from('user_status')
+          .upsert({ user_id: authUser.id, last_seen: nowISO }, { onConflict: 'user_id' });
+        if (retry.error) {
+          console.log('Error updating user status after profile upsert:', retry.error);
+        }
+      } else if (error) {
+        console.log('Error updating user status:', error);
+      }
+    } catch (err) {
+      console.log('Error updating user status:', err);
+    }
+  }, [authUser?.id, profileLoaded, profile.name, profile.username, profile.email]);
+
+  const fetchFriendships = useCallback(
+    async (userIdParam) => {
+      const userId = userIdParam || authUser?.id;
+      if (!userId) return [];
+
+      const { data, error } = await supabase
+        .from('friendships')
+        .select('*')
+        .or(`user_id.eq.${userId},friend_id.eq.${userId}`)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.log('Error fetching friendships:', error);
+        return [];
+      }
+
+      const friendIds = Array.from(
+        new Set(
+          (data || [])
+            .map((row) => (row.user_id === userId ? row.friend_id : row.user_id))
+            .filter(Boolean)
+        )
+      );
+
+      let profileRows = [];
+      if (friendIds.length) {
+        const { data: profilesData, error: profileError } = await supabase
+          .from('profiles')
+          .select('id, username, full_name, avatar_url')
+          .in('id', friendIds);
+
+        if (profileError) {
+          console.log('Error fetching friend profiles:', profileError);
+        } else {
+          profileRows = profilesData || [];
+        }
+      }
+
+      let statusRows = [];
+      if (friendIds.length) {
+        const { data: statusesData, error: statusError } = await supabase
+          .from('user_status')
+          .select('user_id, last_seen')
+          .in('user_id', friendIds);
+        if (statusError) {
+          console.log('Error fetching friend statuses:', statusError);
+        } else {
+          statusRows = statusesData || [];
+        }
+      }
+
+      const statusMap = {};
+      statusRows.forEach((row) => {
+        if (row?.user_id) statusMap[row.user_id] = row.last_seen;
+      });
+      if (Object.keys(statusMap).length) {
+        setUserStatuses((prev) => ({ ...prev, ...statusMap }));
+      }
+
+      const mapped = friendIds.map((id) => {
+        const profileRow = profileRows.find((p) => p.id === id) || {};
+        return {
+          id,
+          ...mapProfileSummary(profileRow),
+          lastSeen: statusMap[id] || null,
+        };
+      });
+
+      setFriends(mapped);
+      return mapped;
+    },
+    [authUser?.id]
+  );
+
+  const fetchFriendRequests = useCallback(
+    async (userIdParam) => {
+      const userId = userIdParam || authUser?.id;
+      if (!userId) return { incoming: [], outgoing: [] };
+
+      const { data, error } = await supabase
+        .from('friend_requests')
+        .select('*')
+        .or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.log('Error fetching friend requests:', error);
+        return { incoming: [], outgoing: [] };
+      }
+
+      const involvedIds = Array.from(
+        new Set(
+          (data || [])
+            .flatMap((row) => [row.from_user_id, row.to_user_id])
+            .filter(Boolean)
+        )
+      );
+
+      let profileRows = [];
+      if (involvedIds.length) {
+        const { data: profilesData, error: profileError } = await supabase
+          .from('profiles')
+          .select('id, username, full_name, avatar_url')
+          .in('id', involvedIds);
+
+        if (profileError) {
+          console.log('Error fetching friend request profiles:', profileError);
+        } else {
+          profileRows = profilesData || [];
+        }
+      }
+
+      const profileLookup = {};
+      profileRows.forEach((row) => {
+        profileLookup[row.id] = mapProfileSummary(row);
+      });
+
+      const mapped = (data || []).map((row) => ({
+        ...row,
+        fromUser: profileLookup[row.from_user_id] || null,
+        toUser: profileLookup[row.to_user_id] || null,
+      }));
+
+      const incoming = mapped.filter(
+        (row) => row.to_user_id === userId && row.status === 'pending'
+      );
+      const outgoing = mapped.filter(
+        (row) => row.from_user_id === userId && row.status === 'pending'
+      );
+
+      setFriendRequests({ incoming, outgoing });
+      return { incoming, outgoing };
+    },
+    [authUser?.id]
+  );
+
+  const refreshFriendStatuses = useCallback(
+    async (friendListParam) => {
+      const list = friendListParam || friends;
+      const ids = list.map((f) => f.id).filter(Boolean);
+      if (!ids.length) return;
+
+      const { data, error } = await supabase
+        .from('user_status')
+        .select('user_id, last_seen')
+        .in('user_id', ids);
+
+      if (error) {
+        console.log('Error refreshing friend statuses:', error);
+        return;
+      }
+
+      const statusMap = {};
+      (data || []).forEach((row) => {
+        if (row?.user_id) statusMap[row.user_id] = row.last_seen;
+      });
+      if (Object.keys(statusMap).length) {
+        setUserStatuses((prev) => ({ ...prev, ...statusMap }));
+        setFriends((prev) =>
+          prev.map((friend) =>
+            statusMap[friend.id] ? { ...friend, lastSeen: statusMap[friend.id] } : friend
+          )
+        );
+      }
+    },
+    [friends]
+  );
+
+  const refreshFriendData = useCallback(
+    async (userIdParam) => {
+      const userId = userIdParam || authUser?.id;
+      if (!userId) return;
+      const friendList = await fetchFriendships(userId);
+      await fetchFriendRequests(userId);
+      await refreshFriendStatuses(friendList);
+    },
+    [authUser?.id, fetchFriendships, fetchFriendRequests, refreshFriendStatuses]
+  );
+
+  const isUserOnline = useCallback(
+    (userId) => {
+      const lastSeen = userStatuses[userId];
+      if (!lastSeen) return false;
+      const last = new Date(lastSeen).getTime();
+      if (Number.isNaN(last)) return false;
+      return Date.now() - last <= ONLINE_THRESHOLD_MS;
+    },
+    [userStatuses]
+  );
+
+  const getFriendRelationship = useCallback(
+    (userId) => {
+      const isFriend = friends.some((f) => f.id === userId);
+      const incoming = friendRequests.incoming.find(
+        (r) => r.from_user_id === userId && r.status === 'pending'
+      );
+      const outgoing = friendRequests.outgoing.find(
+        (r) => r.to_user_id === userId && r.status === 'pending'
+      );
+      return { isFriend, incoming, outgoing };
+    },
+    [friends, friendRequests]
+  );
+
+  const searchUsersByUsername = useCallback(
+    async (query) => {
+      if (!authUser?.id) return [];
+      const trimmed = (query || '').trim();
+      if (trimmed.length < 2) return [];
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, username, full_name, avatar_url')
+        .ilike('username', `%${trimmed}%`)
+        .limit(15);
+
+      if (error) {
+        console.log('Error searching users:', error);
+        return [];
+      }
+
+      return (data || [])
+        .filter((row) => row.id !== authUser.id)
+        .map((row) => {
+          const relationship = getFriendRelationship(row.id);
+          return {
+            ...mapProfileSummary(row),
+            isFriend: relationship.isFriend,
+            pendingIncoming: !!relationship.incoming,
+            pendingOutgoing: !!relationship.outgoing,
+          };
+        });
+    },
+    [authUser?.id, getFriendRelationship]
+  );
+
+  const sendFriendRequest = useCallback(
+    async (toUserId) => {
+      if (!authUser?.id) throw new Error('You must be logged in to add a friend.');
+      if (!toUserId) throw new Error('Invalid user.');
+      if (toUserId === authUser.id) throw new Error('You cannot add yourself.');
+      const existing = getFriendRelationship(toUserId);
+      if (existing.isFriend) throw new Error('Already friends.');
+      if (existing.incoming) {
+        await respondToFriendRequest(existing.incoming.id, 'accepted');
+        return existing.incoming;
+      }
+      if (existing.outgoing) return existing.outgoing;
+
+      const { data, error } = await supabase
+        .from('friend_requests')
+        .insert({
+          from_user_id: authUser.id,
+          to_user_id: toUserId,
+          status: 'pending',
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.log('Error sending friend request:', error);
+        throw new Error(error.message || 'Unable to send friend request.');
+      }
+
+      await fetchFriendRequests(authUser.id);
+      return data;
+    },
+    [authUser?.id, getFriendRelationship, fetchFriendRequests, respondToFriendRequest]
+  );
+
+  const respondToFriendRequest = useCallback(
+    async (requestId, responseStatus = 'declined') => {
+      if (!authUser?.id) throw new Error('You must be logged in to respond.');
+      const normalized = responseStatus === 'accepted' ? 'accepted' : 'declined';
+      const nowISO = new Date().toISOString();
+
+      const { data, error } = await supabase
+        .from('friend_requests')
+        .update({ status: normalized, responded_at: nowISO })
+        .eq('id', requestId)
+        .eq('to_user_id', authUser.id)
+        .select()
+        .single();
+
+      if (error) {
+        console.log('Error responding to friend request:', error);
+        throw new Error(error.message || 'Unable to respond to request.');
+      }
+
+      if (normalized === 'accepted' && data?.from_user_id) {
+        const { error: friendError } = await supabase
+          .from('friendships')
+          .upsert(
+            {
+              user_id: authUser.id,
+              friend_id: data.from_user_id,
+              created_at: nowISO,
+            },
+            { onConflict: 'user_id,friend_id' }
+          );
+
+        if (friendError && friendError.code !== '23505') {
+          console.log('Error creating friendship:', friendError);
+        }
+      }
+
+      await refreshFriendData(authUser.id);
+      return data;
+    },
+    [authUser?.id, refreshFriendData]
+  );
+
+  const onlineFriends = useMemo(
+    () => friends.filter((f) => isUserOnline(f.id)),
+    [friends, isUserOnline]
+  );
 
 const fetchHabitsFromSupabase = async (userId) => {
   // Get all habits
@@ -2028,7 +2432,7 @@ const getFinanceSummaryForDate = (date) => {
       defaultProfile.name,
     username: row?.username || authUser?.user_metadata?.username || '',
     email: row?.email || authUser?.email || profile.email || defaultProfile.email,
-    photo: row?.avatar_url || null,
+    photo: row?.avatar_url || row?.photo || null,
     dailyCalorieGoal: row?.daily_calorie_goal ?? defaultProfile.dailyCalorieGoal,
     dailyWaterGoal: row?.daily_water_goal ?? defaultProfile.dailyWaterGoal,
     dailySleepGoal: row?.daily_sleep_goal ?? defaultProfile.dailySleepGoal,
@@ -2319,8 +2723,18 @@ const getFinanceSummaryForDate = (date) => {
         return uri;
       }
 
-      const { data: publicData } = supabase.storage.from('avatars').getPublicUrl(path);
-      return publicData?.publicUrl || uri;
+      // Prefer a long-lived signed URL (works even if bucket is private). Fall back to public URL.
+      const { data: signedData, error: signedError } = await supabase.storage
+        .from('avatars')
+        .createSignedUrl(path, 60 * 60 * 24 * 365); // 1 year
+
+      if (signedError) {
+        console.log('Error creating signed avatar URL, falling back to public:', signedError);
+        const { data: publicData } = supabase.storage.from('avatars').getPublicUrl(path);
+        return publicData?.publicUrl || uri;
+      }
+
+      return signedData?.signedUrl || uri;
     } catch (err) {
       console.log('Error preparing avatar upload:', err);
       return uri;
@@ -2804,6 +3218,17 @@ const getFinanceSummaryForDate = (date) => {
     deleteTransaction,
     getTransactionsForDate,
     getFinanceSummaryForDate,
+
+    // Friends
+    friends,
+    onlineFriends,
+    friendRequests,
+    isUserOnline,
+    refreshFriendData,
+    searchUsersByUsername,
+    sendFriendRequest,
+    respondToFriendRequest,
+    getFriendRelationship,
 
     // Profile
     updateProfile,
