@@ -297,7 +297,7 @@ const HomeScreen = () => {
               onPress={() => navigation.navigate('CountdownTimer')}
             >
               <View style={styles.focusIconWrap}>
-                <Ionicons name="hourglass" size={22} color={colors.text} />
+                <Ionicons name="hourglass" size={22} color="#FFFFFF" />
               </View>
               <View style={styles.focusTextWrap}>
                 <Text style={styles.focusLabel}>Countdown Timer</Text>
@@ -306,6 +306,21 @@ const HomeScreen = () => {
             </TouchableOpacity>
           </Card>
         </View>
+
+        {/* Premium Upsell for free users */}
+        {!profile?.isPremium && (
+          <View style={styles.premiumUpsell}>
+            <View style={styles.premiumIconWrap}>
+              <Ionicons name="star" size={28} color="#b8860b" />
+            </View>
+            <View style={styles.premiumTextWrap}>
+              <Text style={styles.premiumTitle}>Upgrade to Premium!</Text>
+              <Text style={styles.premiumSubtitle}>
+                Unlock the AI agent and premium features tailored to power up your day.
+              </Text>
+            </View>
+          </View>
+        )}
 
         {/* Upcoming Reminders */}
         <Card
@@ -560,20 +575,6 @@ const HomeScreen = () => {
           )}
         </Card>
 
-        {/* Premium Upsell for free users */}
-        {!profile?.isPremium && (
-          <View style={styles.premiumUpsell}>
-            <View style={styles.premiumIconWrap}>
-              <Ionicons name="star" size={28} color="#b8860b" />
-            </View>
-            <View style={styles.premiumTextWrap}>
-              <Text style={styles.premiumTitle}>Upgrade to Premium!</Text>
-              <Text style={styles.premiumSubtitle}>
-                Unlock the AI agent and premium features tailored to power up your day.
-              </Text>
-            </View>
-          </View>
-        )}
       </ScrollView>
     </View>
   );
@@ -978,20 +979,16 @@ const createStyles = (themeColorsParam = colors) => {
     },
     focusLabel: {
       ...typography.bodySmall,
-      color: colors.textSecondary,
+      color: '#FFFFFF',
       marginBottom: 2,
     },
     focusValue: {
       ...typography.h2,
-      color: colors.text,
-    },
-    focusHint: {
-      ...typography.bodySmall,
-      color: colors.textSecondary,
+      color: '#FFFFFF',
     },
     countdownCard: {
-      backgroundColor: themeColorsParam?.card || colors.card,
-      borderColor: themeColorsParam?.border || colors.border || '#E5E7EB',
+      backgroundColor: '#4d2600',
+      borderColor: '#4d2600',
       flex: 1,
     },
     focusButton: {
@@ -1118,8 +1115,8 @@ const createStyles = (themeColorsParam = colors) => {
       borderWidth: 3,
       borderRadius: borderRadius.xl,
       padding: spacing.xl,
-      marginTop: spacing.lg,
-      marginBottom: spacing.xxxl,
+      marginTop: spacing.sm,
+      marginBottom: spacing.lg,
       ...shadows.medium,
     },
     premiumIconWrap: {

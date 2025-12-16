@@ -128,6 +128,18 @@ const ProfileScreen = () => {
           >
             <Text style={styles.editProfileText}>{t('Edit Profile')}</Text>
           </TouchableOpacity>
+
+          {!isPremium && (
+            <View style={styles.premiumUpsell}>
+              <View style={styles.premiumIconWrap}>
+                <Ionicons name="star" size={22} color="#b8860b" />
+              </View>
+              <View style={styles.premiumTextWrap}>
+                <Text style={styles.premiumTitle}>Upgrade to Premium</Text>
+                <Text style={styles.premiumSubtitle}>Unlock AI agent and premium perks.</Text>
+              </View>
+            </View>
+          )}
         </View>
 
         {/* Settings */}
@@ -238,6 +250,41 @@ const createStyles = () =>
       ...typography.bodySmall,
       color: colors.textSecondary,
       marginBottom: spacing.lg,
+    },
+    premiumUpsell: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#FACC15',
+      borderColor: '#b8860b',
+      borderWidth: 2,
+      borderRadius: borderRadius.lg,
+      padding: spacing.lg,
+      marginTop: spacing.lg,
+      width: '100%',
+    },
+    premiumIconWrap: {
+      width: 40,
+      height: 40,
+      borderRadius: borderRadius.full,
+      backgroundColor: '#f1c232',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.md,
+      borderWidth: 1,
+      borderColor: '#b8860b',
+    },
+    premiumTextWrap: {
+      flex: 1,
+    },
+    premiumTitle: {
+      ...typography.body,
+      color: '#000000',
+      fontWeight: '700',
+    },
+    premiumSubtitle: {
+      ...typography.bodySmall,
+      color: '#000000',
+      marginTop: 2,
     },
     premiumBadge: {
       flexDirection: 'row',
