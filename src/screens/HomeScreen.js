@@ -15,6 +15,7 @@ import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
 import { Card } from '../components';
+import { LinearGradient } from 'expo-linear-gradient';
 import { colors, shadows, borderRadius, spacing, typography } from '../utils/theme';
 
 const MOOD_OPTIONS = [
@@ -309,7 +310,13 @@ const HomeScreen = () => {
 
         {/* Premium Upsell for free users */}
         {!profile?.isPremium && (
-          <View style={styles.premiumUpsell}>
+          <LinearGradient
+            colors={['#fbe7a1', '#f5c542', '#f3b11c']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.premiumUpsell}
+          >
+            <View style={styles.premiumShine} />
             <View style={styles.premiumIconWrap}>
               <Ionicons name="star" size={28} color="#b8860b" />
             </View>
@@ -319,7 +326,7 @@ const HomeScreen = () => {
                 Unlock the AI agent and premium features tailored to power up your day.
               </Text>
             </View>
-          </View>
+          </LinearGradient>
         )}
 
         {/* Upcoming Reminders */}
@@ -1110,14 +1117,15 @@ const createStyles = (themeColorsParam = colors) => {
     premiumUpsell: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: '#FACC15',
       borderColor: '#b8860b',
       borderWidth: 3,
       borderRadius: borderRadius.xl,
       padding: spacing.xl,
       marginTop: spacing.sm,
       marginBottom: spacing.lg,
-      ...shadows.medium,
+      ...shadows.large,
+      overflow: 'hidden',
+      position: 'relative',
     },
     premiumIconWrap: {
       width: 56,
@@ -1129,6 +1137,15 @@ const createStyles = (themeColorsParam = colors) => {
       marginRight: spacing.lg,
       borderWidth: 2,
       borderColor: '#b8860b',
+    },
+    premiumShine: {
+      position: 'absolute',
+      top: 0,
+      left: -120,
+      width: 160,
+      height: '120%',
+      backgroundColor: 'rgba(255,255,255,0.35)',
+      transform: [{ rotate: '20deg' }],
     },
     premiumTextWrap: {
       flex: 1,

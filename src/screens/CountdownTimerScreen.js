@@ -4,15 +4,23 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { colors, spacing, borderRadius, typography, shadows } from '../utils/theme';
+import {
+  requestNotificationPermissionAsync,
+  scheduleLocalNotificationAsync,
+} from '../utils/notifications';
+import { useApp } from '../context/AppContext';
 
 const CountdownTimerScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
+  const { themeColors } = useApp();
+  const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
   const [durationMs, setDurationMs] = React.useState(5 * 60 * 1000);
   const [remainingMs, setRemainingMs] = React.useState(5 * 60 * 1000);
   const [isRunning, setIsRunning] = React.useState(false);
   const [isPaused, setIsPaused] = React.useState(false);
   const [showPicker, setShowPicker] = React.useState(false);
   const [showCustom, setShowCustom] = React.useState(false);
+  const [hasNotified, setHasNotified] = React.useState(false);
   const [pickerDate, setPickerDate] = React.useState(() => {
     const d = new Date();
     d.setHours(0, 5, 0, 0);
@@ -49,6 +57,7 @@ const CountdownTimerScreen = ({ navigation }) => {
           if (next === 0) {
             setIsRunning(false);
             setIsPaused(false);
+            notifyCompletion();
           }
           return next;
         });
@@ -59,11 +68,24 @@ const CountdownTimerScreen = ({ navigation }) => {
     };
   }, [isRunning, isPaused]);
 
+  const notifyCompletion = React.useCallback(async () => {
+    if (hasNotified) return;
+    setHasNotified(true);
+    const granted = await requestNotificationPermissionAsync();
+    if (!granted) return;
+    await scheduleLocalNotificationAsync({
+      title: 'Timer finished',
+      body: 'Your countdown timer is finished.',
+      trigger: null, // immediate
+    });
+  }, [hasNotified]);
+
   const applyPreset = (ms) => {
     setDurationMs(ms);
     setRemainingMs(ms);
     setShowCustom(false);
     setShowPicker(false);
+    setHasNotified(false);
     const d = new Date();
     const totalMinutes = Math.floor(ms / (60 * 1000));
     const seconds = Math.floor((ms % (60 * 1000)) / 1000);
@@ -81,6 +103,7 @@ const CountdownTimerScreen = ({ navigation }) => {
     nextDate.setSeconds(prevSeconds);
     if (Platform.OS !== 'ios') setShowPicker(false);
     setPickerDate(nextDate);
+    setHasNotified(false);
     const totalSeconds =
       nextDate.getHours() * 3600 + nextDate.getMinutes() * 60 + nextDate.getSeconds();
     const ms = Math.max(totalSeconds, 1) * 1000;
@@ -92,6 +115,7 @@ const CountdownTimerScreen = ({ navigation }) => {
     if (remainingMs <= 0) return;
     setIsRunning(true);
     setIsPaused(false);
+    setHasNotified(false);
   };
 
   const handlePause = () => {
@@ -102,12 +126,14 @@ const CountdownTimerScreen = ({ navigation }) => {
     if (remainingMs <= 0) return;
     setIsPaused(false);
     setIsRunning(true);
+    setHasNotified(false);
   };
 
   const handleStop = () => {
     setIsRunning(false);
     setIsPaused(false);
     setRemainingMs(durationMs);
+    setHasNotified(false);
   };
 
   const setSecondsValue = (sec) => {
@@ -118,6 +144,7 @@ const CountdownTimerScreen = ({ navigation }) => {
       const ms = Math.max(totalSeconds, 1) * 1000;
       setDurationMs(ms);
       setRemainingMs(ms);
+      setHasNotified(false);
       return next;
     });
   };
@@ -287,223 +314,224 @@ const CountdownTimerScreen = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-    paddingHorizontal: spacing.xl,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.xl,
-  },
-  backButton: {
-    padding: spacing.sm,
-  },
-  title: {
-    ...typography.h2,
-    color: colors.text,
-  },
-  content: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    padding: spacing.xl,
-    paddingTop: spacing.lg,
-  },
-  timer: {
-    ...typography.h1,
-    fontSize: 48,
-    marginBottom: spacing.lg,
-    color: colors.text,
-  },
-  mainActions: {
-    width: '100%',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.lg,
-  },
-  presetsRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  presetButton: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.full,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.inputBackground,
-    flexBasis: '22%',
-    alignItems: 'center',
-  },
-  presetButtonActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  presetText: {
-    ...typography.body,
-    color: colors.text,
-    fontWeight: '600',
-  },
-  presetTextActive: {
-    color: '#fff',
-  },
-  customRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'center',
-    justifyContent: 'center',
-    marginTop: spacing.xxxl,
-    marginBottom: spacing.lg,
-    gap: spacing.sm,
-  },
-  customInput: {
-    width: 140,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: borderRadius.md,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    backgroundColor: colors.inputBackground,
-    alignItems: 'center',
-  },
-  customInputText: {
-    ...typography.body,
-    color: colors.text,
-    fontWeight: '600',
-  },
-  applyButton: {
-    marginLeft: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.md,
-    ...shadows.small,
-  },
-  applyButtonText: {
-    ...typography.body,
-    color: '#fff',
-    fontWeight: '700',
-  },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  actionButton: {
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    borderRadius: borderRadius.lg,
-    ...shadows.small,
-  },
-  actionButtonFull: {
-    alignSelf: 'stretch',
-  },
-  startButton: {
-    alignSelf: 'center',
-    paddingHorizontal: spacing.lg,
-  },
-  primaryButton: {
-    backgroundColor: colors.primary,
-  },
-  secondaryButton: {
-    backgroundColor: colors.inputBackground,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  stopButton: {
-    backgroundColor: colors.danger,
-  },
-  actionText: {
-    ...typography.body,
-    color: '#fff',
-    fontWeight: '700',
-  },
-  secondaryText: {
-    ...typography.body,
-    color: colors.text,
-    fontWeight: '700',
-  },
-  pickerLabels: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%',
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.xs,
-  },
-  pickerLabel: {
-    ...typography.bodySmall,
-    color: colors.text,
-    textAlign: 'center',
-    marginHorizontal: spacing.xs,
-  },
-  hmLabels: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: spacing.xl,
-  },
-  secondsLabelWrap: {
-    width: 80,
-    marginLeft: -spacing.sm,
-    alignItems: 'center',
-  },
-  pickerRow: {
-    flexDirection: 'row',
-    width: '100%',
-    alignItems: 'center',
-    paddingLeft: 0,
-  },
-  timePicker: {
-    flex: 1,
-  },
-  secondsPickerContainer: {
-    width: 80,
-    marginLeft: -spacing.lg,
-    height: 220,
-    position: 'relative',
-    justifyContent: 'center',
-  },
-  secondsPicker: {
-    width: '100%',
-    height: '100%',
-  },
-  secondsPickerContent: {
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-  },
-  secondsItem: {
-    height: 38,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-  },
-  secondsItemSelected: {
-    // mimic native picker highlight
-  },
-  secondsText: {
-    fontSize: 20,
-    color: '#6b7280', // darker gray for unselected
-  },
-  secondsTextSelected: {
-    fontWeight: '600',
-    color: colors.text,
-  },
-  sectionTitle: {
-    ...typography.h4,
-    color: colors.text,
-    alignSelf: 'flex-start',
-    marginTop: spacing.xxxl * 2,
-    marginBottom: spacing.sm,
-    fontSize: 20,
-    fontWeight: '700',
-  },
-});
+const createStyles = (themeColorsParam = colors) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: themeColorsParam.background || colors.background,
+      paddingHorizontal: spacing.xl,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: spacing.xl,
+    },
+    backButton: {
+      padding: spacing.sm,
+    },
+    title: {
+      ...typography.h2,
+      color: themeColorsParam.text || colors.text,
+    },
+    content: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'flex-start',
+      padding: spacing.xl,
+      paddingTop: spacing.lg,
+    },
+    timer: {
+      ...typography.h1,
+      fontSize: 48,
+      marginBottom: spacing.lg,
+      color: themeColorsParam.text || colors.text,
+    },
+    mainActions: {
+      width: '100%',
+      alignItems: 'center',
+      gap: spacing.sm,
+      marginBottom: spacing.lg,
+    },
+    presetsRow: {
+      flexDirection: 'row',
+      justifyContent: 'flex-start',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      marginTop: spacing.sm,
+    },
+    presetButton: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      borderRadius: borderRadius.full,
+      borderWidth: 1,
+      borderColor: themeColorsParam.border || colors.border,
+      backgroundColor: themeColorsParam.inputBackground || colors.inputBackground,
+      flexBasis: '22%',
+      alignItems: 'center',
+    },
+    presetButtonActive: {
+      backgroundColor: themeColorsParam.primary || colors.primary,
+      borderColor: themeColorsParam.primary || colors.primary,
+    },
+    presetText: {
+      ...typography.body,
+      color: themeColorsParam.text || colors.text,
+      fontWeight: '600',
+    },
+    presetTextActive: {
+      color: '#fff',
+    },
+    customRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'center',
+      justifyContent: 'center',
+      marginTop: spacing.xxxl,
+      marginBottom: spacing.lg,
+      gap: spacing.sm,
+    },
+    customInput: {
+      width: 140,
+      borderWidth: 1,
+      borderColor: themeColorsParam.border || colors.border,
+      borderRadius: borderRadius.md,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      backgroundColor: themeColorsParam.inputBackground || colors.inputBackground,
+      alignItems: 'center',
+    },
+    customInputText: {
+      ...typography.body,
+      color: themeColorsParam.text || colors.text,
+      fontWeight: '600',
+    },
+    applyButton: {
+      marginLeft: spacing.sm,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+      backgroundColor: themeColorsParam.primary || colors.primary,
+      borderRadius: borderRadius.md,
+      ...shadows.small,
+    },
+    applyButtonText: {
+      ...typography.body,
+      color: '#fff',
+      fontWeight: '700',
+    },
+    actions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+    },
+    actionButton: {
+      paddingHorizontal: spacing.xl,
+      paddingVertical: spacing.md,
+      borderRadius: borderRadius.lg,
+      ...shadows.small,
+    },
+    actionButtonFull: {
+      alignSelf: 'stretch',
+    },
+    startButton: {
+      alignSelf: 'center',
+      paddingHorizontal: spacing.lg,
+    },
+    primaryButton: {
+      backgroundColor: themeColorsParam.primary || colors.primary,
+    },
+    secondaryButton: {
+      backgroundColor: themeColorsParam.inputBackground || colors.inputBackground,
+      borderWidth: 1,
+      borderColor: themeColorsParam.border || colors.border,
+    },
+    stopButton: {
+      backgroundColor: themeColorsParam.danger || colors.danger,
+    },
+    actionText: {
+      ...typography.body,
+      color: '#fff',
+      fontWeight: '700',
+    },
+    secondaryText: {
+      ...typography.body,
+      color: themeColorsParam.text || colors.text,
+      fontWeight: '700',
+    },
+    pickerLabels: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      width: '100%',
+      paddingHorizontal: spacing.md,
+      marginBottom: spacing.xs,
+    },
+    pickerLabel: {
+      ...typography.bodySmall,
+      color: themeColorsParam.text || colors.text,
+      textAlign: 'center',
+      marginHorizontal: spacing.xs,
+    },
+    hmLabels: {
+      flex: 1,
+      flexDirection: 'row',
+      justifyContent: 'center',
+      gap: spacing.xl,
+    },
+    secondsLabelWrap: {
+      width: 80,
+      marginLeft: -spacing.sm,
+      alignItems: 'center',
+    },
+    pickerRow: {
+      flexDirection: 'row',
+      width: '100%',
+      alignItems: 'center',
+      paddingLeft: 0,
+    },
+    timePicker: {
+      flex: 1,
+    },
+    secondsPickerContainer: {
+      width: 80,
+      marginLeft: -spacing.lg,
+      height: 220,
+      position: 'relative',
+      justifyContent: 'center',
+    },
+    secondsPicker: {
+      width: '100%',
+      height: '100%',
+    },
+    secondsPickerContent: {
+      alignItems: 'center',
+      paddingVertical: spacing.md,
+    },
+    secondsItem: {
+      height: 38,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: spacing.sm,
+    },
+    secondsItemSelected: {
+      // mimic native picker highlight
+    },
+    secondsText: {
+      fontSize: 20,
+      color: '#6b7280', // darker gray for unselected
+    },
+    secondsTextSelected: {
+      fontWeight: '600',
+      color: themeColorsParam.text || colors.text,
+    },
+    sectionTitle: {
+      ...typography.h4,
+      color: themeColorsParam.text || colors.text,
+      alignSelf: 'flex-start',
+      marginTop: spacing.xxxl * 2,
+      marginBottom: spacing.sm,
+      fontSize: 20,
+      fontWeight: '700',
+    },
+  });
 
 export default CountdownTimerScreen;

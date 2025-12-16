@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
 import { Card } from '../components';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   colors,
   shadows,
@@ -130,7 +131,13 @@ const ProfileScreen = () => {
           </TouchableOpacity>
 
           {!isPremium && (
-            <View style={styles.premiumUpsell}>
+            <LinearGradient
+              colors={['#fbe7a1', '#f5c542', '#f3b11c']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.premiumUpsell}
+            >
+              <View style={styles.premiumShine} />
               <View style={styles.premiumIconWrap}>
                 <Ionicons name="star" size={22} color="#b8860b" />
               </View>
@@ -138,7 +145,7 @@ const ProfileScreen = () => {
                 <Text style={styles.premiumTitle}>Upgrade to Premium</Text>
                 <Text style={styles.premiumSubtitle}>Unlock AI agent and premium perks.</Text>
               </View>
-            </View>
+            </LinearGradient>
           )}
         </View>
 
@@ -261,6 +268,9 @@ const createStyles = () =>
       padding: spacing.lg,
       marginTop: spacing.lg,
       width: '100%',
+      overflow: 'hidden',
+      position: 'relative',
+      ...shadows.medium,
     },
     premiumIconWrap: {
       width: 40,
@@ -275,6 +285,15 @@ const createStyles = () =>
     },
     premiumTextWrap: {
       flex: 1,
+    },
+    premiumShine: {
+      position: 'absolute',
+      top: 0,
+      left: -100,
+      width: 140,
+      height: '120%',
+      backgroundColor: 'rgba(255,255,255,0.35)',
+      transform: [{ rotate: '20deg' }],
     },
     premiumTitle: {
       ...typography.body,
