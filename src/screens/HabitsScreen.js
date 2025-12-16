@@ -29,6 +29,7 @@ const HabitsScreen = () => {
     getBestStreak,
     getTodayHabitsCount,
     themeColors,
+    streakFrozen,
   } = useApp();
   const styles = useMemo(() => createStyles(), [themeColors]);
 
@@ -48,6 +49,9 @@ const HabitsScreen = () => {
 
   const bestStreak = getBestStreak();
   const todayCount = getTodayHabitsCount();
+  const streakFlameColor = streakFrozen ? '#4da6ff' : '#ff4d4f';
+  const streakFlameBackground = streakFrozen ? 'rgba(77, 166, 255, 0.12)' : 'rgba(255, 77, 79, 0.12)';
+  const selectedCompleted = selectedHabit ? isHabitCompletedToday(selectedHabit.id) : false;
 
   const sortedHabits = useMemo(() => {
     const habitsCopy = [...habits];
@@ -143,8 +147,10 @@ const HabitsScreen = () => {
     if (selectedHabit) {
       await toggleHabitCompletion(selectedHabit.id);
       // Update selected habit with new data
-      const updatedHabit = habits.find((h) => h.id === selectedHabit.id);
-      setSelectedHabit(updatedHabit);
+      setSelectedHabit((prev) => {
+        const updatedHabit = habits.find((h) => h.id === selectedHabit.id);
+        return updatedHabit || prev;
+      });
     }
   };
 
@@ -178,7 +184,7 @@ const HabitsScreen = () => {
         <View style={styles.statsRow}>
           <Card style={styles.statCard}>
             <View style={styles.statContent}>
-              <Text style={styles.statIcon}>🔥</Text>
+              <Ionicons name="flame" size={16} color={streakFlameColor} style={styles.statIcon} />
               <Text style={styles.statLabel}>Best Streak</Text>
             </View>
             <Text style={styles.statValue}>{bestStreak} days</Text>
@@ -274,8 +280,27 @@ const HabitsScreen = () => {
                         {habit.title}
                       </Text>
                       {habit.streak > 0 && (
-                        <View style={styles.streakBadge}>
-                          <Text style={styles.streakText}>🔥 {habit.streak}</Text>
+                        <View
+                          style={[
+                            styles.streakBadge,
+                            streakFrozen && styles.streakBadgeFrozen,
+                            { backgroundColor: streakFrozen ? streakFlameBackground : colors.primaryLight },
+                          ]}
+                        >
+                          <Ionicons
+                            name="flame"
+                            size={14}
+                            color={streakFlameColor}
+                            style={styles.streakBadgeIcon}
+                          />
+                          <Text
+                            style={[
+                              styles.streakText,
+                              streakFrozen && styles.streakTextFrozen,
+                            ]}
+                          >
+                            {habit.streak}
+                          </Text>
                         </View>
                       )}
                     </TouchableOpacity>
@@ -433,10 +458,34 @@ const HabitsScreen = () => {
               </View>
             </View>
 
-            <View style={styles.streakDisplay}>
-              <Text style={styles.streakIcon}>🔥</Text>
-              <Text style={styles.streakNumber}>{selectedHabit.streak || 0}</Text>
-              <Text style={styles.streakLabel}>day streak</Text>
+            <View
+              style={[
+                styles.streakDisplay,
+                streakFrozen && styles.streakDisplayFrozen,
+                {
+                  backgroundColor: streakFrozen
+                    ? streakFlameBackground
+                    : colors.inputBackground,
+                },
+              ]}
+            >
+              <Ionicons name="flame" size={24} color={streakFlameColor} style={styles.streakIcon} />
+              <Text
+                style={[
+                  styles.streakNumber,
+                  streakFrozen && styles.streakNumberFrozen,
+                ]}
+              >
+                {selectedHabit.streak || 0}
+              </Text>
+              <Text
+                style={[
+                  styles.streakLabel,
+                  streakFrozen && styles.streakLabelFrozen,
+                ]}
+              >
+                day streak
+              </Text>
             </View>
 
             <View style={styles.detailButtons}>
@@ -457,9 +506,9 @@ const HabitsScreen = () => {
             </View>
 
             <Button
-              title="Mark Complete"
-              variant="success"
-              icon="checkmark"
+              title={selectedCompleted ? 'Mark as Undone' : 'Mark Complete'}
+              variant={selectedCompleted ? 'danger' : 'success'}
+              icon={selectedCompleted ? 'close' : 'checkmark'}
               onPress={handleMarkComplete}
               style={styles.completeButton}
             />
@@ -592,15 +641,28 @@ const createStyles = () => StyleSheet.create({
     color: colors.textLight,
   },
   streakBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     backgroundColor: colors.primaryLight,
     borderRadius: borderRadius.full,
   },
+  streakBadgeFrozen: {
+    backgroundColor: 'rgba(77, 166, 255, 0.12)',
+    borderWidth: 1,
+    borderColor: '#4da6ff',
+  },
+  streakBadgeIcon: {
+    marginRight: spacing.xs,
+  },
   streakText: {
     fontSize: 12,
     color: colors.primary,
     fontWeight: '600',
+  },
+  streakTextFrozen: {
+    color: '#4da6ff',
   },
   inputLabel: {
     ...typography.label,
@@ -719,8 +781,12 @@ const createStyles = () => StyleSheet.create({
     borderRadius: borderRadius.md,
     marginBottom: spacing.lg,
   },
+  streakDisplayFrozen: {
+    backgroundColor: 'rgba(77, 166, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: '#4da6ff',
+  },
   streakIcon: {
-    fontSize: 24,
     marginRight: spacing.sm,
   },
   streakNumber: {
@@ -729,9 +795,15 @@ const createStyles = () => StyleSheet.create({
     color: colors.primary,
     marginRight: spacing.xs,
   },
+  streakNumberFrozen: {
+    color: '#4da6ff',
+  },
   streakLabel: {
     ...typography.body,
     color: colors.textSecondary,
+  },
+  streakLabelFrozen: {
+    color: '#4da6ff',
   },
   detailButtons: {
     flexDirection: 'row',

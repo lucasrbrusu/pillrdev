@@ -50,6 +50,7 @@ const HomeScreen = () => {
     getTodayTasks,
     getBestStreak,
     verifyNotePassword,
+    streakFrozen,
   } = useApp();
   const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
   const isPremium = React.useMemo(() => {
@@ -87,6 +88,8 @@ const HomeScreen = () => {
     ? MOOD_OPTIONS[Math.max(0, Math.min(MOOD_OPTIONS.length - 1, todayHealth.mood - 1))]
     : null;
   const bestStreak = getBestStreak ? getBestStreak() : 0;
+  const streakFlameColor = streakFrozen ? '#4da6ff' : '#ff4d4f';
+  const streakFlameBackground = streakFrozen ? 'rgba(77, 166, 255, 0.12)' : 'rgba(255, 77, 79, 0.12)';
   const consumedCalories = todayHealth?.calories || 0;
   const calorieGoal = profile?.dailyCalorieGoal || 2000;
   const remainingCalories = Math.max(calorieGoal - consumedCalories, 0);
@@ -96,6 +99,7 @@ const HomeScreen = () => {
   const [notePasswordError, setNotePasswordError] = React.useState('');
   const [unlockedNoteIds, setUnlockedNoteIds] = React.useState([]);
   const [focusToast, setFocusToast] = React.useState(route.params?.focusToast || '');
+  const [showStreakFrozenModal, setShowStreakFrozenModal] = React.useState(false);
 
   const sortedNotes = React.useMemo(() => {
     return (notes || [])
@@ -112,6 +116,14 @@ const HomeScreen = () => {
     }
     return undefined;
   }, [route.params?.focusToast]);
+
+  React.useEffect(() => {
+    if (streakFrozen) {
+      setShowStreakFrozenModal(true);
+    } else {
+      setShowStreakFrozenModal(false);
+    }
+  }, [streakFrozen]);
 
   const sectionButtons = [
     {
@@ -263,8 +275,8 @@ const HomeScreen = () => {
         <View style={styles.topStatsRow}>
           <Card style={[styles.sectionCard, styles.bestStreakCard]}>
             <View style={styles.bestStreakRow}>
-              <View style={styles.bestStreakIconWrap}>
-                <Ionicons name="flame" size={24} color="#ff4d4f" />
+              <View style={[styles.bestStreakIconWrap, { backgroundColor: streakFlameBackground }]}>
+                <Ionicons name="flame" size={24} color={streakFlameColor} />
               </View>
               <View style={styles.bestStreakTextWrap}>
                 <Text style={styles.bestStreakLabel}>Best streak</Text>
@@ -501,6 +513,34 @@ const HomeScreen = () => {
                   <Text style={styles.modalButtonText}>Unlock</Text>
                 </TouchableOpacity>
               </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Streak frozen modal */}
+        <Modal
+          visible={showStreakFrozenModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowStreakFrozenModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalCard, styles.streakFreezeCard]}>
+              <View style={styles.streakFreezeHeader}>
+                <View style={styles.streakFreezeIconWrap}>
+                  <Ionicons name="flame" size={28} color="#4da6ff" />
+                </View>
+                <Text style={styles.modalTitle}>Streak frozen</Text>
+              </View>
+              <Text style={styles.modalContent}>
+                Your streak is frozen. Complete a habit today to unfreeze it.
+              </Text>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalPrimary, styles.streakFreezeButton]}
+                onPress={() => setShowStreakFrozenModal(false)}
+              >
+                <Text style={styles.modalButtonText}>Got it</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </Modal>
@@ -1124,6 +1164,27 @@ const createStyles = (themeColorsParam = colors) => {
       ...typography.body,
       color: colors.text,
       fontWeight: '600',
+    },
+    streakFreezeCard: {
+      borderColor: '#4da6ff',
+      borderWidth: 1,
+    },
+    streakFreezeHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: spacing.sm,
+    },
+    streakFreezeIconWrap: {
+      width: 36,
+      height: 36,
+      borderRadius: borderRadius.full,
+      backgroundColor: 'rgba(77, 166, 255, 0.12)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.sm,
+    },
+    streakFreezeButton: {
+      marginTop: spacing.sm,
     },
     passwordInput: {
       borderWidth: 1,

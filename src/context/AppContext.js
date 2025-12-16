@@ -47,6 +47,7 @@ const STORAGE_KEYS = {
   AUTH_USER: '@pillr_auth_user',
   AUTH_USERS: '@pillr_auth_users',
   ONBOARDING: '@pillr_onboarding_complete',
+  STREAK_FROZEN_PREFIX: '@pillr_streak_frozen_',
   LAST_ACTIVE_PREFIX: '@pillr_last_active_',
 };
 
@@ -109,6 +110,7 @@ const computeIsPremium = (plan, premiumExpiresAt) => {
 };
 
 const getLastActiveKey = (userId) => `${STORAGE_KEYS.LAST_ACTIVE_PREFIX}${userId}`;
+const getStreakFrozenKey = (userId) => `${STORAGE_KEYS.STREAK_FROZEN_PREFIX}${userId}`;
 
 const readLastActive = async (userId) => {
   if (!userId) return null;
@@ -121,6 +123,31 @@ const readLastActive = async (userId) => {
 const writeLastActive = async (userId, date = new Date()) => {
   if (!userId) return;
   await AsyncStorage.setItem(getLastActiveKey(userId), date.toISOString());
+};
+
+const readStreakFrozen = async (userId) => {
+  if (!userId) return false;
+  const value = await AsyncStorage.getItem(getStreakFrozenKey(userId));
+  if (!value) return false;
+  try {
+    const parsed = JSON.parse(value);
+    if (typeof parsed === 'boolean') return parsed;
+    return !!parsed?.frozen;
+  } catch (e) {
+    return false;
+  }
+};
+
+const writeStreakFrozen = async (userId, frozen) => {
+  if (!userId) return;
+  if (frozen) {
+    await AsyncStorage.setItem(
+      getStreakFrozenKey(userId),
+      JSON.stringify({ frozen: true, updatedAt: new Date().toISOString() })
+    );
+    return;
+  }
+  await AsyncStorage.removeItem(getStreakFrozenKey(userId));
 };
 
 const asNumber = (value, fallback = null) => {
@@ -208,6 +235,7 @@ export const AppProvider = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [hasNotificationPermission, setHasNotificationPermission] = useState(false);
   const streakCheckRanRef = useRef(false);
+  const [streakFrozen, setStreakFrozen] = useState(false);
 
   // Immutable snapshots of the original palettes and typography
   const defaultPaletteRef = useRef(
@@ -340,6 +368,23 @@ const loadUserDataFromSupabase = async (userId) => {
     }
   }, [authUser]);
 
+  useEffect(() => {
+    let isMounted = true;
+    const hydrateStreakFreeze = async () => {
+      if (!authUser?.id) {
+        if (isMounted) setStreakFrozen(false);
+        return;
+      }
+      const savedFrozen = await readStreakFrozen(authUser.id);
+      if (isMounted) setStreakFrozen(!!savedFrozen);
+    };
+
+    hydrateStreakFreeze();
+    return () => {
+      isMounted = false;
+    };
+  }, [authUser?.id]);
+
   // Save helpers
   const saveToStorage = async (key, data) => {
     try {
@@ -359,6 +404,16 @@ const loadUserDataFromSupabase = async (userId) => {
       console.log('Error clearing cached session keys:', err);
     }
   };
+
+  const persistStreakFrozenState = useCallback(
+    async (nextFrozen) => {
+      setStreakFrozen(nextFrozen);
+      if (authUser?.id) {
+        await writeStreakFrozen(authUser.id, nextFrozen);
+      }
+    },
+    [authUser?.id]
+  );
 
   const persistRoutinesLocally = async (data) => {
     await saveToStorage(STORAGE_KEYS.ROUTINES, data);
@@ -412,6 +467,7 @@ const fetchHabitsFromSupabase = async (userId) => {
 
   const resetAllHabitStreaks = useCallback(async () => {
     if (!authUser?.id) return;
+    await persistStreakFrozenState(false);
     setHabits((prev) => prev.map((h) => ({ ...h, streak: 0 })));
     const { error } = await supabase
       .from('habits')
@@ -420,7 +476,7 @@ const fetchHabitsFromSupabase = async (userId) => {
     if (error) {
       console.log('Error resetting habit streaks:', error);
     }
-  }, [authUser?.id]);
+  }, [authUser?.id, persistStreakFrozenState]);
 
 
 
@@ -592,6 +648,10 @@ const toggleHabitCompletion = async (habitId) => {
     .update({ streak: newStreak })
     .eq('id', habitId)
     .eq('user_id', authUser.id);
+
+  if (streakFrozen) {
+    await persistStreakFrozenState(false);
+  }
 };
 
 const isHabitCompletedToday = (habitId) => {
@@ -627,12 +687,18 @@ const isHabitCompletedToday = (habitId) => {
     // Premium users get a 24h freeze window; streak resets only after 48h away.
     const resetThreshold = isPremiumUser ? 2 : 1;
 
+    if (isPremiumUser && dayDiff === 1) {
+      await persistStreakFrozenState(true);
+    } else if (!isPremiumUser && streakFrozen) {
+      await persistStreakFrozenState(false);
+    }
+
     if (dayDiff > resetThreshold) {
       await resetAllHabitStreaks();
     }
 
     await writeLastActive(userId, now);
-  }, [authUser?.id, profile?.isPremium, profile?.plan, profile?.premiumExpiresAt, profile?.premium_expires_at, profileLoaded, resetAllHabitStreaks]);
+  }, [authUser?.id, profile?.isPremium, profile?.plan, profile?.premiumExpiresAt, profile?.premium_expires_at, profileLoaded, resetAllHabitStreaks, persistStreakFrozenState, streakFrozen]);
 
 const fetchTasksFromSupabase = async (userId) => {
   const { data, error } = await supabase
@@ -2647,6 +2713,7 @@ const getFinanceSummaryForDate = (date) => {
     isHabitCompletedToday,
     getBestStreak,
     getTodayHabitsCount,
+    streakFrozen,
 
     // Tasks
     tasks,
