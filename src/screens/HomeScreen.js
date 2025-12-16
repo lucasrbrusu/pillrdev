@@ -52,6 +52,12 @@ const HomeScreen = () => {
     verifyNotePassword,
   } = useApp();
   const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
+  const isPremium = React.useMemo(() => {
+    const plan = (profile?.plan || '').toString().toLowerCase();
+    const expiresAt = profile?.premium_expires_at ? new Date(profile.premium_expires_at) : null;
+    const stillActive = expiresAt ? expiresAt > new Date() : false;
+    return !!(profile?.isPremium || plan === 'premium' || plan === 'paid' || stillActive);
+  }, [profile]);
 
   const today = new Date();
   const formattedDate = today.toLocaleDateString('en-US', {
@@ -216,16 +222,24 @@ const HomeScreen = () => {
             </View>
             <Text style={styles.logoText}>Pillr</Text>
           </View>
-          <TouchableOpacity
-            style={styles.profileButton}
-            onPress={() => navigation.navigate('Profile')}
-          >
-            {profile.photo ? (
-              <Image source={{ uri: profile.photo }} style={styles.profileImage} />
-            ) : (
-              <Ionicons name="person-outline" size={24} color={colors.textSecondary} />
+          <View style={styles.headerRight}>
+            {isPremium && (
+              <View style={styles.premiumHeaderBadge}>
+                <Ionicons name="star" size={14} color={colors.primary} style={styles.premiumHeaderIcon} />
+                <Text style={styles.premiumHeaderText}>Premium</Text>
+              </View>
             )}
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.profileButton}
+              onPress={() => navigation.navigate('Profile')}
+            >
+              {profile.photo ? (
+                <Image source={{ uri: profile.photo }} style={styles.profileImage} />
+              ) : (
+                <Ionicons name="person-outline" size={24} color={colors.textSecondary} />
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Section Shortcuts */}
@@ -309,7 +323,7 @@ const HomeScreen = () => {
         </View>
 
         {/* Premium Upsell for free users */}
-        {!profile?.isPremium && (
+        {!isPremium && (
           <LinearGradient
             colors={['#fbe7a1', '#f5c542', '#f3b11c']}
             start={{ x: 0, y: 0 }}
@@ -515,15 +529,6 @@ const HomeScreen = () => {
           )}
         </Card>
 
-        {!currentMood && (
-          <Card
-            style={[styles.sectionCard, styles.moodPromptCard]}
-            onPress={() => navigation.navigate('Health', { openMoodPicker: true })}
-          >
-            <Text style={styles.cardTitle}>Check in with your mood today!</Text>
-          </Card>
-        )}
-
         {/* Your Habits */}
         <Card
           style={[styles.sectionCard, styles.habitsCard]}
@@ -644,10 +649,34 @@ const createStyles = (themeColorsParam = colors) => {
       height: 40,
       borderRadius: borderRadius.full,
     },
+    headerRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
     sectionButtonsContainer: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       marginBottom: spacing.xl,
+    },
+    premiumHeaderBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.primaryLight,
+      borderRadius: borderRadius.full,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      ...shadows.small,
+    },
+    premiumHeaderIcon: {
+      marginRight: spacing.xs,
+    },
+    premiumHeaderText: {
+      ...typography.caption,
+      color: colors.primary,
+      fontWeight: '700',
     },
     sectionButton: {
       alignItems: 'center',
@@ -790,10 +819,6 @@ const createStyles = (themeColorsParam = colors) => {
     },
     habitText: {
       ...typography.body,
-    },
-    moodPromptCard: {
-      backgroundColor: 'rgba(64, 164, 223, 0.15)',
-      borderColor: 'rgba(64, 164, 223, 0.3)',
     },
     choreItem: {
       flexDirection: 'row',
