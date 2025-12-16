@@ -299,6 +299,16 @@ const HomeScreen = () => {
           </Card>
         </View>
 
+        {/* Online Friends (placeholder) */}
+        <Card style={[styles.sectionCard, styles.onlineFriendsCard]}>
+          <View style={styles.cardHeader}>
+            <Text style={[styles.cardTitle, styles.onlineFriendsTitle]}>Online Friends</Text>
+          </View>
+          <View style={styles.onlineFriendsBody}>
+            <Text style={styles.onlineFriendsText}>Friend system coming soon</Text>
+          </View>
+        </Card>
+
         {/* Focus Mode + Countdown */}
         <View style={styles.topStatsRow}>
           <Card style={[styles.sectionCard, styles.focusCard]}>
@@ -996,6 +1006,24 @@ const createStyles = (themeColorsParam = colors) => {
       flexDirection: 'row',
       alignItems: 'center',
       minHeight: 72,
+    },
+    onlineFriendsCard: {
+      backgroundColor: sectionCardColor,
+      borderColor: sectionBorderColor,
+      minHeight: 160,
+    },
+    onlineFriendsTitle: {
+      color: themeColorsParam?.text || colors.text,
+    },
+    onlineFriendsBody: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: spacing.lg,
+    },
+    onlineFriendsText: {
+      ...typography.body,
+      color: themeColorsParam?.textSecondary || colors.textSecondary,
     },
     caloriesIconWrap: {
       width: 48,
