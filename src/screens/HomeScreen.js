@@ -234,28 +234,34 @@ const HomeScreen = () => {
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.logoContainer}>
-            <View style={styles.logoIcon}>
-              <View style={[styles.logoDot, { backgroundColor: colors.habits }]} />
-              <View style={[styles.logoDot, { backgroundColor: colors.tasks }]} />
-              <View style={[styles.logoDot, { backgroundColor: colors.health }]} />
-              <View style={[styles.logoDot, { backgroundColor: colors.routine }]} />
-            </View>
-            <Text style={styles.logoText}>Pillr</Text>
-          </View>
-          <View style={styles.headerRight}>
-            {isPremium && (
-              <View style={styles.premiumHeaderBadge}>
-                <Ionicons name="star" size={14} color="#f1c232" style={styles.premiumHeaderIcon} />
-                <Text style={styles.premiumHeaderText}>Premium</Text>
+          <View style={styles.header}>
+            <View style={styles.logoContainer}>
+              <View style={styles.logoIcon}>
+                <View style={[styles.logoDot, { backgroundColor: colors.habits }]} />
+                <View style={[styles.logoDot, { backgroundColor: colors.tasks }]} />
+                <View style={[styles.logoDot, { backgroundColor: colors.health }]} />
+                <View style={[styles.logoDot, { backgroundColor: colors.routine }]} />
               </View>
-            )}
-            <TouchableOpacity
-              style={styles.profileButton}
-              onPress={() => navigation.navigate('Profile')}
-            >
-              {profile.photo ? (
+              <Text style={styles.logoText}>Pillr</Text>
+            </View>
+            <View style={styles.headerRight}>
+              {isPremium && (
+                <View style={styles.premiumHeaderBadge}>
+                  <Ionicons name="star" size={14} color="#f1c232" style={styles.premiumHeaderIcon} />
+                  <Text style={styles.premiumHeaderText}>Premium</Text>
+                </View>
+              )}
+              <TouchableOpacity
+                style={styles.headerIconButton}
+                onPress={() => navigation.navigate('NotificationCenter')}
+              >
+                <Ionicons name="notifications-outline" size={22} color={colors.textSecondary} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.profileButton}
+                onPress={() => navigation.navigate('Profile')}
+              >
+                {profile.photo ? (
                 <Image source={{ uri: profile.photo }} style={styles.profileImage} />
               ) : (
                 <Ionicons name="person-outline" size={24} color={colors.textSecondary} />
@@ -768,6 +774,15 @@ const createStyles = (themeColorsParam = colors) => {
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.sm,
+    },
+    headerIconButton: {
+      width: 40,
+      height: 40,
+      borderRadius: borderRadius.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.inputBackground,
+      ...shadows.small,
     },
     sectionButtonsContainer: {
       flexDirection: 'row',
