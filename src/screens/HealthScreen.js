@@ -1,11 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
-import { Card, Modal, Button, Input, PlatformScrollView } from '../components';
+import { Card, Modal, Button, Input, PlatformScrollView, PlatformTimePicker } from '../components';
 import {
   colors,
   shadows,
@@ -13,14 +12,7 @@ import {
   spacing,
   typography,
 } from '../utils/theme';
-
-const TIME_OPTIONS = Array.from({ length: 48 }).map((_, idx) => {
-  const h = Math.floor(idx / 2);
-  const m = idx % 2 === 0 ? '00' : '30';
-  const hour12 = ((h + 11) % 12) + 1;
-  const suffix = h < 12 ? 'AM' : 'PM';
-  return `${hour12}:${m} ${suffix}`;
-});
+import { formatTimeFromDate } from '../utils/notifications';
 
 const MOOD_OPTIONS = [
   { label: 'Depressed', emoji: '😞' },
@@ -80,7 +72,6 @@ const HealthScreen = () => {
     setSleepForm((prev) => ({ ...prev, sleepQuality: quality }));
   };
 
-  const timeOptions = TIME_OPTIONS;
   const moodOptions = MOOD_OPTIONS;
 
   const [showSleepTimePicker, setShowSleepTimePicker] = useState(false);
@@ -97,13 +88,14 @@ const HealthScreen = () => {
   };
 
   const handleSelectSleepTime = (value) => {
+    const normalized =
+      value instanceof Date ? formatTimeFromDate(value) : value;
     if (sleepTimeTarget === 'sleep') {
-      setSleepForm((prev) => ({ ...prev, sleepTime: value }));
+      setSleepForm((prev) => ({ ...prev, sleepTime: normalized }));
     }
     if (sleepTimeTarget === 'wake') {
-      setSleepForm((prev) => ({ ...prev, wakeTime: value }));
+      setSleepForm((prev) => ({ ...prev, wakeTime: normalized }));
     }
-    closeSleepTimePicker();
   };
 
   const handleSubmitSleepLog = async () => {
@@ -154,8 +146,6 @@ const HealthScreen = () => {
     ...selectedHealthRaw,
     foods: Array.isArray(selectedHealthRaw.foods) ? selectedHealthRaw.foods : [],
   };
-  const activeSleepTime =
-    sleepTimeTarget === 'wake' ? sleepForm.wakeTime : sleepForm.sleepTime;
 
   useEffect(() => {
     setSleepForm({
@@ -252,7 +242,36 @@ const HealthScreen = () => {
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={!showSleepTimePicker}
       >
+        <View style={styles.dateSwitcher}>
+          <TouchableOpacity
+            style={styles.dateSwitchButton}
+            onPress={() => setSelectedDate((prev) => {
+              const d = new Date(prev);
+              d.setDate(prev.getDate() - 1);
+              return d;
+            })}
+          >
+            <Ionicons name="chevron-back" size={18} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.dateLabel}>
+            {selectedDate.toDateString() === new Date().toDateString()
+              ? 'Today'
+              : selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+          </Text>
+          <TouchableOpacity
+            style={styles.dateSwitchButton}
+            onPress={() => setSelectedDate((prev) => {
+              const d = new Date(prev);
+              d.setDate(prev.getDate() + 1);
+              return d;
+            })}
+          >
+            <Ionicons name="chevron-forward" size={18} color={colors.text} />
+          </TouchableOpacity>
+        </View>
+
         {/* Stats Row */}
         <View style={styles.statsRow}>
           <Card style={styles.statCard}>
@@ -276,33 +295,6 @@ const HealthScreen = () => {
         {/* Calorie Tracker Section */}
         <Card style={[styles.sectionCard, styles.calorieCard]}>
           <Text style={styles.sectionTitle}>Calorie Tracker</Text>
-          <View style={styles.dateSwitcher}>
-            <TouchableOpacity
-              style={styles.dateSwitchButton}
-              onPress={() => setSelectedDate((prev) => {
-                const d = new Date(prev);
-                d.setDate(prev.getDate() - 1);
-                return d;
-              })}
-            >
-              <Ionicons name="chevron-back" size={18} color={colors.text} />
-            </TouchableOpacity>
-            <Text style={styles.dateLabel}>
-              {selectedDate.toDateString() === new Date().toDateString()
-                ? 'Today'
-                : selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-            </Text>
-            <TouchableOpacity
-              style={styles.dateSwitchButton}
-              onPress={() => setSelectedDate((prev) => {
-                const d = new Date(prev);
-                d.setDate(prev.getDate() + 1);
-                return d;
-              })}
-            >
-              <Ionicons name="chevron-forward" size={18} color={colors.text} />
-            </TouchableOpacity>
-          </View>
           <View style={styles.calorieRow}>
             <View style={styles.calorieLeft}>
               <View style={styles.calorieStat}>
@@ -415,33 +407,6 @@ const HealthScreen = () => {
         {/* Sleep Section */}
         <Card style={[styles.sectionCard]}>
           <Text style={styles.sectionTitle}>Sleep</Text>
-          <View style={styles.dateSwitcher}>
-            <TouchableOpacity
-              style={styles.dateSwitchButton}
-              onPress={() => setSelectedDate((prev) => {
-                const d = new Date(prev);
-                d.setDate(prev.getDate() - 1);
-                return d;
-              })}
-            >
-              <Ionicons name="chevron-back" size={18} color={colors.text} />
-            </TouchableOpacity>
-            <Text style={styles.dateLabel}>
-              {selectedDate.toDateString() === new Date().toDateString()
-                ? 'Today'
-                : selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-            </Text>
-            <TouchableOpacity
-              style={styles.dateSwitchButton}
-              onPress={() => setSelectedDate((prev) => {
-                const d = new Date(prev);
-                d.setDate(prev.getDate() + 1);
-                return d;
-              })}
-            >
-              <Ionicons name="chevron-forward" size={18} color={colors.text} />
-            </TouchableOpacity>
-          </View>
           <View style={styles.sleepInputRow}>
             <View style={styles.sleepInput}>
               <Text style={styles.sleepLabel}>Sleep Time</Text>
@@ -520,49 +485,15 @@ const HealthScreen = () => {
               </View>
             </View>
           )}
-          {showSleepTimePicker && (
-            <View style={styles.inlinePicker}>
-              <Text style={styles.pickerTitle}>Select Time</Text>
-              <ScrollView contentContainerStyle={styles.timeList} style={{ maxHeight: 260 }}>
-                {timeOptions.map((time) => {
-                  const isSelected = activeSleepTime === time;
-                  return (
-                    <TouchableOpacity
-                      key={time}
-                      style={[
-                        styles.timeOption,
-                        isSelected && styles.timeOptionSelected,
-                      ]}
-                      onPress={() => handleSelectSleepTime(time)}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons
-                        name="time-outline"
-                        size={18}
-                        color={isSelected ? '#FFFFFF' : colors.text}
-                        style={{ marginRight: spacing.sm }}
-                      />
-                      <Text
-                        style={[
-                          styles.timeOptionText,
-                          isSelected && { color: '#FFFFFF' },
-                        ]}
-                      >
-                        {time}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-              <Button
-                title="Close"
-                variant="secondary"
-                onPress={closeSleepTimePicker}
-                style={styles.pickerCloseButton}
-              />
-            </View>
-          )}
         </Card>
+
+        <PlatformTimePicker
+          visible={showSleepTimePicker}
+          value={sleepTimeTarget === 'sleep' ? sleepForm.sleepTime : sleepTimeTarget === 'wake' ? sleepForm.wakeTime : null}
+          onChange={handleSelectSleepTime}
+          onClose={closeSleepTimePicker}
+          title="Select Time"
+        />
 
         {/* Water Intake Section */}
         <Card style={[styles.sectionCard, styles.lastCard]}>
@@ -1048,40 +979,6 @@ const createStyles = () => StyleSheet.create({
   moodScaleText: {
     ...typography.caption,
     color: colors.textSecondary,
-  },
-  inlinePicker: {
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    marginTop: spacing.md,
-    marginBottom: spacing.xxl,
-    ...shadows.small,
-  },
-  timeList: {
-    paddingBottom: spacing.xxxl,
-  },
-  timeOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
-  },
-  timeOptionSelected: {
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.md,
-    paddingHorizontal: spacing.sm,
-  },
-  timeOptionText: {
-    ...typography.body,
-    marginLeft: spacing.sm,
-  },
-  pickerTitle: {
-    ...typography.h3,
-    marginBottom: spacing.md,
-  },
-  pickerCloseButton: {
-    marginTop: spacing.md,
   },
   modalButtons: {
     flexDirection: 'row',

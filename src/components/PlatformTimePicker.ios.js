@@ -70,20 +70,22 @@ const PlatformTimePicker = ({
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
     alignItems: 'center',
-    padding: spacing.lg,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.lg,
     zIndex: 30,
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(0,0,0,0.15)',
   },
   sheet: {
     width: '100%',
-    backgroundColor: 'rgba(30,30,30,0.9)',
+    backgroundColor: '#1e1e1e',
     borderRadius: borderRadius.xl,
     padding: spacing.xl,
+    marginBottom: spacing.xl,
     ...shadows.medium,
   },
   title: {

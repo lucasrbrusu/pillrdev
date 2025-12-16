@@ -8,8 +8,8 @@ import {
   Image,
   Modal,
   TextInput,
+  Alert,
 } from 'react-native';
-import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -50,6 +50,8 @@ const HomeScreen = () => {
     getTodayTasks,
     getBestStreak,
     verifyNotePassword,
+    updateNote,
+    deleteNote,
     streakFrozen,
   } = useApp();
   const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
@@ -99,6 +101,8 @@ const HomeScreen = () => {
   const [notePasswordError, setNotePasswordError] = React.useState('');
   const [unlockedNoteIds, setUnlockedNoteIds] = React.useState([]);
   const [focusToast, setFocusToast] = React.useState(route.params?.focusToast || '');
+  const [noteTitleDraft, setNoteTitleDraft] = React.useState('');
+  const [noteContentDraft, setNoteContentDraft] = React.useState('');
   const [showStreakFrozenModal, setShowStreakFrozenModal] = React.useState(false);
 
   const sortedNotes = React.useMemo(() => {
@@ -187,10 +191,14 @@ const HomeScreen = () => {
       return;
     }
     setSelectedNote(note);
+    setNoteTitleDraft(note.title || '');
+    setNoteContentDraft(note.content || '');
   };
 
   const closeNoteModal = () => {
     setSelectedNote(null);
+    setNoteTitleDraft('');
+    setNoteContentDraft('');
   };
 
   const closeUnlockModal = () => {
@@ -208,6 +216,8 @@ const HomeScreen = () => {
     }
     setUnlockedNoteIds((prev) => [...prev, noteToUnlock.id]);
     setSelectedNote(noteToUnlock);
+    setNoteTitleDraft(noteToUnlock.title || '');
+    setNoteContentDraft(noteToUnlock.content || '');
     closeUnlockModal();
   };
 
@@ -464,23 +474,78 @@ const HomeScreen = () => {
         {/* Note detail modal */}
         <Modal
           visible={!!selectedNote}
-          transparent
-          animationType="fade"
+          animationType="slide"
           onRequestClose={closeNoteModal}
+          presentationStyle="fullScreen"
         >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>{selectedNote?.title || 'Note'}</Text>
-              <Text style={styles.modalContent}>{selectedNote?.content || 'No content'}</Text>
-              <View style={styles.modalButtons}>
+          <View style={[styles.fullScreenModal, { backgroundColor: themeColors.background }]}>
+            <View style={styles.noteHeader}>
+              <TouchableOpacity onPress={closeNoteModal} style={styles.headerButton}>
+                <Text style={styles.headerButtonText}>Close</Text>
+              </TouchableOpacity>
+              <View style={styles.headerActions}>
                 <TouchableOpacity
-                  style={[styles.modalButton, styles.modalSecondary]}
-                  onPress={closeNoteModal}
+                  onPress={() => {
+                    if (!selectedNote) return;
+                    Alert.alert(
+                      'Delete note',
+                      'Are you sure you want to delete this note?',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Delete',
+                          style: 'destructive',
+                          onPress: async () => {
+                            await deleteNote(selectedNote.id);
+                            closeNoteModal();
+                          },
+                        },
+                      ]
+                    );
+                  }}
+                  style={[styles.headerButton, styles.headerDelete]}
                 >
-                  <Text style={styles.modalButtonTextSecondary}>Close</Text>
+                  <Text style={styles.deleteText}>Delete</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={async () => {
+                    if (!selectedNote) return;
+                    await updateNote(selectedNote.id, {
+                      title: noteTitleDraft || 'Untitled note',
+                      content: noteContentDraft,
+                    });
+                    closeNoteModal();
+                  }}
+                  style={[styles.headerButton, styles.headerDone]}
+                >
+                  <Text style={[styles.headerButtonText, styles.doneButtonText]}>Done</Text>
                 </TouchableOpacity>
               </View>
             </View>
+            <ScrollView
+              style={styles.noteDetailScroll}
+              contentContainerStyle={styles.noteDetailContent}
+              keyboardDismissMode="interactive"
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <TextInput
+                value={noteTitleDraft}
+                onChangeText={setNoteTitleDraft}
+                placeholder="Title"
+                placeholderTextColor={colors.textSecondary}
+                style={styles.noteTitleInput}
+              />
+              <TextInput
+                value={noteContentDraft}
+                onChangeText={setNoteContentDraft}
+                placeholder="Start writing..."
+                placeholderTextColor={colors.textSecondary}
+                style={styles.noteContentInput}
+                multiline
+                textAlignVertical="top"
+              />
+            </ScrollView>
           </View>
         </Modal>
 
@@ -1227,6 +1292,67 @@ const createStyles = (themeColorsParam = colors) => {
       ...typography.caption,
       color: colors.danger,
       marginBottom: spacing.sm,
+    },
+    fullScreenModal: {
+      flex: 1,
+    },
+    headerButton: {
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+    },
+    headerButtonText: {
+      ...typography.body,
+      color: colors.text,
+      fontWeight: '600',
+    },
+    doneButtonText: {
+      color: '#FFFFFF',
+      fontWeight: '700',
+    },
+    noteHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.xl * 3 + spacing.sm,
+      paddingBottom: spacing.md,
+    },
+    headerActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    headerDelete: {
+      marginRight: spacing.sm,
+    },
+    headerDone: {
+      backgroundColor: colors.primary,
+      borderRadius: borderRadius.md,
+    },
+    noteDetailScroll: {
+      flex: 1,
+    },
+    noteDetailContent: {
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.xl + spacing.sm,
+      paddingBottom: spacing.xl,
+    },
+    noteTitleInput: {
+      ...typography.h2,
+      color: colors.text,
+      marginBottom: spacing.md,
+    },
+    noteContentInput: {
+      ...typography.body,
+      color: colors.text,
+      flex: 1,
+      padding: spacing.md,
+      backgroundColor: 'transparent',
+      lineHeight: 22,
+    },
+    deleteText: {
+      ...typography.body,
+      color: colors.danger,
+      fontWeight: '600',
     },
     premiumUpsell: {
       flexDirection: 'row',

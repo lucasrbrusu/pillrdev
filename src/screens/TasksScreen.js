@@ -1,14 +1,16 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
+  Alert,
+  TextInput,
 } from 'react-native';
 import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
 import { formatTimeFromDate } from '../utils/notifications';
 import {
@@ -40,6 +42,7 @@ const TIME_OPTIONS = Array.from({ length: 48 }).map((_, idx) => {
 const TasksScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const route = useRoute();
   const {
     tasks,
     notes,
@@ -48,6 +51,7 @@ const TasksScreen = () => {
     deleteTask,
     toggleTaskCompletion,
     addNote,
+    updateNote,
     deleteNote,
     getTodayTasks,
     getUpcomingTasks,
@@ -74,6 +78,8 @@ const TasksScreen = () => {
   const [selectedNote, setSelectedNote] = useState(null);
   const [noteToUnlock, setNoteToUnlock] = useState(null);
   const [unlockedNoteIds, setUnlockedNoteIds] = useState([]);
+  const [noteTitleDraft, setNoteTitleDraft] = useState('');
+  const [noteContentDraft, setNoteContentDraft] = useState('');
 
   // Note security state
   const [currentNotePassword, setCurrentNotePassword] = useState('');
@@ -214,14 +220,45 @@ const TasksScreen = () => {
     }
     setSelectedNote(note);
     setShowNoteDetailModal(true);
+    setNoteTitleDraft(note.title || '');
+    setNoteContentDraft(note.content || '');
   };
 
-  const handleDeleteNote = async () => {
-    if (selectedNote) {
-      await deleteNote(selectedNote.id);
-      setShowNoteDetailModal(false);
-      setSelectedNote(null);
-    }
+  const closeNoteDetail = () => {
+    setShowNoteDetailModal(false);
+    setSelectedNote(null);
+    setNoteTitleDraft('');
+    setNoteContentDraft('');
+  };
+
+  const handleDeleteNote = () => {
+    if (!selectedNote) return;
+    Alert.alert(
+      'Delete note',
+      'Are you sure you want to delete this note?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteNote(selectedNote.id);
+            closeNoteDetail();
+          },
+        },
+      ]
+    );
+  };
+
+  const handleSaveNote = async () => {
+    if (!selectedNote) return;
+    const updates = {
+      title: noteTitleDraft || 'Untitled note',
+      content: noteContentDraft,
+    };
+    await updateNote(selectedNote.id, updates);
+    setSelectedNote((prev) => (prev ? { ...prev, ...updates } : prev));
+    closeNoteDetail();
   };
 
   const handleUnlockNote = () => {
@@ -229,6 +266,8 @@ const TasksScreen = () => {
     setShowUnlockModal(false);
     setShowNoteDetailModal(true);
     setSelectedNote(noteToUnlock);
+    setNoteTitleDraft(noteToUnlock.title || '');
+    setNoteContentDraft(noteToUnlock.content || '');
     setUnlockedNoteIds([...unlockedNoteIds, noteToUnlock.id]);
     setNoteToUnlock(null);
   };
@@ -238,6 +277,16 @@ const TasksScreen = () => {
     resetSecurityForm();
     setShowNoteSecurityModal(true);
   };
+
+  useEffect(() => {
+    if (selectedNote) {
+      setNoteTitleDraft(selectedNote.title || '');
+      setNoteContentDraft(selectedNote.content || '');
+    } else {
+      setNoteTitleDraft('');
+      setNoteContentDraft('');
+    }
+  }, [selectedNote]);
 
   const handleSaveNotePassword = async () => {
     if (!selectedNote) return;
@@ -276,6 +325,24 @@ const TasksScreen = () => {
       setSecurityError(err?.message || 'Unable to remove password.');
     }
   };
+
+  useEffect(() => {
+    const targetId = route.params?.noteId;
+    if (!targetId) return;
+    const targetNote = notes.find((n) => n.id === targetId);
+    if (targetNote) {
+      if (targetNote.password && !unlockedNoteIds.includes(targetNote.id)) {
+        setNoteToUnlock(targetNote);
+        setShowUnlockModal(true);
+      } else {
+        setSelectedNote(targetNote);
+        setShowNoteDetailModal(true);
+        setNoteTitleDraft(targetNote.title || '');
+        setNoteContentDraft(targetNote.content || '');
+      }
+    }
+    navigation.setParams?.({ noteId: undefined });
+  }, [route.params?.noteId, notes, unlockedNoteIds, navigation]);
 
   const getPriorityColor = (priority) => {
     switch (priority) {
@@ -820,37 +887,52 @@ const TasksScreen = () => {
         {/* Note Detail Modal */}
         <Modal
           visible={showNoteDetailModal}
-          onClose={() => {
-            setShowNoteDetailModal(false);
-            setSelectedNote(null);
-          }}
-          title="Note"
+          onClose={closeNoteDetail}
+          title=""
           fullScreen
+          showCloseButton={false}
         >
         {selectedNote && (
-          <>
-            <Text style={styles.detailTitle}>{selectedNote.title}</Text>
-            <Text style={styles.noteContentText}>{selectedNote.content}</Text>
-
-            <View style={styles.modalButtons}>
-              <Button
-                title="Close"
-                variant="secondary"
-                onPress={() => {
-                  setShowNoteDetailModal(false);
-                  setSelectedNote(null);
-                }}
-                style={styles.modalButton}
+          <View style={styles.noteDetailContainer}>
+            <View style={styles.noteDetailHeader}>
+              <TouchableOpacity onPress={closeNoteDetail} style={styles.noteHeaderButton}>
+                <Text style={styles.noteHeaderButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <View style={styles.noteHeaderActions}>
+                <TouchableOpacity
+                  onPress={handleDeleteNote}
+                  style={[styles.noteHeaderButton, styles.noteDeleteButton]}
+                >
+                  <Text style={styles.noteDeleteText}>Delete</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleSaveNote}
+                  style={[styles.noteHeaderButton, styles.noteDoneButton]}
+                >
+                  <Text style={styles.noteDoneText}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            <View style={styles.noteEditBody}>
+              <TextInput
+                value={noteTitleDraft}
+                onChangeText={setNoteTitleDraft}
+                placeholder="Title"
+                placeholderTextColor={colors.textSecondary}
+                style={styles.noteEditTitle}
               />
-              <Button
-                title="Delete"
-                variant="danger"
-                icon="trash-outline"
-                onPress={handleDeleteNote}
-                style={styles.modalButton}
+              <TextInput
+                value={noteContentDraft}
+                onChangeText={setNoteContentDraft}
+                placeholder="Start writing..."
+                placeholderTextColor={colors.textSecondary}
+                style={styles.noteEditContent}
+                multiline
+                autoFocus
+                textAlignVertical="top"
               />
             </View>
-          </>
+          </View>
         )}
         </Modal>
 
@@ -1360,6 +1442,66 @@ const createStyles = (themeColors) => {
   noteContentInput: {
     minHeight: 240,
     textAlignVertical: 'top',
+  },
+  noteDetailContainer: {
+    flex: 1,
+  },
+  noteDetailHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+  },
+  noteHeaderButton: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  noteHeaderButtonText: {
+    ...typography.body,
+    color: colors.text,
+    fontWeight: '600',
+  },
+  noteHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  noteDeleteButton: {
+    marginRight: spacing.sm,
+  },
+  noteDoneButton: {
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.md,
+  },
+  noteDeleteText: {
+    ...typography.body,
+    color: colors.danger,
+    fontWeight: '600',
+  },
+  noteDoneText: {
+    ...typography.body,
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  noteEditBody: {
+    flex: 1,
+    paddingHorizontal: spacing.lg,
+  },
+  noteEditTitle: {
+    ...typography.h2,
+    color: colors.text,
+    marginBottom: spacing.md,
+  },
+  noteEditContent: {
+    ...typography.body,
+    color: colors.text,
+    flex: 1,
+    padding: spacing.md,
+    backgroundColor: colors.inputBackground,
+    borderRadius: borderRadius.md,
+    minHeight: 260,
+    lineHeight: 22,
   },
   securitySection: {
     marginTop: spacing.md,
