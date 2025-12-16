@@ -114,7 +114,7 @@ const ProfileScreen = () => {
             <Text style={styles.profileName}>{profile.name}</Text>
             {isPremium && (
               <View style={styles.premiumBadge}>
-                <Ionicons name="star" size={14} color="#FACC15" style={styles.premiumIcon} />
+                <Ionicons name="star" size={14} color="#f1c232" style={styles.premiumIcon} />
                 <Text style={styles.premiumText}>{t('Premium')}</Text>
               </View>
             )}
@@ -308,17 +308,19 @@ const createStyles = () =>
     premiumBadge: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: colors.primaryLight,
+      backgroundColor: '#fff7e6',
       borderRadius: borderRadius.full,
       paddingHorizontal: spacing.sm,
       paddingVertical: spacing.xs,
+      borderWidth: 1,
+      borderColor: '#f1c232',
     },
     premiumIcon: {
       marginRight: spacing.xs,
     },
     premiumText: {
       ...typography.caption,
-      color: colors.primary,
+      color: '#b8860b',
       fontWeight: '700',
     },
     editProfileButton: {

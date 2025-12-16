@@ -302,7 +302,7 @@ const createStyles = () =>
       width: 56,
       height: 56,
       borderRadius: borderRadius.full,
-      backgroundColor: colors.primary,
+      backgroundColor: '#4da6ff',
       alignItems: 'center',
       justifyContent: 'center',
       ...shadows.medium,

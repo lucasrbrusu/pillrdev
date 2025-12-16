@@ -225,7 +225,7 @@ const HomeScreen = () => {
           <View style={styles.headerRight}>
             {isPremium && (
               <View style={styles.premiumHeaderBadge}>
-                <Ionicons name="star" size={14} color={colors.primary} style={styles.premiumHeaderIcon} />
+                <Ionicons name="star" size={14} color="#f1c232" style={styles.premiumHeaderIcon} />
                 <Text style={styles.premiumHeaderText}>Premium</Text>
               </View>
             )}
@@ -662,12 +662,12 @@ const createStyles = (themeColorsParam = colors) => {
     premiumHeaderBadge: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: colors.primaryLight,
+      backgroundColor: '#fff7e6',
       borderRadius: borderRadius.full,
       paddingHorizontal: spacing.sm,
       paddingVertical: spacing.xs,
       borderWidth: 1,
-      borderColor: colors.primary,
+      borderColor: '#f1c232',
       ...shadows.small,
     },
     premiumHeaderIcon: {
@@ -675,7 +675,7 @@ const createStyles = (themeColorsParam = colors) => {
     },
     premiumHeaderText: {
       ...typography.caption,
-      color: colors.primary,
+      color: '#b8860b',
       fontWeight: '700',
     },
     sectionButton: {
