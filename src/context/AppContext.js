@@ -270,8 +270,10 @@ export const AppProvider = ({ children }) => {
   // Social/Friends State
   const [friends, setFriends] = useState([]);
   const [friendRequests, setFriendRequests] = useState({ incoming: [], outgoing: [], responses: [] });
+  const [taskInvites, setTaskInvites] = useState({ incoming: [], outgoing: [], responses: [] });
   const [userStatuses, setUserStatuses] = useState({});
   const friendResponseSignatureRef = useRef('');
+  const taskInviteResponseSignatureRef = useRef('');
 
  // Profile State
   const [profile, setProfile] = useState(defaultProfile);
@@ -386,6 +388,7 @@ const loadUserDataFromSupabase = async (userId) => {
       fetchProfileFromSupabase(userId),
       fetchUserSettings(userId),
       refreshFriendData(userId),
+      fetchTaskInvites(userId),
       fetchHabitsFromSupabase(userId),
       fetchTasksFromSupabase(userId),
       fetchNotesFromSupabase(userId),
@@ -429,6 +432,7 @@ const loadUserDataFromSupabase = async (userId) => {
       setFinances([]);
       setFriends([]);
       setFriendRequests({ incoming: [], outgoing: [], responses: [] });
+      setTaskInvites({ incoming: [], outgoing: [], responses: [] });
       setUserStatuses({});
       setFoodLogs({});
       setProfile(defaultProfile);
@@ -467,6 +471,7 @@ const loadUserDataFromSupabase = async (userId) => {
       await updateUserPresence();
       await refreshFriendStatuses();
       await fetchFriendRequests(authUser.id);
+      await fetchTaskInvites(authUser.id);
     };
 
     tick();
@@ -476,7 +481,7 @@ const loadUserDataFromSupabase = async (userId) => {
       isCancelled = true;
       clearInterval(interval);
     };
-  }, [authUser?.id, fetchFriendRequests, refreshFriendStatuses, updateUserPresence]);
+  }, [authUser?.id, fetchFriendRequests, fetchTaskInvites, refreshFriendStatuses, updateUserPresence]);
 
   // Save helpers
   const saveToStorage = async (key, data) => {
@@ -719,6 +724,270 @@ const mapProfileSummary = (row) => ({
       return { incoming, outgoing, responses };
     },
     [authUser?.id, fetchFriendships, refreshFriendStatuses]
+  );
+
+  const isMissingRelationError = (error, relation) => {
+    if (!error) return false;
+    const message = (error.message || '').toLowerCase();
+    const relationName = (relation || '').toLowerCase();
+    return (
+      error.code === '42P01' ||
+      message.includes('does not exist') ||
+      (relationName && message.includes(relationName))
+    );
+  };
+
+  const fetchTaskInvites = useCallback(
+    async (userIdParam) => {
+      const userId = userIdParam || authUser?.id;
+      if (!userId) return { incoming: [], outgoing: [], responses: [] };
+
+      const { data, error } = await supabase
+        .from('task_invites')
+        .select('*')
+        .or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        if (!isMissingRelationError(error, 'task_invites')) {
+          console.log('Error fetching task invites:', error);
+        }
+        const empty = { incoming: [], outgoing: [], responses: [] };
+        setTaskInvites(empty);
+        return empty;
+      }
+
+      const invites = data || [];
+      const involvedIds = Array.from(
+        new Set(
+          invites
+            .flatMap((row) => [row.from_user_id, row.to_user_id])
+            .filter(Boolean)
+        )
+      );
+
+      let profileRows = [];
+      if (involvedIds.length) {
+        const { data: profilesData, error: profileError } = await supabase
+          .from('profiles')
+          .select('id, username, full_name, avatar_url, photo')
+          .in('id', involvedIds);
+
+        if (profileError) {
+          console.log('Error fetching task invite profiles:', profileError);
+        } else {
+          profileRows = profilesData || [];
+        }
+      }
+
+      const profileLookup = {};
+      profileRows.forEach((row) => {
+        profileLookup[row.id] = mapProfileSummary(row);
+      });
+
+      const mapped = invites.map((row) => ({
+        ...row,
+        fromUser: profileLookup[row.from_user_id] || null,
+        toUser: profileLookup[row.to_user_id] || null,
+        task: {
+          id: row.task_id,
+          title: row.task_title,
+          description: row.task_description,
+          priority: row.task_priority,
+          date: row.task_date,
+          time: row.task_time,
+        },
+      }));
+
+      const incoming = mapped.filter(
+        (row) => row.to_user_id === userId && row.status === 'pending'
+      );
+      const outgoing = mapped.filter(
+        (row) => row.from_user_id === userId && row.status === 'pending'
+      );
+      const responses = mapped.filter(
+        (row) => row.from_user_id === userId && row.status !== 'pending'
+      );
+
+      setTaskInvites({ incoming, outgoing, responses });
+
+      const signature = responses.map((r) => `${r.id}:${r.status}`).join('|');
+      if (signature !== taskInviteResponseSignatureRef.current) {
+        taskInviteResponseSignatureRef.current = signature;
+      }
+
+      return { incoming, outgoing, responses };
+    },
+    [authUser?.id]
+  );
+
+  const ensureTaskParticipant = async (taskId, participantTaskId, role = 'participant') => {
+    if (!authUser?.id || !taskId) return;
+    const { error } = await supabase
+      .from('task_participants')
+      .upsert(
+        pruneUndefined({
+          task_id: taskId,
+          user_id: authUser.id,
+          participant_task_id: participantTaskId ?? null,
+          role,
+        }),
+        { onConflict: 'task_id,user_id' }
+      );
+
+    if (error && !isMissingRelationError(error, 'task_participants')) {
+      console.log('Error ensuring task participant:', error);
+    }
+  };
+
+  const sendTaskInvite = async ({ task, toUserId }) => {
+    if (!authUser?.id) throw new Error('You must be logged in to invite someone.');
+    if (!task?.id) throw new Error('Task is required.');
+    if (!toUserId) throw new Error('Invalid user.');
+    if (toUserId === authUser.id) throw new Error('You cannot invite yourself.');
+
+    await ensureTaskParticipant(task.id, task.id, 'owner');
+
+    const { data, error } = await supabase
+      .from('task_invites')
+      .insert(
+        pruneUndefined({
+          task_id: task.id,
+          from_user_id: authUser.id,
+          to_user_id: toUserId,
+          task_title: task.title,
+          task_description: task.description || null,
+          task_priority: task.priority || 'medium',
+          task_date: task.date || null,
+          task_time: task.time || null,
+          status: 'pending',
+        })
+      )
+      .select()
+      .single();
+
+    if (error) {
+      console.log('Error sending task invite:', error);
+      throw error;
+    }
+
+    await fetchTaskInvites(authUser.id);
+    return data;
+  };
+
+  const respondToTaskInvite = async (inviteId, status) => {
+    if (!authUser?.id) throw new Error('You must be logged in.');
+    if (!inviteId) throw new Error('Invalid invite.');
+
+    const normalizedStatus = (status || '').toLowerCase();
+    if (!['accepted', 'declined'].includes(normalizedStatus)) {
+      throw new Error('Invalid response.');
+    }
+
+    const { data: invite, error: inviteError } = await supabase
+      .from('task_invites')
+      .select('*')
+      .eq('id', inviteId)
+      .single();
+
+    if (inviteError || !invite) {
+      console.log('Error loading task invite:', inviteError);
+      throw new Error('Unable to load invite.');
+    }
+
+    if (invite.to_user_id !== authUser.id) {
+      throw new Error('You cannot respond to this invite.');
+    }
+
+    const respondedAt = new Date().toISOString();
+
+    if (normalizedStatus === 'accepted') {
+      if (!invite.task_date || !invite.task_time) {
+        throw new Error('This invite is missing a date/time and cannot be scheduled.');
+      }
+      const { data: newRow, error: createError } = await supabase
+        .from('tasks')
+        .insert({
+          user_id: authUser.id,
+          title: invite.task_title,
+          description: invite.task_description || null,
+          priority: invite.task_priority || 'medium',
+          date: invite.task_date,
+          time: invite.task_time,
+          completed: false,
+        })
+        .select()
+        .single();
+
+      if (createError) {
+        console.log('Error creating invited task:', createError);
+        throw new Error('Unable to create task.');
+      }
+
+      await ensureTaskParticipant(invite.task_id, newRow?.id, 'participant');
+
+      const newTask = {
+        id: newRow.id,
+        title: newRow.title,
+        description: newRow.description,
+        priority: newRow.priority || 'medium',
+        date: newRow.date,
+        time: newRow.time,
+        completed: newRow.completed,
+        createdAt: newRow.created_at,
+        sharedTaskId: invite.task_id,
+      };
+
+      setTasks((prev) => {
+        if (prev.some((t) => t.id === newTask.id)) return prev;
+        return [...prev, newTask];
+      });
+    }
+
+    const { error: updateError } = await supabase
+      .from('task_invites')
+      .update({ status: normalizedStatus, responded_at: respondedAt })
+      .eq('id', inviteId);
+
+    if (updateError) {
+      console.log('Error updating task invite:', updateError);
+    }
+
+    await fetchTaskInvites(authUser.id);
+    return true;
+  };
+
+  const fetchTaskParticipants = useCallback(
+    async (taskId) => {
+      if (!taskId) return [];
+      const { data, error } = await supabase
+        .from('task_participants')
+        .select('user_id')
+        .eq('task_id', taskId);
+
+      if (error) {
+        if (!isMissingRelationError(error, 'task_participants')) {
+          console.log('Error fetching task participants:', error);
+        }
+        return [];
+      }
+
+      const userIds = Array.from(new Set((data || []).map((r) => r.user_id).filter(Boolean)));
+      if (!userIds.length) return [];
+
+      const { data: profilesData, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, username, full_name, avatar_url, photo')
+        .in('id', userIds);
+
+      if (profileError) {
+        console.log('Error fetching participant profiles:', profileError);
+        return [];
+      }
+
+      return (profilesData || []).map((row) => mapProfileSummary(row));
+    },
+    [authUser?.id]
   );
 
   const refreshFriendStatuses = useCallback(
@@ -1233,7 +1502,7 @@ const fetchTasksFromSupabase = async (userId) => {
     return;
   }
 
-  const mappedTasks = (data || []).map((t) => ({
+  let mappedTasks = (data || []).map((t) => ({
     id: t.id,
     title: t.title,
     description: t.description,
@@ -1242,7 +1511,36 @@ const fetchTasksFromSupabase = async (userId) => {
     time: t.time,
     completed: t.completed,
     createdAt: t.created_at,
+    sharedTaskId: t.shared_task_id || t.id,
   }));
+
+  if (mappedTasks.length) {
+    try {
+      const taskIds = mappedTasks.map((t) => t.id).filter(Boolean);
+      const { data: linkRows, error: linkError } = await supabase
+        .from('task_participants')
+        .select('task_id, participant_task_id')
+        .eq('user_id', userId)
+        .in('participant_task_id', taskIds);
+
+      if (!linkError && Array.isArray(linkRows) && linkRows.length) {
+        const linkMap = {};
+        linkRows.forEach((row) => {
+          if (row?.participant_task_id && row?.task_id) {
+            linkMap[row.participant_task_id] = row.task_id;
+          }
+        });
+        mappedTasks = mappedTasks.map((task) => ({
+          ...task,
+          sharedTaskId: linkMap[task.id] || task.sharedTaskId,
+        }));
+      } else if (linkError && !isMissingRelationError(linkError, 'task_participants')) {
+        console.log('Error fetching task participant links:', linkError);
+      }
+    } catch (err) {
+      console.log('Error enriching tasks with participant links:', err);
+    }
+  }
 
   setTasks(mappedTasks);
 };
@@ -1254,6 +1552,12 @@ const fetchTasksFromSupabase = async (userId) => {
   if (!authUser?.id) {
     throw new Error('You must be logged in to create a task.');
   }
+  if (!task?.date || Number.isNaN(new Date(task.date).getTime())) {
+    throw new Error('A date is required to schedule a task.');
+  }
+  if (!task?.time) {
+    throw new Error('A time is required to schedule a task.');
+  }
 
   const { data, error } = await supabase
     .from('tasks')
@@ -1262,8 +1566,8 @@ const fetchTasksFromSupabase = async (userId) => {
       title: task.title,
       description: task.description || null,
       priority: task.priority || 'medium',
-      date: task.date || null,
-      time: task.time || null,
+      date: task.date,
+      time: task.time,
       completed: false,
     })
     .select()
@@ -1283,6 +1587,7 @@ const fetchTasksFromSupabase = async (userId) => {
     time: data.time,
     completed: data.completed,
     createdAt: data.created_at,
+    sharedTaskId: data.shared_task_id || data.id,
   };
 
   setTasks((prev) => [...prev, newTask]);
@@ -1336,6 +1641,17 @@ const fetchTasksFromSupabase = async (userId) => {
 
   if (error) {
     console.log('Error deleting task:', error);
+  }
+
+  // Best-effort cleanup for collaboration links if this task is a shared copy.
+  try {
+    await supabase
+      .from('task_participants')
+      .delete()
+      .eq('participant_task_id', taskId)
+      .eq('user_id', authUser.id);
+  } catch (err) {
+    // ignore
   }
 
   setTasks((prev) => prev.filter((t) => t.id !== taskId));
@@ -3277,6 +3593,12 @@ const getFinanceSummaryForDate = (date) => {
     toggleTaskCompletion,
     getTodayTasks,
     getUpcomingTasks,
+
+    // Task collaboration
+    taskInvites,
+    sendTaskInvite,
+    respondToTaskInvite,
+    fetchTaskParticipants,
 
     // Notes
     notes,

@@ -77,10 +77,13 @@ const groupNotifications = (items) => {
 const NotificationCenterScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { themeColors, friendRequests, respondToFriendRequest } = useApp();
+  const { themeColors, friendRequests, taskInvites, respondToFriendRequest, respondToTaskInvite } = useApp();
   const [respondingMap, setRespondingMap] = React.useState({});
+  const [respondingTaskMap, setRespondingTaskMap] = React.useState({});
   const pendingRequests = friendRequests?.incoming || [];
   const responseNotifications = friendRequests?.responses || [];
+  const pendingTaskInvites = taskInvites?.incoming || [];
+  const taskInviteResponses = taskInvites?.responses || [];
 
   const handleRespond = async (requestId, status) => {
     setRespondingMap((prev) => ({ ...prev, [requestId]: status }));
@@ -90,6 +93,17 @@ const NotificationCenterScreen = () => {
       Alert.alert('Unable to update request', err?.message || 'Please try again.');
     } finally {
       setRespondingMap((prev) => ({ ...prev, [requestId]: null }));
+    }
+  };
+
+  const handleRespondTaskInvite = async (inviteId, status) => {
+    setRespondingTaskMap((prev) => ({ ...prev, [inviteId]: status }));
+    try {
+      await respondToTaskInvite(inviteId, status);
+    } catch (err) {
+      Alert.alert('Unable to update invite', err?.message || 'Please try again.');
+    } finally {
+      setRespondingTaskMap((prev) => ({ ...prev, [inviteId]: null }));
     }
   };
 
@@ -168,6 +182,79 @@ const NotificationCenterScreen = () => {
     return groupNotifications(items);
   }, [responseNotifications, themedStyles]);
 
+  const groupedTaskInvites = React.useMemo(() => {
+    const items = (pendingTaskInvites || []).map((item) => ({
+      key: `task-invite-${item.id}`,
+      component: (
+        <View key={item.id} style={themedStyles.card}>
+          <View style={[themedStyles.iconWrap, { backgroundColor: `${colors.tasks}15` }]}>
+            <Feather name="clipboard" size={20} color={colors.tasks} />
+          </View>
+          <View style={themedStyles.textWrap}>
+            <Text style={themedStyles.cardTitle}>
+              {(item.fromUser?.name || item.fromUser?.username || 'Someone')} invited you to a task
+            </Text>
+            <Text style={themedStyles.cardBody}>
+              {item.task?.title || 'Task'}
+              {item.created_at ? ` - ${formatTimeAgo(item.created_at)}` : ''}
+            </Text>
+            <View style={themedStyles.actionRow}>
+              <TouchableOpacity
+                onPress={() => handleRespondTaskInvite(item.id, 'accepted')}
+                style={themedStyles.primaryButton}
+                disabled={!!respondingTaskMap[item.id]}
+              >
+                {respondingTaskMap[item.id] === 'accepted' ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={themedStyles.primaryButtonText}>Accept</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleRespondTaskInvite(item.id, 'declined')}
+                style={themedStyles.secondaryButton}
+                disabled={!!respondingTaskMap[item.id]}
+              >
+                {respondingTaskMap[item.id] === 'declined' ? (
+                  <ActivityIndicator color={themedStyles.subduedText} size="small" />
+                ) : (
+                  <Text style={themedStyles.secondaryButtonText}>Decline</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      ),
+      timestamp: item.created_at,
+    }));
+    return groupNotifications(items);
+  }, [pendingTaskInvites, themedStyles, respondingTaskMap]);
+
+  const groupedTaskResponses = React.useMemo(() => {
+    const items = (taskInviteResponses || []).map((item) => ({
+      key: `task-response-${item.id}`,
+      component: (
+        <View key={item.id} style={themedStyles.card}>
+          <View style={[themedStyles.iconWrap, { backgroundColor: `${colors.tasks}15` }]}>
+            <Feather name={item.status === 'accepted' ? 'check-circle' : 'x-circle'} size={20} color={colors.tasks} />
+          </View>
+          <View style={themedStyles.textWrap}>
+            <Text style={themedStyles.cardTitle}>
+              {(item.toUser?.name || item.toUser?.username || 'Someone')}{' '}
+              {item.status === 'accepted' ? 'accepted' : 'declined'} your task invite
+            </Text>
+            <Text style={themedStyles.cardBody}>
+              {item.task?.title || 'Task'}
+              {item.responded_at ? ` - ${formatTimeAgo(item.responded_at)}` : ''}
+            </Text>
+          </View>
+        </View>
+      ),
+      timestamp: item.responded_at || item.updated_at || item.created_at,
+    }));
+    return groupNotifications(items);
+  }, [taskInviteResponses, themedStyles]);
+
   return (
     <View style={[themedStyles.container, { paddingTop: insets.top || spacing.lg }]}>
       <View style={themedStyles.header}>
@@ -191,11 +278,28 @@ const NotificationCenterScreen = () => {
           <View style={themedStyles.placeholderBox}>
             <Ionicons name="notifications-outline" size={20} color={themedStyles.subduedText} />
             <Text style={themedStyles.placeholderText}>
-              No new notifications. Friend requests and habit alerts will appear here.
+              No new notifications. Friend requests and task invites will appear here.
             </Text>
           </View>
         ) : (
           groupedPending.map((group) => (
+            <View key={group.label}>
+              <Text style={themedStyles.groupLabel}>{group.label}</Text>
+              {group.data.map((n) => n.component)}
+            </View>
+          ))
+        )}
+
+        <Text style={[themedStyles.sectionLabel, { marginTop: spacing.lg }]}>Task invites</Text>
+        {pendingTaskInvites.length === 0 ? (
+          <View style={themedStyles.placeholderBox}>
+            <Feather name="clipboard" size={20} color={themedStyles.subduedText} />
+            <Text style={themedStyles.placeholderText}>
+              No task invites right now.
+            </Text>
+          </View>
+        ) : (
+          groupedTaskInvites.map((group) => (
             <View key={group.label}>
               <Text style={themedStyles.groupLabel}>{group.label}</Text>
               {group.data.map((n) => n.component)}
@@ -213,6 +317,23 @@ const NotificationCenterScreen = () => {
           </View>
         ) : (
           groupedResponses.map((group) => (
+            <View key={group.label}>
+              <Text style={themedStyles.groupLabel}>{group.label}</Text>
+              {group.data.map((n) => n.component)}
+            </View>
+          ))
+        )}
+
+        <Text style={[themedStyles.sectionLabel, { marginTop: spacing.lg }]}>Task updates</Text>
+        {taskInviteResponses.length === 0 ? (
+          <View style={themedStyles.placeholderBox}>
+            <Ionicons name="information-circle-outline" size={20} color={themedStyles.subduedText} />
+            <Text style={themedStyles.placeholderText}>
+              When someone responds to your task invite, it will appear here.
+            </Text>
+          </View>
+        ) : (
+          groupedTaskResponses.map((group) => (
             <View key={group.label}>
               <Text style={themedStyles.groupLabel}>{group.label}</Text>
               {group.data.map((n) => n.component)}

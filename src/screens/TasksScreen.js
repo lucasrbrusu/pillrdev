@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   Alert,
   TextInput,
+  Animated,
+  Easing,
 } from 'react-native';
 import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -45,11 +47,14 @@ const TasksScreen = () => {
   const route = useRoute();
   const {
     tasks,
+    friends,
     notes,
     addTask,
     updateTask,
     deleteTask,
     toggleTaskCompletion,
+    sendTaskInvite,
+    fetchTaskParticipants,
     addNote,
     updateNote,
     deleteNote,
@@ -71,11 +76,18 @@ const TasksScreen = () => {
   const [showNoteDetailModal, setShowNoteDetailModal] = useState(false);
   const [showNoteSecurityModal, setShowNoteSecurityModal] = useState(false);
   const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [showPeopleModal, setShowPeopleModal] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [timePickerTarget, setTimePickerTarget] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
   const [selectedNote, setSelectedNote] = useState(null);
+  const [invitedFriendIds, setInvitedFriendIds] = useState([]);
+  const [invitingFriends, setInvitingFriends] = useState(false);
+  const [taskPeople, setTaskPeople] = useState([]);
+  const [loadingTaskPeople, setLoadingTaskPeople] = useState(false);
+  const [taskModalWidth, setTaskModalWidth] = useState(0);
+  const taskModalTranslateX = React.useRef(new Animated.Value(0)).current;
   const [noteToUnlock, setNoteToUnlock] = useState(null);
   const [unlockedNoteIds, setUnlockedNoteIds] = useState([]);
   const [noteTitleDraft, setNoteTitleDraft] = useState('');
@@ -151,6 +163,8 @@ const TasksScreen = () => {
     setShowDatePicker(false);
     setShowTimePicker(false);
     setTimePickerTarget(null);
+    setInvitedFriendIds([]);
+    setShowPeopleModal(false);
   };
 
   const resetNoteForm = () => {
@@ -166,17 +180,92 @@ const TasksScreen = () => {
 
   const handleCreateTask = async () => {
     if (!taskTitle.trim()) return;
+    if (!taskDate || Number.isNaN(new Date(taskDate).getTime())) {
+      Alert.alert('Missing date', 'Please choose a date for this task.');
+      return;
+    }
+    if (!taskTime) {
+      Alert.alert('Missing time', 'Please choose a time for this task.');
+      return;
+    }
 
-    await addTask({
-      title: taskTitle.trim(),
-      description: taskDescription.trim(),
-      priority: taskPriority,
-      date: taskDate,
-      time: taskTime,
-    });
+    try {
+      setInvitingFriends(true);
+      const createdTask = await addTask({
+        title: taskTitle.trim(),
+        description: taskDescription.trim(),
+        priority: taskPriority,
+        date: taskDate,
+        time: taskTime,
+      });
 
-    resetTaskForm();
-    setShowTaskModal(false);
+      if (invitedFriendIds.length) {
+        for (const toUserId of invitedFriendIds) {
+          try {
+            await sendTaskInvite({ task: createdTask, toUserId });
+          } catch (err) {
+            Alert.alert(
+              'Invite failed',
+              err?.message || 'Unable to invite one of your friends.'
+            );
+          }
+        }
+      }
+
+      resetTaskForm();
+      setShowTaskModal(false);
+    } catch (err) {
+      Alert.alert('Unable to create task', err?.message || 'Please try again.');
+    } finally {
+      setInvitingFriends(false);
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    const loadPeople = async () => {
+      if (!showTaskDetailModal || !selectedTask) {
+        if (active) {
+          setTaskPeople([]);
+          setLoadingTaskPeople(false);
+        }
+        return;
+      }
+
+      const baseTaskId = selectedTask.sharedTaskId || selectedTask.id;
+      setLoadingTaskPeople(true);
+      try {
+        const people = await fetchTaskParticipants(baseTaskId);
+        if (active) setTaskPeople(people || []);
+      } catch (err) {
+        if (active) setTaskPeople([]);
+      } finally {
+        if (active) setLoadingTaskPeople(false);
+      }
+    };
+
+    loadPeople();
+    return () => {
+      active = false;
+    };
+  }, [fetchTaskParticipants, selectedTask, showTaskDetailModal]);
+
+  useEffect(() => {
+    if (!taskModalWidth) return;
+
+    Animated.timing(taskModalTranslateX, {
+      toValue: showPeopleModal ? -taskModalWidth : 0,
+      duration: 280,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [showPeopleModal, taskModalTranslateX, taskModalWidth]);
+
+  const toggleInvitedFriend = (userId) => {
+    if (!userId) return;
+    setInvitedFriendIds((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    );
   };
 
   const handleCreateNote = async () => {
@@ -622,131 +711,229 @@ const TasksScreen = () => {
             setShowTaskModal(false);
             resetTaskForm();
           }}
-          title="New Task"
+          title={showPeopleModal ? 'People' : 'New Task'}
           fullScreen
         >
-        <Input
-          label="Task Title"
-          value={taskTitle}
-          onChangeText={setTaskTitle}
-          placeholder="e.g., Complete project proposal"
-        />
-
-        <Input
-          label="Description (Optional)"
-          value={taskDescription}
-          onChangeText={setTaskDescription}
-          placeholder="Add more details..."
-          multiline
-          numberOfLines={3}
-        />
-
-        <Text style={styles.inputLabel}>Priority</Text>
-        <View style={styles.priorityRow}>
-          {priorityLevels.map((level) => (
-            <TouchableOpacity
-              key={level.value}
-              style={[
-                styles.priorityOption,
-                taskPriority === level.value && styles.priorityOptionActive,
-                taskPriority === level.value && {
-                  backgroundColor: level.color,
-                },
-              ]}
-              onPress={() => setTaskPriority(level.value)}
-            >
-              <Text
-                style={[
-                  styles.priorityOptionText,
-                  taskPriority === level.value && styles.priorityOptionTextActive,
-                ]}
-              >
-                {level.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <View style={styles.dateTimeRow}>
-          <View style={styles.dateInput}>
-            <Text style={styles.inputLabel}>Date</Text>
-            <TouchableOpacity
-              style={styles.dateButton}
-              onPress={openDatePicker}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.dateButtonText}>{formatDate(taskDate)}</Text>
-              <Ionicons
-                name="calendar-outline"
-                size={18}
-                color={colors.textLight}
-              />
-            </TouchableOpacity>
-          </View>
-          <View style={styles.timeInput}>
-            <Text style={styles.inputLabel}>Time (Optional)</Text>
-            <TouchableOpacity
-              style={styles.dateButton}
-              onPress={() => openTimePicker('task')}
-              activeOpacity={0.8}
-            >
-              <Text
-                style={[
-                  styles.dateButtonText,
-                  !taskTime && styles.placeholderText,
-                ]}
-              >
-                {taskTime || '--:--'}
-              </Text>
-              <Ionicons name="time-outline" size={18} color={colors.textLight} />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <PlatformDatePicker
-          visible={showDatePicker}
-          value={taskDate}
-          onChange={handleSelectDate}
-          onClose={() => setShowDatePicker(false)}
-          accentColor={colors.tasks}
-        />
-
-        <PlatformTimePicker
-          visible={showTimePicker}
-          value={
-            timePickerTarget === 'task'
-              ? taskTime
-              : timePickerTarget === 'sleep'
-              ? todayHealth?.sleepTime
-              : timePickerTarget === 'wake'
-              ? todayHealth?.wakeTime
-              : ''
-          }
-          onChange={handleSelectTime}
-          onClose={() => {
-            setShowTimePicker(false);
-            setTimePickerTarget(null);
+        <View
+          style={styles.taskModalPager}
+          onLayout={(e) => {
+            const nextWidth = Math.round(e?.nativeEvent?.layout?.width || 0);
+            if (!nextWidth || nextWidth === taskModalWidth) return;
+            setTaskModalWidth(nextWidth);
+            taskModalTranslateX.setValue(showPeopleModal ? -nextWidth : 0);
           }}
-          options={timeOptions}
-          accentColor={colors.tasks}
-        />
+        >
+          <Animated.View
+            style={[
+              styles.taskModalPagerRow,
+              {
+                width: taskModalWidth ? taskModalWidth * 2 : '200%',
+                transform: [{ translateX: taskModalTranslateX }],
+              },
+            ]}
+          >
+            <View style={{ width: taskModalWidth || '50%' }}>
+              <PlatformScrollView contentContainerStyle={{ paddingBottom: spacing.xl }}>
+                <Input
+                  label="Task Title"
+                  value={taskTitle}
+                  onChangeText={setTaskTitle}
+                  placeholder="e.g., Complete project proposal"
+                />
 
-        <View style={styles.modalButtons}>
-          <Button
-            title="Cancel"
-            variant="secondary"
-            onPress={() => {
-              setShowTaskModal(false);
-              resetTaskForm();
-            }}
-            style={styles.modalButton}
-          />
-          <Button
-            title="Create Task"
-            onPress={handleCreateTask}
-            disabled={!taskTitle.trim()}
-            style={styles.modalButton}
-          />
+                <Input
+                  label="Description (Optional)"
+                  value={taskDescription}
+                  onChangeText={setTaskDescription}
+                  placeholder="Add more details..."
+                  multiline
+                  numberOfLines={3}
+                />
+
+                <View style={styles.peopleButtonRow}>
+                  <Button
+                    title={
+                      invitedFriendIds.length ? `People (${invitedFriendIds.length})` : 'People'
+                    }
+                    variant="secondary"
+                    icon="people-outline"
+                    fullWidth={false}
+                    disableTranslation
+                    onPress={() => setShowPeopleModal(true)}
+                  />
+                  <Text style={styles.peopleHintText}>
+                    Invites are sent when you create the task.
+                  </Text>
+                </View>
+
+                <Text style={styles.inputLabel}>Priority</Text>
+                <View style={styles.priorityRow}>
+                  {priorityLevels.map((level) => (
+                    <TouchableOpacity
+                      key={level.value}
+                      style={[
+                        styles.priorityOption,
+                        taskPriority === level.value && styles.priorityOptionActive,
+                        taskPriority === level.value && {
+                          backgroundColor: level.color,
+                        },
+                      ]}
+                      onPress={() => setTaskPriority(level.value)}
+                    >
+                      <Text
+                        style={[
+                          styles.priorityOptionText,
+                          taskPriority === level.value && styles.priorityOptionTextActive,
+                        ]}
+                      >
+                        {level.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <View style={styles.dateTimeRow}>
+                  <View style={styles.dateInput}>
+                    <Text style={styles.inputLabel}>Date</Text>
+                    <TouchableOpacity
+                      style={styles.dateButton}
+                      onPress={openDatePicker}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.dateButtonText}>{formatDate(taskDate)}</Text>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={18}
+                        color={colors.textLight}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.timeInput}>
+                    <Text style={styles.inputLabel}>Time</Text>
+                    <TouchableOpacity
+                      style={styles.dateButton}
+                      onPress={() => openTimePicker('task')}
+                      activeOpacity={0.8}
+                    >
+                      <Text
+                        style={[
+                          styles.dateButtonText,
+                          !taskTime && styles.placeholderText,
+                        ]}
+                      >
+                        {taskTime || 'Select time'}
+                      </Text>
+                      <Ionicons name="time-outline" size={18} color={colors.textLight} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <PlatformDatePicker
+                  visible={showDatePicker}
+                  value={taskDate}
+                  onChange={handleSelectDate}
+                  onClose={() => setShowDatePicker(false)}
+                  accentColor={colors.tasks}
+                />
+
+                <PlatformTimePicker
+                  visible={showTimePicker}
+                  value={
+                    timePickerTarget === 'task'
+                      ? taskTime
+                      : timePickerTarget === 'sleep'
+                      ? todayHealth?.sleepTime
+                      : timePickerTarget === 'wake'
+                      ? todayHealth?.wakeTime
+                      : ''
+                  }
+                  onChange={handleSelectTime}
+                  onClose={() => {
+                    setShowTimePicker(false);
+                    setTimePickerTarget(null);
+                  }}
+                  options={timeOptions}
+                  accentColor={colors.tasks}
+                />
+
+                <View style={styles.modalButtons}>
+                  <Button
+                    title="Cancel"
+                    variant="secondary"
+                    onPress={() => {
+                      setShowTaskModal(false);
+                      resetTaskForm();
+                    }}
+                    style={styles.modalButton}
+                  />
+                  <Button
+                    title="Create Task"
+                    onPress={handleCreateTask}
+                    disabled={!taskTitle.trim() || !taskTime || invitingFriends}
+                    loading={invitingFriends}
+                    style={styles.modalButton}
+                  />
+                </View>
+              </PlatformScrollView>
+            </View>
+
+            <View style={{ width: taskModalWidth || '50%' }}>
+              <PlatformScrollView contentContainerStyle={{ paddingBottom: spacing.xl }}>
+                <Text style={styles.peopleModalHint}>
+                  Select friends to invite. Invites are sent when you create the task.
+                </Text>
+
+                {friends.length === 0 ? (
+                  <View style={styles.peopleEmpty}>
+                    <Ionicons name="people-outline" size={22} color={colors.textSecondary} />
+                    <Text style={styles.peopleEmptyText}>No friends yet.</Text>
+                  </View>
+                ) : (
+                  <Card style={styles.peopleCard}>
+                    {friends.map((friend) => {
+                      const invited = invitedFriendIds.includes(friend.id);
+                      return (
+                        <View key={friend.id} style={styles.peopleRow}>
+                          <View style={styles.peopleRowText}>
+                            <Text style={styles.peopleName} numberOfLines={1}>
+                              {friend.name || friend.username || 'Friend'}
+                            </Text>
+                            <Text style={styles.peopleUsername} numberOfLines={1}>
+                              {friend.username ? `@${friend.username}` : ''}
+                            </Text>
+                          </View>
+                          <Button
+                            title={invited ? 'Invited' : 'Invite'}
+                            variant={invited ? 'outline' : 'primary'}
+                            size="small"
+                            fullWidth={false}
+                            disableTranslation
+                            onPress={() => toggleInvitedFriend(friend.id)}
+                          />
+                        </View>
+                      );
+                    })}
+                  </Card>
+                )}
+
+                <View style={styles.modalButtons}>
+                  <Button
+                    title="Back"
+                    variant="secondary"
+                    onPress={() => setShowPeopleModal(false)}
+                    disableTranslation
+                    style={styles.modalButton}
+                  />
+                  <Button
+                    title="Done"
+                    onPress={() => setShowPeopleModal(false)}
+                    disableTranslation
+                    style={styles.modalButton}
+                  />
+                </View>
+              </PlatformScrollView>
+            </View>
+          </Animated.View>
         </View>
       </Modal>
 
@@ -841,6 +1028,23 @@ const TasksScreen = () => {
                   {selectedTask.description}
                 </Text>
               </>
+            )}
+
+            <Text style={styles.detailLabel}>People</Text>
+            {loadingTaskPeople ? (
+              <Text style={styles.peopleLoadingText}>Loading…</Text>
+            ) : taskPeople.length ? (
+              <View style={styles.peoplePills}>
+                {taskPeople.map((p) => (
+                  <View key={p.id} style={styles.peoplePill}>
+                    <Text style={styles.peoplePillText}>
+                      {p.name || (p.username ? `@${p.username}` : 'User')}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.peopleLoadingText}>Just you</Text>
             )}
 
             <View style={styles.scheduleBox}>
@@ -1403,6 +1607,87 @@ const createStyles = (themeColors) => {
   detailDescription: {
     ...typography.body,
     marginBottom: spacing.lg,
+  },
+  peopleLoadingText: {
+    ...typography.body,
+    color: colors.textLight,
+    marginBottom: spacing.lg,
+  },
+  peoplePills: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  peoplePill: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.inputBackground,
+  },
+  peoplePillText: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+  },
+  peopleButtonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+    gap: spacing.md,
+  },
+  peopleHintText: {
+    ...typography.caption,
+    color: colors.textLight,
+    flex: 1,
+  },
+  peopleModalHint: {
+    ...typography.body,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
+  },
+  peopleEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.xl,
+  },
+  peopleEmptyText: {
+    ...typography.body,
+    color: colors.textLight,
+    marginTop: spacing.sm,
+  },
+  peopleCard: {
+    marginTop: spacing.sm,
+  },
+  peopleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  taskModalPager: {
+    flex: 1,
+    overflow: 'hidden',
+  },
+  taskModalPagerRow: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  peopleRowText: {
+    flex: 1,
+    marginRight: spacing.md,
+  },
+  peopleName: {
+    ...typography.body,
+    fontWeight: '700',
+  },
+  peopleUsername: {
+    ...typography.bodySmall,
+    color: colors.textLight,
   },
   scheduleBox: {
     flexDirection: 'row',

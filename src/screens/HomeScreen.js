@@ -50,6 +50,7 @@ const HomeScreen = () => {
     friends,
     onlineFriends,
     friendRequests,
+    taskInvites,
     isUserOnline,
     getTodayTasks,
     getBestStreak,
@@ -100,6 +101,7 @@ const HomeScreen = () => {
   const calorieGoal = profile?.dailyCalorieGoal || 2000;
   const remainingCalories = Math.max(calorieGoal - consumedCalories, 0);
   const pendingFriendRequests = friendRequests?.incoming?.length || 0;
+  const pendingTaskInvites = taskInvites?.incoming?.length || 0;
   const getInitial = React.useCallback((nameValue, usernameValue) => {
     const source = (nameValue || usernameValue || '?').trim();
     return (source[0] || '?').toUpperCase();
@@ -281,7 +283,9 @@ const HomeScreen = () => {
               >
                 <View>
                   <Ionicons name="notifications-outline" size={22} color={colors.textSecondary} />
-                  {pendingFriendRequests > 0 && <View style={styles.notificationDot} />}
+                  {(pendingFriendRequests > 0 || pendingTaskInvites > 0) && (
+                    <View style={styles.notificationDot} />
+                  )}
                 </View>
               </TouchableOpacity>
               <TouchableOpacity
