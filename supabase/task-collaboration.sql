@@ -98,6 +98,7 @@ language sql
 stable
 security definer
 set search_path = public
+set row_security = off
 as $$
   select exists (
     select 1
@@ -106,6 +107,13 @@ as $$
       and tp.user_id = auth.uid()
   );
 $$;
+
+-- Allow selecting your own membership row without any extra checks.
+drop policy if exists "task_participants_select_self" on public.task_participants;
+create policy "task_participants_select_self"
+  on public.task_participants
+  for select
+  using (user_id = auth.uid());
 
 drop policy if exists "task_participants_select_if_member" on public.task_participants;
 create policy "task_participants_select_if_member"

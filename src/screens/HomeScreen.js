@@ -354,6 +354,7 @@ const HomeScreen = () => {
           >
             <View style={styles.cardHeader}>
               <Text style={[styles.cardTitle, styles.onlineFriendsTitle]}>Friends</Text>
+              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
             </View>
             {friends.length === 0 ? (
               <View style={styles.onlineFriendsBody}>
@@ -383,6 +384,24 @@ const HomeScreen = () => {
                 ))}
               </View>
             )}
+          </TouchableOpacity>
+        </Card>
+
+        {/* Insights */}
+        <Card style={[styles.sectionCard, styles.insightsCard]}>
+          <TouchableOpacity
+            style={styles.insightsRow}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('Insights')}
+          >
+            <View style={styles.insightsIconWrap}>
+              <Ionicons name="bar-chart-outline" size={18} color="#FFFFFF" />
+            </View>
+            <View style={styles.insightsTextWrap}>
+              <Text style={styles.insightsTitle}>View Insights</Text>
+              <Text style={styles.insightsSubtitle}>Weekly & monthly reports</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
         </Card>
 
@@ -1235,6 +1254,39 @@ const createStyles = (themeColorsParam = colors) => {
       color: themeColorsParam?.text || colors.text,
       marginTop: spacing.xs,
       textAlign: 'center',
+    },
+    insightsCard: {
+      backgroundColor: themeColorsParam?.card || colors.card,
+      borderColor: themeColorsParam?.border || colors.border || '#E5E7EB',
+    },
+    insightsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+    },
+    insightsIconWrap: {
+      width: 36,
+      height: 36,
+      borderRadius: borderRadius.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.primary,
+      marginRight: spacing.md,
+      ...shadows.small,
+    },
+    insightsTextWrap: {
+      flex: 1,
+    },
+    insightsTitle: {
+      ...typography.body,
+      color: themeColorsParam?.text || colors.text,
+      fontWeight: '800',
+    },
+    insightsSubtitle: {
+      ...typography.caption,
+      color: themeColorsParam?.textSecondary || colors.textSecondary,
+      marginTop: 2,
     },
     caloriesIconWrap: {
       width: 48,

@@ -4,6 +4,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, spacing, borderRadius, typography, shadows } from '../utils/theme';
+import { useApp } from '../context/AppContext';
+import { appendFocusSession } from '../utils/insightsTracking';
 
 const formatDuration = (ms) => {
   const minutes = Math.floor(ms / 60000);
@@ -14,12 +16,14 @@ const formatDuration = (ms) => {
 
 const FocusModeScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
+  const { authUser } = useApp();
   const [active, setActive] = React.useState(false);
   const [paused, setPaused] = React.useState(false);
   const [startMs, setStartMs] = React.useState(0);
   const [accumulatedMs, setAccumulatedMs] = React.useState(0);
   const [tick, setTick] = React.useState(0);
   const [exitToast, setExitToast] = React.useState('');
+  const sessionStartMsRef = React.useRef(null);
 
   const elapsedMs = React.useMemo(() => {
     if (!active) return accumulatedMs;
@@ -44,6 +48,7 @@ const FocusModeScreen = ({ navigation }) => {
   }, []);
 
   const handleStart = () => {
+    sessionStartMsRef.current = Date.now();
     setAccumulatedMs(0);
     setStartMs(Date.now());
     setPaused(false);
@@ -74,6 +79,14 @@ const FocusModeScreen = ({ navigation }) => {
     setStartMs(0);
     setTick(0);
     const message = `You have just spent ${formatDuration(total)} in focus mode`;
+    if (authUser?.id && total > 0 && sessionStartMsRef.current) {
+      appendFocusSession(authUser.id, {
+        startAt: new Date(sessionStartMsRef.current).toISOString(),
+        endAt: new Date(now).toISOString(),
+        durationMs: total,
+      });
+    }
+    sessionStartMsRef.current = null;
     navigation.navigate('Main', { screen: 'Home', params: { focusToast: message } });
   };
 

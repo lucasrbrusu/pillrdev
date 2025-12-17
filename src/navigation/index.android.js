@@ -36,6 +36,7 @@ import FriendsScreen from '../screens/FriendsScreen';
 import ChatScreen from '../screens/ChatScreen';
 import FocusModeScreen from '../screens/FocusModeScreen';
 import CountdownTimerScreen from '../screens/CountdownTimerScreen';
+import InsightsScreen from '../screens/InsightsScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -245,6 +246,7 @@ const Navigation = () => {
               gestureResponseDistance: { horizontal: FRIENDS_GESTURE_DISTANCE },
             }}
           />
+          <Stack.Screen name="Insights" component={InsightsScreen} />
           <Stack.Screen name="Chat" component={ChatScreen} />
           <Stack.Screen name="FocusMode" component={FocusModeScreen} />
           <Stack.Screen name="CountdownTimer" component={CountdownTimerScreen} />

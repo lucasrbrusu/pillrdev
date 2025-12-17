@@ -7,11 +7,13 @@ import React, {
   useCallback,
   useMemo,
 } from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, typography } from '../utils/theme';
 import themePresets from '../utils/themePresets';
 import { supabase } from '../utils/supabaseClient';
 import { translate } from '../utils/i18n';
+import { addAppUsageMs, splitDurationByLocalDay } from '../utils/insightsTracking';
 import {
   requestNotificationPermissionAsync,
   cancelAllScheduledNotificationsAsync,
@@ -293,6 +295,8 @@ export const AppProvider = ({ children }) => {
   const [hasNotificationPermission, setHasNotificationPermission] = useState(false);
   const streakCheckRanRef = useRef(false);
   const [streakFrozen, setStreakFrozen] = useState(false);
+  const appStateRef = useRef(AppState.currentState);
+  const appSessionStartMsRef = useRef(null);
 
   // Immutable snapshots of the original palettes and typography
   const defaultPaletteRef = useRef(
@@ -443,6 +447,52 @@ const loadUserDataFromSupabase = async (userId) => {
       applyTheme('default');
     }
   }, [authUser]);
+
+  // Track time spent in-app (foreground time) for Insights.
+  useEffect(() => {
+    const userId = authUser?.id;
+    appStateRef.current = AppState.currentState;
+
+    const flushSession = (endMs) => {
+      if (!userId) return;
+      const startMs = appSessionStartMsRef.current;
+      if (!startMs || !endMs || endMs <= startMs) return;
+      const parts = splitDurationByLocalDay(startMs, endMs);
+      Object.entries(parts).forEach(([dateKey, ms]) => {
+        addAppUsageMs(userId, dateKey, ms);
+      });
+    };
+
+    if (!userId) {
+      appSessionStartMsRef.current = null;
+      return undefined;
+    }
+
+    if (AppState.currentState === 'active') {
+      appSessionStartMsRef.current = Date.now();
+    }
+
+    const sub = AppState.addEventListener('change', (nextState) => {
+      const prevState = appStateRef.current;
+      appStateRef.current = nextState;
+
+      if (prevState === 'active' && nextState !== 'active') {
+        flushSession(Date.now());
+        appSessionStartMsRef.current = null;
+        return;
+      }
+
+      if (prevState !== 'active' && nextState === 'active') {
+        appSessionStartMsRef.current = Date.now();
+      }
+    });
+
+    return () => {
+      flushSession(Date.now());
+      appSessionStartMsRef.current = null;
+      sub?.remove?.();
+    };
+  }, [authUser?.id]);
 
   useEffect(() => {
     let isMounted = true;
@@ -959,11 +1009,33 @@ const mapProfileSummary = (row) => ({
 
   const fetchTaskParticipants = useCallback(
     async (taskId) => {
-      if (!taskId) return [];
+      if (!taskId || !authUser?.id) return [];
+
+      // Resolve the shared/base task id even when we're looking at a participant's "copy"
+      // task (participant_task_id). This avoids relying on local `sharedTaskId` being set.
+      let baseTaskId = taskId;
+      try {
+        const { data: linkRow, error: linkError } = await supabase
+          .from('task_participants')
+          .select('task_id')
+          .eq('user_id', authUser.id)
+          .or(`task_id.eq.${taskId},participant_task_id.eq.${taskId}`)
+          .limit(1)
+          .maybeSingle();
+
+        if (!linkError && linkRow?.task_id) {
+          baseTaskId = linkRow.task_id;
+        } else if (linkError && !isMissingRelationError(linkError, 'task_participants')) {
+          console.log('Error resolving shared task id:', linkError);
+        }
+      } catch (err) {
+        // ignore
+      }
+
       const { data, error } = await supabase
         .from('task_participants')
         .select('user_id')
-        .eq('task_id', taskId);
+        .eq('task_id', baseTaskId);
 
       if (error) {
         if (!isMissingRelationError(error, 'task_participants')) {
@@ -975,17 +1047,33 @@ const mapProfileSummary = (row) => ({
       const userIds = Array.from(new Set((data || []).map((r) => r.user_id).filter(Boolean)));
       if (!userIds.length) return [];
 
-      const { data: profilesData, error: profileError } = await supabase
+      // Profiles schema can be either id=auth.uid() or user_id=auth.uid(); try both.
+      const selectProfileFields = 'id, user_id, username, full_name, avatar_url, photo';
+
+      const { data: byIdData, error: byIdError } = await supabase
         .from('profiles')
-        .select('id, username, full_name, avatar_url, photo')
+        .select(selectProfileFields)
         .in('id', userIds);
 
-      if (profileError) {
-        console.log('Error fetching participant profiles:', profileError);
+      if (!byIdError && Array.isArray(byIdData) && byIdData.length) {
+        return byIdData.map((row) => mapProfileSummary(row));
+      }
+
+      if (byIdError) {
+        console.log('Error fetching participant profiles (by id):', byIdError);
+      }
+
+      const { data: byUserIdData, error: byUserIdError } = await supabase
+        .from('profiles')
+        .select(selectProfileFields)
+        .in('user_id', userIds);
+
+      if (byUserIdError) {
+        console.log('Error fetching participant profiles (by user_id):', byUserIdError);
         return [];
       }
 
-      return (profilesData || []).map((row) => mapProfileSummary(row));
+      return (byUserIdData || []).map((row) => mapProfileSummary(row));
     },
     [authUser?.id]
   );
