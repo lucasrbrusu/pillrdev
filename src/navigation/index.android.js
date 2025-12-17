@@ -39,6 +39,7 @@ import CountdownTimerScreen from '../screens/CountdownTimerScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
+const FRIENDS_GESTURE_DISTANCE = Math.round(Dimensions.get('window').width);
 
 const useBottomOffset = () => {
   const insets = useSafeAreaInsets();
@@ -235,7 +236,15 @@ const Navigation = () => {
           <Stack.Screen name="Appearance" component={AppearanceScreen} />
           <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
           <Stack.Screen name="NotificationCenter" component={NotificationCenterScreen} />
-          <Stack.Screen name="Friends" component={FriendsScreen} />
+          <Stack.Screen
+            name="Friends"
+            component={FriendsScreen}
+            options={{
+              gestureEnabled: true,
+              gestureDirection: 'horizontal',
+              gestureResponseDistance: { horizontal: FRIENDS_GESTURE_DISTANCE },
+            }}
+          />
           <Stack.Screen name="Chat" component={ChatScreen} />
           <Stack.Screen name="FocusMode" component={FocusModeScreen} />
           <Stack.Screen name="CountdownTimer" component={CountdownTimerScreen} />

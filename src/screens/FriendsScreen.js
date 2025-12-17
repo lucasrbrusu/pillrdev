@@ -258,11 +258,15 @@ const FriendsScreen = () => {
           <Ionicons name="chevron-back" size={22} color={themedStyles.iconColor} />
         </TouchableOpacity>
         <Text style={themedStyles.title}>Friends</Text>
-        <View style={themedStyles.badgePill}>
-          <Text style={themedStyles.badgeText}>
-            {pendingIncoming > 0 ? `${pendingIncoming} request${pendingIncoming === 1 ? '' : 's'}` : 'Up to date'}
-          </Text>
-        </View>
+        {pendingIncoming > 0 ? (
+          <View style={themedStyles.badgePill}>
+            <Text style={themedStyles.badgeText}>
+              {`${pendingIncoming} request${pendingIncoming === 1 ? '' : 's'}`}
+            </Text>
+          </View>
+        ) : (
+          <View style={themedStyles.headerSpacer} />
+        )}
       </View>
 
       <View style={themedStyles.searchBar}>
@@ -366,6 +370,10 @@ const createStyles = (themeColorsParam = colors) => {
       ...typography.caption,
       color: subdued,
       fontWeight: '700',
+    },
+    headerSpacer: {
+      width: 44,
+      height: 44,
     },
     searchBar: {
       flexDirection: 'row',

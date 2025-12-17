@@ -106,9 +106,32 @@ const computeIsPremium = (plan, premiumExpiresAt) => {
   if (!isPremiumPlan) return false;
 
   if (!premiumExpiresAt) return true;
-  const expiry = new Date(premiumExpiresAt);
-  if (Number.isNaN(expiry.getTime())) return true;
-  return expiry.getTime() > Date.now();
+
+  const coerceExpiryMs = (value) => {
+    if (!value) return null;
+    if (value instanceof Date) return value.getTime();
+    if (typeof value === 'number') {
+      // Heuristic: seconds vs milliseconds
+      return value < 1e12 ? value * 1000 : value;
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      if (/^\d+$/.test(trimmed)) {
+        const n = Number(trimmed);
+        if (!Number.isFinite(n)) return null;
+        return n < 1e12 ? n * 1000 : n;
+      }
+      const parsed = new Date(trimmed).getTime();
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+    const parsed = new Date(value).getTime();
+    return Number.isNaN(parsed) ? null : parsed;
+  };
+
+  const expiryMs = coerceExpiryMs(premiumExpiresAt);
+  if (!expiryMs) return true;
+  return expiryMs > Date.now();
 };
 
 const getLastActiveKey = (userId) => `${STORAGE_KEYS.LAST_ACTIVE_PREFIX}${userId}`;
@@ -518,20 +541,6 @@ const mapProfileSummary = (row) => ({
     const nowISO = new Date().toISOString();
     setUserStatuses((prev) => ({ ...prev, [authUser.id]: nowISO }));
     try {
-      // Ensure the profile row exists to satisfy FK before presence upsert
-      if (!profileLoaded) {
-        await upsertProfileRow({
-          id: authUser.id,
-          username: authUser?.user_metadata?.username || profile.username,
-          full_name:
-            authUser?.user_metadata?.full_name ||
-            authUser?.user_metadata?.name ||
-            profile.name ||
-            authUser?.email,
-          email: authUser?.email || profile.email,
-        });
-      }
-
       const { error } = await supabase
         .from('user_status')
         .upsert({ user_id: authUser.id, last_seen: nowISO }, { onConflict: 'user_id' });
@@ -560,7 +569,7 @@ const mapProfileSummary = (row) => ({
     } catch (err) {
       console.log('Error updating user status:', err);
     }
-  }, [authUser?.id, profileLoaded, profile.name, profile.username, profile.email]);
+  }, [authUser?.id, profile.name, profile.username, profile.email]);
 
   const fetchFriendships = useCallback(
     async (userIdParam) => {
@@ -2499,6 +2508,7 @@ const getFinanceSummaryForDate = (date) => {
     dailySleepGoal: row?.daily_sleep_goal ?? defaultProfile.dailySleepGoal,
     plan: row?.plan || defaultProfile.plan,
     premiumExpiresAt: row?.premium_expires_at || row?.premiumExpiresAt || defaultProfile.premiumExpiresAt,
+    premium_expires_at: row?.premium_expires_at || row?.premiumExpiresAt || defaultProfile.premiumExpiresAt,
     isPremium: computeIsPremium(row?.plan || defaultProfile.plan, row?.premium_expires_at || row?.premiumExpiresAt),
   });
 
@@ -2537,6 +2547,45 @@ const getFinanceSummaryForDate = (date) => {
       return { row: row || null, error: null };
     };
 
+    const pickBestProfileRow = (rows) => {
+      const candidates = (rows || []).filter(Boolean);
+      if (!candidates.length) return null;
+
+      const parseTime = (value) => {
+        if (!value) return null;
+        const ms = new Date(value).getTime();
+        return Number.isNaN(ms) ? null : ms;
+      };
+
+      const normalizeExpiry = (row) =>
+        row?.premium_expires_at ?? row?.premiumExpiresAt ?? row?.premiumExpires ?? null;
+
+      const scoreRow = (row) => {
+        const plan = row?.plan || '';
+        const expiry = normalizeExpiry(row);
+        let score = 0;
+
+        if (computeIsPremium(plan, expiry)) score += 100;
+        const normalizedPlan = String(plan || '').toLowerCase();
+        if (normalizedPlan === 'premium' || normalizedPlan === 'pro') score += 25;
+        if (expiry) score += 5;
+        if (row?.user_id) score += 2;
+        if (row?.id === userId) score += 1;
+
+        return score;
+      };
+
+      return candidates
+        .slice()
+        .sort((a, b) => {
+          const scoreDiff = scoreRow(b) - scoreRow(a);
+          if (scoreDiff) return scoreDiff;
+          const updatedDiff = (parseTime(b?.updated_at) || 0) - (parseTime(a?.updated_at) || 0);
+          if (updatedDiff) return updatedDiff;
+          return (parseTime(b?.created_at) || 0) - (parseTime(a?.created_at) || 0);
+        })[0];
+    };
+
     let row = null;
     let lastError = null;
 
@@ -2544,19 +2593,13 @@ const getFinanceSummaryForDate = (date) => {
     if (byIdError && !isMissingColumnError(byIdError, 'id')) {
       lastError = byIdError;
     }
-    if (byIdRow) {
-      row = byIdRow;
+
+    const { row: byUserIdRow, error: byUserIdError } = await fetchByColumn('user_id');
+    if (byUserIdError && !isMissingColumnError(byUserIdError, 'user_id')) {
+      lastError = byUserIdError;
     }
 
-    if (!row) {
-      const { row: byUserIdRow, error: byUserIdError } = await fetchByColumn('user_id');
-      if (byUserIdError && !isMissingColumnError(byUserIdError, 'user_id')) {
-        lastError = byUserIdError;
-      }
-      if (byUserIdRow) {
-        row = byUserIdRow;
-      }
-    }
+    row = pickBestProfileRow([byIdRow, byUserIdRow]);
 
     if (!row && lastError) {
       console.log('Error fetching profile:', lastError);
@@ -2610,14 +2653,26 @@ const getFinanceSummaryForDate = (date) => {
     daily_calorie_goal: fields.daily_calorie_goal ?? fields.dailyCalorieGoal ?? profile.dailyCalorieGoal,
     daily_water_goal: fields.daily_water_goal ?? fields.dailyWaterGoal ?? profile.dailyWaterGoal,
     daily_sleep_goal: fields.daily_sleep_goal ?? fields.dailySleepGoal ?? profile.dailySleepGoal,
-      plan: fields.plan ?? profile.plan ?? defaultProfile.plan,
-      premium_expires_at:
-        fields.premium_expires_at ??
-        fields.premiumExpiresAt ??
-        profile.premiumExpiresAt ??
-        defaultProfile.premiumExpiresAt,
       updated_at: nowISO,
     };
+
+    // Don't overwrite subscription fields unless explicitly provided.
+    // This prevents early boot/profile-creation upserts from resetting values
+    // that may be managed externally (e.g. Supabase dashboard, webhooks).
+    if (Object.prototype.hasOwnProperty.call(fields, 'plan')) {
+      if (fields.plan !== undefined) basePayload.plan = fields.plan;
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(fields, 'premium_expires_at') ||
+      Object.prototype.hasOwnProperty.call(fields, 'premiumExpiresAt')
+    ) {
+      const nextPremiumExpiresAt = Object.prototype.hasOwnProperty.call(fields, 'premium_expires_at')
+        ? fields.premium_expires_at
+        : fields.premiumExpiresAt;
+      if (nextPremiumExpiresAt !== undefined) {
+        basePayload.premium_expires_at = nextPremiumExpiresAt;
+      }
+    }
 
     const payload = pruneUndefined(basePayload);
 
@@ -3189,6 +3244,7 @@ const getFinanceSummaryForDate = (date) => {
       username: bestUsername,
       plan,
       premiumExpiresAt,
+      premium_expires_at: premiumExpiresAt,
       isPremium,
     };
   }, [profile, authUser]);
@@ -3318,4 +3374,3 @@ const getFinanceSummaryForDate = (date) => {
 };
 
 export default AppContext;
-

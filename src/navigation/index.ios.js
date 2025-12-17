@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, ActivityIndicator, Dimensions } from 'react-native';
 import { NavigationContainer, DefaultTheme, useNavigation } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -32,6 +32,7 @@ import CountdownTimerScreen from '../screens/CountdownTimerScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
+const FRIENDS_GESTURE_DISTANCE = Math.round(Dimensions.get('window').width);
 
 const TabBarIcon = ({ name, type, focused, color, size }) => {
   if (type === 'ionicons') {
@@ -223,7 +224,15 @@ const Navigation = () => {
           <Stack.Screen name="Appearance" component={AppearanceScreen} />
           <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
           <Stack.Screen name="NotificationCenter" component={NotificationCenterScreen} />
-          <Stack.Screen name="Friends" component={FriendsScreen} />
+          <Stack.Screen
+            name="Friends"
+            component={FriendsScreen}
+            options={{
+              gestureEnabled: true,
+              gestureDirection: 'horizontal',
+              gestureResponseDistance: { horizontal: FRIENDS_GESTURE_DISTANCE },
+            }}
+          />
           <Stack.Screen name="Chat" component={ChatScreen} />
           <Stack.Screen name="FocusMode" component={FocusModeScreen} />
           <Stack.Screen name="CountdownTimer" component={CountdownTimerScreen} />
