@@ -51,6 +51,9 @@ const HealthScreen = () => {
   const [showFoodModal, setShowFoodModal] = useState(false);
   const [foodName, setFoodName] = useState('');
   const [foodCalories, setFoodCalories] = useState('');
+  const [foodProtein, setFoodProtein] = useState('');
+  const [foodCarbs, setFoodCarbs] = useState('');
+  const [foodFat, setFoodFat] = useState('');
   const [showMoodModal, setShowMoodModal] = useState(false);
   const [selectedMoodIndex, setSelectedMoodIndex] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -118,13 +121,27 @@ const HealthScreen = () => {
   const handleLogFood = async () => {
     if (!foodName.trim()) return;
 
+    const toNumberOrNull = (value) => {
+      if (value === null || value === undefined) return null;
+      const trimmed = value.toString().trim();
+      if (trimmed === '') return null;
+      const parsed = parseFloat(trimmed);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
     await addFoodEntryForDate(selectedDateISO, {
       name: foodName.trim(),
       calories: parseInt(foodCalories) || 0,
+      proteinGrams: toNumberOrNull(foodProtein),
+      carbsGrams: toNumberOrNull(foodCarbs),
+      fatGrams: toNumberOrNull(foodFat),
     });
 
     setFoodName('');
     setFoodCalories('');
+    setFoodProtein('');
+    setFoodCarbs('');
+    setFoodFat('');
     setShowFoodModal(false);
   };
 
@@ -220,6 +237,11 @@ const HealthScreen = () => {
     const idx = typeof selectedMoodIndex === 'number' ? selectedMoodIndex : currentMoodIndex();
     await updateHealthForDate(selectedDateISO, { mood: idx + 1 });
     setShowMoodModal(false);
+  };
+
+  const formatMacroValue = (value) => {
+    if (value === null || value === undefined) return 'N/A';
+    return `${value}g`;
   };
 
   return (
@@ -334,6 +356,9 @@ const HealthScreen = () => {
                   <View style={styles.foodInfo}>
                     <Text style={styles.foodName}>{food.name}</Text>
                     <Text style={styles.foodCal}>{food.calories} cal</Text>
+                    <Text style={styles.foodMacros}>
+                      Protein: {formatMacroValue(food.proteinGrams)} | Carbs: {formatMacroValue(food.carbsGrams)} | Fat: {formatMacroValue(food.fatGrams)}
+                    </Text>
                   </View>
                   <TouchableOpacity
                     onPress={() => {
@@ -516,6 +541,9 @@ const HealthScreen = () => {
           setShowFoodModal(false);
           setFoodName('');
           setFoodCalories('');
+          setFoodProtein('');
+          setFoodCarbs('');
+          setFoodFat('');
         }}
         title="Log Food"
       >
@@ -534,6 +562,30 @@ const HealthScreen = () => {
           keyboardType="numeric"
         />
 
+        <Input
+          label="Protein (g)"
+          value={foodProtein}
+          onChangeText={setFoodProtein}
+          placeholder="Optional"
+          keyboardType="numeric"
+        />
+
+        <Input
+          label="Carbs (g)"
+          value={foodCarbs}
+          onChangeText={setFoodCarbs}
+          placeholder="Optional"
+          keyboardType="numeric"
+        />
+
+        <Input
+          label="Fat (g)"
+          value={foodFat}
+          onChangeText={setFoodFat}
+          placeholder="Optional"
+          keyboardType="numeric"
+        />
+
         <View style={styles.modalButtons}>
           <Button
             title="Cancel"
@@ -542,6 +594,9 @@ const HealthScreen = () => {
               setShowFoodModal(false);
               setFoodName('');
               setFoodCalories('');
+              setFoodProtein('');
+              setFoodCarbs('');
+              setFoodFat('');
             }}
             style={styles.modalButton}
           />
@@ -869,6 +924,11 @@ const createStyles = () => StyleSheet.create({
   foodCal: {
     ...typography.bodySmall,
     color: colors.textSecondary,
+  },
+  foodMacros: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   logFoodButton: {
     flexDirection: 'row',

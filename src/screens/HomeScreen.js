@@ -413,11 +413,11 @@ const HomeScreen = () => {
               activeOpacity={0.8}
               onPress={() => navigation.navigate('FocusMode')}
             >
-              <View style={styles.focusIconWrap}>
-                <Ionicons name="timer" size={22} color="#FFFFFF" />
+              <View style={[styles.focusIconWrap, styles.focusIconWrapAccent]}>
+                <Ionicons name="timer" size={22} color="#1d54de" />
               </View>
               <View style={styles.focusTextWrap}>
-                <Text style={styles.focusLabel}>Focus mode</Text>
+                <Text style={[styles.focusLabel, styles.focusAccentText]}>Focus mode</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
             </TouchableOpacity>
@@ -429,11 +429,11 @@ const HomeScreen = () => {
               activeOpacity={0.8}
               onPress={() => navigation.navigate('CountdownTimer')}
             >
-              <View style={styles.focusIconWrap}>
-                <Ionicons name="hourglass" size={22} color="#FFFFFF" />
+              <View style={[styles.focusIconWrap, styles.countdownIconWrapAccent]}>
+                <Ionicons name="hourglass" size={22} color="#b86f16" />
               </View>
               <View style={styles.focusTextWrap}>
-                <Text style={styles.focusLabel}>Countdown Timer</Text>
+                <Text style={[styles.focusLabel, styles.countdownAccentText]}>Countdown Timer</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
             </TouchableOpacity>
@@ -1319,8 +1319,8 @@ const createStyles = (themeColorsParam = colors) => {
       borderColor: themeColorsParam?.border || colors.border || '#E5E7EB',
     },
     focusCard: {
-      backgroundColor: '#2e2eb8',
-      borderColor: '#2e2eb8',
+      backgroundColor: sectionCardColor,
+      borderColor: sectionBorderColor,
       flex: 1,
     },
     focusRow: {
@@ -1337,6 +1337,9 @@ const createStyles = (themeColorsParam = colors) => {
       justifyContent: 'center',
       marginRight: spacing.md,
     },
+    focusIconWrapAccent: {
+      backgroundColor: 'rgba(29, 84, 222, 0.12)',
+    },
     focusTextWrap: {
       flex: 1,
     },
@@ -1345,14 +1348,25 @@ const createStyles = (themeColorsParam = colors) => {
       color: '#FFFFFF',
       marginBottom: 2,
     },
+    focusAccentText: {
+      color: '#1d54de',
+      fontWeight: '700',
+    },
     focusValue: {
       ...typography.h2,
       color: '#FFFFFF',
     },
     countdownCard: {
-      backgroundColor: '#4d2600',
-      borderColor: '#4d2600',
+      backgroundColor: sectionCardColor,
+      borderColor: sectionBorderColor,
       flex: 1,
+    },
+    countdownIconWrapAccent: {
+      backgroundColor: 'rgba(184, 111, 22, 0.12)',
+    },
+    countdownAccentText: {
+      color: '#b86f16',
+      fontWeight: '700',
     },
     focusButton: {
       paddingVertical: spacing.sm,

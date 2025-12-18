@@ -1552,6 +1552,16 @@ const isHabitCompletedToday = (habitId) => {
       return;
     }
 
+    const hasAnyStreak = habits.some((h) => (h.streak || 0) > 0);
+    if (!hasAnyStreak) {
+      // Nothing to freeze; ensure we aren't stuck in a frozen state and record activity.
+      if (streakFrozen) {
+        await persistStreakFrozenState(false);
+      }
+      await writeLastActive(userId, now);
+      return;
+    }
+
     const lastActiveStart = new Date(lastActive.toDateString());
     const dayDiff = Math.max(
       Math.floor((todayStart.getTime() - lastActiveStart.getTime()) / (24 * 60 * 60 * 1000)),
@@ -1576,7 +1586,7 @@ const isHabitCompletedToday = (habitId) => {
     }
 
     await writeLastActive(userId, now);
-  }, [authUser?.id, profile?.isPremium, profile?.plan, profile?.premiumExpiresAt, profile?.premium_expires_at, profileLoaded, resetAllHabitStreaks, persistStreakFrozenState, streakFrozen]);
+  }, [authUser?.id, profile?.isPremium, profile?.plan, profile?.premiumExpiresAt, profile?.premium_expires_at, profileLoaded, resetAllHabitStreaks, persistStreakFrozenState, streakFrozen, habits]);
 
 const fetchTasksFromSupabase = async (userId) => {
   const { data, error } = await supabase
@@ -1961,6 +1971,9 @@ const fetchHealthFromSupabase = async (userId) => {
       id: row.id,
       name: row.name,
       calories: row.calories,
+      proteinGrams: asNumber(row.protein_grams, null),
+      carbsGrams: asNumber(row.carbs_grams, null),
+      fatGrams: asNumber(row.fat_grams, null),
       timestamp: row.created_at,
       healthDayId: row.health_day_id,
       date: row.date,
@@ -2118,30 +2131,66 @@ const addFoodEntryForDate = async (dateISO, food) => {
 
   const healthDayRecord = await upsertHealthDayRecord(dayKey, baseDay);
   const healthDayId = healthDayRecord?.id || baseDay.healthDayId;
-
-  const newFood = {
-    ...food,
-    id: Date.now().toString(),
-    timestamp: new Date().toISOString(),
+  const normalizeMacro = (value) => {
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'string' && value.trim() === '') return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
   };
 
-  const insertPayload = {
+  const normalizedFood = {
+    ...food,
+    calories: asNumber(food.calories, 0) || 0,
+    proteinGrams: normalizeMacro(food.proteinGrams),
+    carbsGrams: normalizeMacro(food.carbsGrams),
+    fatGrams: normalizeMacro(food.fatGrams),
+  };
+
+  const nowISO = new Date().toISOString();
+  const newFood = {
+    ...normalizedFood,
+    id: Date.now().toString(),
+    timestamp: nowISO,
+  };
+
+  const insertPayload = pruneUndefined({
     user_id: authUser?.id,
     health_day_id: healthDayId,
     date: dayKey,
     name: newFood.name,
     calories: newFood.calories,
-    created_at: new Date().toISOString(),
-  };
+    protein_grams: newFood.proteinGrams,
+    carbs_grams: newFood.carbsGrams,
+    fat_grams: newFood.fatGrams,
+    created_at: nowISO,
+  });
 
-  const { data: foodRow, error } = await supabase
-    .from('health_food_entries')
-    .insert(insertPayload)
-    .select()
-    .single();
+  const insertFoodEntry = async (payload) =>
+    supabase.from('health_food_entries').insert(payload).select().single();
 
-  if (error) {
-    console.log('Error saving food entry:', error);
+  let foodRow = null;
+  let insertError = null;
+  const firstInsert = await insertFoodEntry(insertPayload);
+  foodRow = firstInsert.data;
+  insertError = firstInsert.error;
+
+  // If macro columns are missing in the DB, retry without them so food logging still works
+  if (insertError && insertError.code === '42703') {
+    const fallbackPayload = {
+      user_id: authUser?.id,
+      health_day_id: healthDayId,
+      date: dayKey,
+      name: newFood.name,
+      calories: newFood.calories,
+      created_at: nowISO,
+    };
+    const retry = await insertFoodEntry(fallbackPayload);
+    foodRow = retry.data;
+    insertError = retry.error;
+  }
+
+  if (insertError) {
+    console.log('Error saving food entry:', insertError);
   }
 
   const savedFood = {
