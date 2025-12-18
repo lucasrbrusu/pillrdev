@@ -231,7 +231,7 @@ const Navigation = () => {
             options={{
               gestureEnabled: true,
               gestureDirection: 'horizontal',
-              gestureResponseDistance: { horizontal: FRIENDS_GESTURE_DISTANCE },
+              gestureResponseDistance: FRIENDS_GESTURE_DISTANCE,
             }}
           />
           <Stack.Screen name="Insights" component={InsightsScreen} />
