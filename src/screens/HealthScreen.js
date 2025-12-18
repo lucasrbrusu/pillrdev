@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { Camera, CameraView, useCameraPermissions } from 'expo-camera';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
 import { Card, Modal, Button, Input, PlatformScrollView, PlatformTimePicker } from '../components';
@@ -29,6 +30,13 @@ const MOOD_OPTIONS = [
   { label: 'Overjoyed', emoji: '🤩' },
 ];
 
+// Basic offline mapping so scans can populate fields without a network call.
+// Replace/extend this with your own lookup or API integration.
+const BARCODE_FOOD_MAP = {
+  '012345678905': { name: 'Granola Bar', calories: 190, proteinGrams: 6, carbsGrams: 29, fatGrams: 5 },
+  '04963406': { name: 'Greek Yogurt', calories: 100, proteinGrams: 17, carbsGrams: 6, fatGrams: 0 },
+};
+
 const HealthScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -54,6 +62,9 @@ const HealthScreen = () => {
   const [foodProtein, setFoodProtein] = useState('');
   const [foodCarbs, setFoodCarbs] = useState('');
   const [foodFat, setFoodFat] = useState('');
+  const [showScannerModal, setShowScannerModal] = useState(false);
+  const [hasScanned, setHasScanned] = useState(false);
+  const [scannerMessage, setScannerMessage] = useState('');
   const [showMoodModal, setShowMoodModal] = useState(false);
   const [selectedMoodIndex, setSelectedMoodIndex] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -78,6 +89,9 @@ const HealthScreen = () => {
 
   const [showSleepTimePicker, setShowSleepTimePicker] = useState(false);
   const [sleepTimeTarget, setSleepTimeTarget] = useState(null);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions
+    ? useCameraPermissions()
+    : [null, null];
 
   const openSleepTimePicker = (target) => {
     setSleepTimeTarget(target);
@@ -143,6 +157,117 @@ const HealthScreen = () => {
     setFoodCarbs('');
     setFoodFat('');
     setShowFoodModal(false);
+  };
+
+  const applyScannedFood = (payload) => {
+    if (!payload) return;
+    if (payload.name) setFoodName(payload.name);
+    if (payload.calories !== undefined && payload.calories !== null) {
+      setFoodCalories(String(payload.calories));
+    }
+    if (payload.proteinGrams !== undefined && payload.proteinGrams !== null) {
+      setFoodProtein(String(payload.proteinGrams));
+    }
+    if (payload.carbsGrams !== undefined && payload.carbsGrams !== null) {
+      setFoodCarbs(String(payload.carbsGrams));
+    }
+    if (payload.fatGrams !== undefined && payload.fatGrams !== null) {
+      setFoodFat(String(payload.fatGrams));
+    }
+  };
+
+  const lookupFoodByBarcode = (rawData) => {
+    const code = (rawData || '').trim();
+    if (!code) return null;
+    if (BARCODE_FOOD_MAP[code]) return BARCODE_FOOD_MAP[code];
+
+    try {
+      const parsed = JSON.parse(code);
+      if (parsed && parsed.name) {
+        return {
+          name: parsed.name,
+          calories: parsed.calories ?? null,
+          proteinGrams: parsed.protein ?? parsed.proteinGrams ?? null,
+          carbsGrams: parsed.carbs ?? parsed.carbsGrams ?? null,
+          fatGrams: parsed.fat ?? parsed.fatGrams ?? null,
+        };
+      }
+    } catch (err) {
+      // Not JSON, continue to next strategy
+    }
+
+    const parts = code.split('|').map((p) => p.trim());
+    if (parts.length >= 5) {
+      const [namePart, calPart, proteinPart, carbPart, fatPart] = parts;
+      const toNum = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+      };
+      return {
+        name: namePart || undefined,
+        calories: toNum(calPart),
+        proteinGrams: toNum(proteinPart),
+        carbsGrams: toNum(carbPart),
+        fatGrams: toNum(fatPart),
+      };
+    }
+
+    return null;
+  };
+
+  const handleBarCodeScanned = ({ data }) => {
+    setHasScanned(true);
+    const match = lookupFoodByBarcode(data);
+    if (match) {
+      applyScannedFood(match);
+      setScannerMessage('Food details added from barcode.');
+      setShowScannerModal(false);
+      setHasScanned(false);
+      return;
+    }
+    setScannerMessage('No saved match for that code. Fill manually or update BARCODE_FOOD_MAP.');
+    setTimeout(() => setHasScanned(false), 1200);
+  };
+
+  const handleOpenScanner = async () => {
+    setScannerMessage('');
+    setHasScanned(false);
+    // Close the Log Food modal first so the scanner modal can render immediately on top
+    setShowFoodModal(false);
+    setTimeout(() => setShowScannerModal(true), 0);
+    if (!CameraView) {
+      Alert.alert(
+        'Scanner unavailable',
+        'Camera module is missing. Please install expo-camera with "npx expo install expo-camera" and restart.'
+      );
+      return;
+    }
+    try {
+      let permission = cameraPermission;
+      if (permission?.granted !== true) {
+        if (typeof requestCameraPermission === 'function') {
+          permission = await requestCameraPermission();
+        } else if (typeof Camera?.requestCameraPermissionsAsync === 'function') {
+          permission = await Camera.requestCameraPermissionsAsync();
+        }
+      }
+
+      if (!permission || permission.granted !== true) {
+        Alert.alert('Camera permission needed', 'Please enable camera access to scan barcodes.');
+        setScannerMessage('Camera permission is required to scan barcodes.');
+        return;
+      }
+    } catch (err) {
+      setScannerMessage('Unable to access camera for scanning.');
+    }
+  };
+
+  const handleCloseScanner = () => {
+    setShowScannerModal(false);
+    setHasScanned(false);
+    setScannerMessage('');
+    // Return to the Log Food modal when closing scanner
+    setTimeout(() => setShowFoodModal(true), 0);
   };
 
   const selectedDateISO = selectedDate.toISOString().slice(0, 10);
@@ -562,28 +687,41 @@ const HealthScreen = () => {
           keyboardType="numeric"
         />
 
-        <Input
-          label="Protein (g)"
-          value={foodProtein}
-          onChangeText={setFoodProtein}
-          placeholder="Optional"
-          keyboardType="numeric"
-        />
+        <View style={styles.macrosRow}>
+          <Input
+            label="Protein (g)"
+            value={foodProtein}
+            onChangeText={setFoodProtein}
+            placeholder="Optional"
+            keyboardType="numeric"
+            containerStyle={styles.macroInput}
+          />
 
-        <Input
-          label="Carbs (g)"
-          value={foodCarbs}
-          onChangeText={setFoodCarbs}
-          placeholder="Optional"
-          keyboardType="numeric"
-        />
+          <Input
+            label="Carbs (g)"
+            value={foodCarbs}
+            onChangeText={setFoodCarbs}
+            placeholder="Optional"
+            keyboardType="numeric"
+            containerStyle={styles.macroInput}
+          />
 
-        <Input
-          label="Fat (g)"
-          value={foodFat}
-          onChangeText={setFoodFat}
+          <Input
+            label="Fat (g)"
+            value={foodFat}
+            onChangeText={setFoodFat}
           placeholder="Optional"
           keyboardType="numeric"
+          containerStyle={[styles.macroInput, styles.macroInputLast]}
+        />
+      </View>
+
+        <Button
+          title="Scan Barcode"
+          icon="barcode-outline"
+          onPress={handleOpenScanner}
+          style={styles.scanButton}
+          variant="secondary"
         />
 
         <View style={styles.modalButtons}>
@@ -607,6 +745,70 @@ const HealthScreen = () => {
             style={styles.modalButton}
           />
         </View>
+      </Modal>
+
+      {/* Barcode Scanner Modal */}
+      <Modal
+        visible={showScannerModal}
+        onClose={handleCloseScanner}
+        title="Scan Barcode"
+        fullScreen
+      >
+        {!CameraView ? (
+          <View style={styles.scannerState}>
+            <Text style={styles.scannerMessageText}>
+              Barcode scanner module not available. Install expo-camera and restart the app.
+            </Text>
+            <Button
+              title="Close"
+              variant="secondary"
+              onPress={handleCloseScanner}
+              style={{ marginTop: spacing.md }}
+            />
+          </View>
+        ) : cameraPermission?.granted !== true ? (
+          <View style={styles.scannerState}>
+            <Text style={styles.scannerMessageText}>Camera permission is required to scan barcodes.</Text>
+            <Button
+              title="Grant Permission"
+              onPress={handleOpenScanner}
+              style={{ marginTop: spacing.md }}
+            />
+            <Button
+              title="Close"
+              variant="secondary"
+              onPress={handleCloseScanner}
+              style={{ marginTop: spacing.md }}
+            />
+          </View>
+        ) : (
+          <View style={styles.scannerContainer}>
+            <View style={styles.scannerFrame}>
+              <CameraView
+                style={StyleSheet.absoluteFillObject}
+                onBarcodeScanned={hasScanned ? undefined : handleBarCodeScanned}
+                barcodeScannerSettings={{
+                  barcodeTypes: ['qr', 'ean13', 'ean8', 'upc_a', 'upc_e', 'code39', 'code128'],
+                }}
+              />
+              <View style={styles.scannerOverlayTop} />
+              <View style={styles.scannerOverlayMiddle}>
+                <View style={styles.scannerOverlaySide} />
+                <View style={styles.scannerGuide} />
+                <View style={styles.scannerOverlaySide} />
+              </View>
+              <View style={styles.scannerOverlayBottom} />
+            </View>
+            <Text style={styles.scannerHint}>Align the barcode within the square to auto-fill the food fields.</Text>
+            {!!scannerMessage && <Text style={styles.scannerMessageText}>{scannerMessage}</Text>}
+            <Button
+              title="Close Scanner"
+              variant="secondary"
+              onPress={handleCloseScanner}
+              style={{ marginTop: spacing.md }}
+            />
+          </View>
+        )}
       </Modal>
 
       {/* Mood Picker Modal */}
@@ -1035,6 +1237,81 @@ const createStyles = () => StyleSheet.create({
   modalButton: {
     flex: 1,
     marginHorizontal: spacing.xs,
+  },
+  macrosRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: spacing.lg,
+  },
+  macroInput: {
+    flex: 1,
+    marginRight: spacing.sm,
+    marginBottom: 0,
+  },
+  macroInputLast: {
+    marginRight: 0,
+  },
+  scanButton: {
+    marginBottom: spacing.md,
+  },
+  scannerContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.lg,
+  },
+  scannerFrame: {
+    width: '100%',
+    aspectRatio: 1,
+    maxWidth: 320,
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: colors.border,
+    backgroundColor: colors.inputBackground,
+  },
+  scannerOverlayTop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  scannerOverlayBottom: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  scannerOverlayMiddle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: '50%',
+  },
+  scannerOverlaySide: {
+    flex: 1,
+    height: '100%',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  scannerGuide: {
+    width: '60%',
+    height: '100%',
+    borderWidth: 2,
+    borderColor: colors.primary,
+    borderRadius: borderRadius.md,
+  },
+  scannerHint: {
+    ...typography.bodySmall,
+    color: colors.textSecondary,
+    marginTop: spacing.md,
+    textAlign: 'center',
+  },
+  scannerMessageText: {
+    ...typography.bodySmall,
+    color: colors.text,
+    marginTop: spacing.sm,
+    textAlign: 'center',
+  },
+  scannerState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.lg,
   },
 });
 
