@@ -30,7 +30,9 @@ const Modal = ({
   const insets = useSafeAreaInsets();
   const bottomInset = insets.bottom > 0 ? insets.bottom : spacing.lg;
   const contentBottomPadding = bottomInset + spacing.xl;
-  const headerTopOffset = fullScreen ? '8%' : 0;
+  const headerTopOffset = fullScreen ? insets.top + spacing.lg : 0;
+  const keyboardBehavior =
+    Platform.OS === 'ios' ? 'padding' : fullScreen ? 'padding' : 'height';
   const contentTopPadding = 0;
 
   return (
@@ -40,14 +42,15 @@ const Modal = ({
       animationType="slide"
       onRequestClose={onClose}
     >
-      <View style={styles.overlay}>
+      <View style={[styles.overlay, fullScreen && styles.overlayFullScreen]}>
         <TouchableWithoutFeedback onPress={onClose}>
           <View style={styles.backdrop} />
         </TouchableWithoutFeedback>
 
         <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            behavior={keyboardBehavior}
+            keyboardVerticalOffset={fullScreen ? insets.top : 0}
             style={[
               styles.modalContainer,
               fullScreen && styles.fullScreen,
@@ -103,6 +106,9 @@ const createStyles = (themeColors) =>
     overlay: {
       flex: 1,
       justifyContent: 'flex-end',
+    },
+    overlayFullScreen: {
+      justifyContent: 'flex-start',
     },
     backdrop: {
       ...StyleSheet.absoluteFillObject,
