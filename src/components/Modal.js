@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  PanResponder,
 } from 'react-native';
 import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,6 +25,7 @@ const Modal = ({
   children,
   showCloseButton = true,
   fullScreen = false,
+  swipeToCloseEnabled = true,
 }) => {
   const { themeColors } = useApp();
   const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
@@ -34,6 +36,28 @@ const Modal = ({
   const keyboardBehavior =
     Platform.OS === 'ios' ? 'padding' : fullScreen ? 'padding' : 'height';
   const contentTopPadding = 0;
+  const panResponder = React.useMemo(() => {
+    if (!swipeToCloseEnabled || !onClose) return null;
+    return PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gesture) => {
+        const { dx, dy } = gesture;
+        const absDx = Math.abs(dx);
+        const absDy = Math.abs(dy);
+        // Only capture when the gesture is primarily horizontal to avoid fighting scroll
+        return absDx > 12 && absDx > absDy;
+      },
+      onPanResponderRelease: (_, gesture) => {
+        const { dx, vx, dy } = gesture;
+        const absDx = Math.abs(dx);
+        const absDy = Math.abs(dy);
+        const velocity = Math.abs(vx);
+        const dominantHorizontal = absDx > absDy;
+        if (dominantHorizontal && absDx > 50 && velocity > 0.1) {
+          onClose();
+        }
+      },
+    });
+  }, [onClose, swipeToCloseEnabled]);
 
   return (
     <RNModal
@@ -47,67 +71,66 @@ const Modal = ({
           <View style={styles.backdrop} />
         </TouchableWithoutFeedback>
 
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-          <KeyboardAvoidingView
-            behavior={keyboardBehavior}
-            keyboardVerticalOffset={fullScreen ? insets.top : 0}
+        <KeyboardAvoidingView
+          behavior={keyboardBehavior}
+          keyboardVerticalOffset={fullScreen ? insets.top : 0}
+          style={[
+            styles.modalContainer,
+            fullScreen && styles.fullScreen,
+            {
+              paddingBottom: bottomInset,
+              backgroundColor: themeColors.background,
+            },
+          ]}
+          {...(panResponder ? panResponder.panHandlers : {})}
+        >
+          <View
             style={[
-              styles.modalContainer,
-              fullScreen && styles.fullScreen,
-              {
-                paddingBottom: bottomInset,
-                backgroundColor: themeColors.background,
-              },
+              styles.header,
+              fullScreen && { marginTop: headerTopOffset },
             ]}
           >
-            <View
-              style={[
-                styles.header,
-                fullScreen && { marginTop: headerTopOffset },
-              ]}
-            >
-              <Text style={styles.title}>{title}</Text>
-              {showCloseButton && (
-                <TouchableOpacity
-                  style={styles.closeButton}
-                  onPress={onClose}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <Ionicons name="close" size={24} color={colors.textSecondary} />
-                </TouchableOpacity>
-              )}
-            </View>
-            {fullScreen ? (
-              <ScrollView
-                style={[styles.content, styles.fullScreenContent]}
-                contentContainerStyle={[
-                  styles.fullScreenContentContainer,
-                  { paddingBottom: contentBottomPadding, paddingTop: contentTopPadding },
-                ]}
-                showsVerticalScrollIndicator
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
-                nestedScrollEnabled
-                overScrollMode="always"
-                scrollEventThrottle={16}
+            <Text style={styles.title}>{title}</Text>
+            {showCloseButton && (
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={onClose}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                {children}
-              </ScrollView>
-            ) : (
-              <ScrollView
-                style={styles.content}
-                contentContainerStyle={{
-                  paddingBottom: contentBottomPadding,
-                  paddingTop: contentTopPadding,
-                }}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                {children}
-              </ScrollView>
+                <Ionicons name="close" size={24} color={colors.textSecondary} />
+              </TouchableOpacity>
             )}
-          </KeyboardAvoidingView>
-        </TouchableWithoutFeedback>
+          </View>
+          {fullScreen ? (
+            <ScrollView
+              style={[styles.content, styles.fullScreenContent]}
+              contentContainerStyle={[
+                styles.fullScreenContentContainer,
+                { paddingBottom: contentBottomPadding, paddingTop: contentTopPadding },
+              ]}
+              showsVerticalScrollIndicator
+              keyboardShouldPersistTaps="always"
+              keyboardDismissMode="on-drag"
+              nestedScrollEnabled
+              overScrollMode="always"
+              scrollEventThrottle={16}
+            >
+              {children}
+            </ScrollView>
+          ) : (
+            <ScrollView
+              style={styles.content}
+              contentContainerStyle={{
+                paddingBottom: contentBottomPadding,
+                paddingTop: contentTopPadding,
+              }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {children}
+            </ScrollView>
+          )}
+        </KeyboardAvoidingView>
       </View>
     </RNModal>
   );
