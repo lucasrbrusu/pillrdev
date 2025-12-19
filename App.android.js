@@ -1,6 +1,7 @@
 import React from 'react';
-import { StatusBar, View } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AppProvider, useApp } from './src/context/AppContext';
 import Navigation from './src/navigation';
@@ -9,21 +10,14 @@ const AppContent = () => {
   const { themeColors, themeName } = useApp();
 
   return (
-    <SafeAreaView
-      style={{ flex: 1, backgroundColor: themeColors.background }}
-      // Use top/side insets only; bottom spacing is handled inside nav so it
-      // can respond when Android system buttons hide or show.
-      edges={['top', 'left', 'right']}
-    >
+    <View style={{ flex: 1, backgroundColor: themeColors.background }}>
       <StatusBar
+        style={themeName === 'dark' ? 'light' : 'dark'}
         backgroundColor={themeColors.background}
-        barStyle={themeName === 'dark' ? 'light-content' : 'dark-content'}
-        translucent={false}
+        translucent
       />
-      <View style={{ flex: 1, backgroundColor: themeColors.background }}>
-        <Navigation />
-      </View>
-    </SafeAreaView>
+      <Navigation />
+    </View>
   );
 };
 
