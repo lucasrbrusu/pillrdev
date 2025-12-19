@@ -84,8 +84,12 @@ const Modal = ({
                   styles.fullScreenContentContainer,
                   { paddingBottom: contentBottomPadding, paddingTop: contentTopPadding },
                 ]}
-                showsVerticalScrollIndicator={false}
+                showsVerticalScrollIndicator
                 keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+                nestedScrollEnabled
+                overScrollMode="always"
+                scrollEventThrottle={16}
               >
                 {children}
               </ScrollView>
@@ -157,6 +161,7 @@ const createStyles = (themeColors) =>
     },
     fullScreenContentContainer: {
       flexGrow: 1,
+      minHeight: '100%',
     },
   });
 
