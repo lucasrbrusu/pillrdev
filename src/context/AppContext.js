@@ -22,6 +22,7 @@ import {
   formatFriendlyDateTime,
   formatTimeFromDate,
 } from '../utils/notifications';
+import uuid from 'react-native-uuid';
 
 const AppContext = createContext();
 
@@ -44,6 +45,8 @@ const STORAGE_KEYS = {
   REMINDERS: '@pillr_reminders',
   GROCERIES: '@pillr_groceries',
   FINANCES: '@pillr_finances',
+  BUDGETS: '@pillr_budgets',
+  BUDGET_ASSIGNMENTS: '@pillr_budget_assignments',
   PROFILE: '@pillr_profile',
   THEME: '@pillr_theme',
   AUTH_USER: '@pillr_auth_user',
@@ -268,6 +271,8 @@ export const AppProvider = ({ children }) => {
 
   // Finance State
   const [finances, setFinances] = useState([]);
+  const [budgetGroups, setBudgetGroups] = useState([]);
+  const [budgetAssignments, setBudgetAssignments] = useState({});
 
   // Social/Friends State
   const [friends, setFriends] = useState([]);
@@ -402,6 +407,8 @@ const loadUserDataFromSupabase = async (userId) => {
       fetchRemindersFromSupabase(userId),
       fetchGroceriesFromSupabase(userId),
       fetchFinancesFromSupabase(userId),
+      fetchBudgetGroupsFromSupabase(userId),
+      fetchBudgetAssignmentsFromSupabase(userId),
     ]);
 
     // Load user-scoped cached food logs (offline entries) after Supabase fetch
@@ -434,6 +441,8 @@ const loadUserDataFromSupabase = async (userId) => {
       setReminders([]);
       setGroceries([]);
       setFinances([]);
+      setBudgetGroups([]);
+      setBudgetAssignments({});
       setFriends([]);
       setFriendRequests({ incoming: [], outgoing: [], responses: [] });
       setTaskInvites({ incoming: [], outgoing: [], responses: [] });
@@ -2834,6 +2843,400 @@ const clearCompletedGroceries = async () => {
 
 
 
+const getBudgetStorageKey = (userId) =>
+  `${STORAGE_KEYS.BUDGETS}_${userId || 'anon'}`;
+
+const persistBudgetGroupsLocally = async (data, userIdParam) => {
+  const userId = userIdParam || authUser?.id;
+  if (!userId) return;
+  await saveToStorage(getBudgetStorageKey(userId), data);
+};
+
+const hydrateBudgetGroups = async (userId) => {
+  if (!userId) {
+    setBudgetGroups([]);
+    return;
+  }
+
+  const stored = await AsyncStorage.getItem(getBudgetStorageKey(userId));
+  if (!stored) {
+    setBudgetGroups([]);
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(stored);
+    if (Array.isArray(parsed)) {
+      setBudgetGroups(parsed);
+    } else {
+      setBudgetGroups([]);
+    }
+  } catch (err) {
+    console.log('Error parsing cached budgets', err);
+    setBudgetGroups([]);
+  }
+};
+
+const fetchBudgetGroupsFromSupabase = async (userId) => {
+  if (!userId) return;
+  const { data, error } = await supabase
+    .from('budget_groups')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.log('Error fetching budget groups:', error);
+    await hydrateBudgetGroups(userId);
+    return;
+  }
+
+  const mapped = (data || []).map((row) => ({
+    id: row.id,
+    name: row.name || 'Budget group',
+    type: row.type || 'budget',
+    cadence: row.cadence || 'monthly',
+    target: Number(row.target) || 0,
+    categories: Array.isArray(row.categories)
+      ? row.categories
+      : row.categories
+      ? [].concat(row.categories)
+      : [],
+    currency: row.currency || userSettings.defaultCurrencyCode || 'USD',
+    note: row.note || '',
+    recurringPayments: Array.isArray(row.recurring_payments)
+      ? row.recurring_payments
+      : [],
+    startDate: row.start_date || row.created_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+
+  setBudgetGroups(mapped);
+  persistBudgetGroupsLocally(mapped, userId);
+};
+
+const getBudgetWindow = (cadence = 'monthly', referenceDate = new Date()) => {
+  const today = referenceDate instanceof Date ? referenceDate : new Date(referenceDate);
+  const start = new Date(today);
+  const end = new Date(today);
+
+  if (cadence === 'weekly') {
+    const day = today.getDay();
+    start.setDate(today.getDate() - day);
+    start.setHours(0, 0, 0, 0);
+    end.setTime(start.getTime());
+    end.setDate(start.getDate() + 7);
+    return { start, end };
+  }
+
+  if (cadence === 'yearly') {
+    start.setMonth(0, 1);
+    start.setHours(0, 0, 0, 0);
+    end.setFullYear(start.getFullYear() + 1, 0, 1);
+    end.setHours(0, 0, 0, 0);
+    return { start, end };
+  }
+
+  // Default monthly
+  start.setDate(1);
+  start.setHours(0, 0, 0, 0);
+  end.setMonth(start.getMonth() + 1, 1);
+  end.setHours(0, 0, 0, 0);
+  return { start, end };
+};
+
+const getBudgetAssignmentKey = (userId) =>
+  `${STORAGE_KEYS.BUDGET_ASSIGNMENTS}_${userId || 'anon'}`;
+
+const persistBudgetAssignmentsLocally = async (data, userIdParam) => {
+  const userId = userIdParam || authUser?.id;
+  if (!userId) return;
+  await saveToStorage(getBudgetAssignmentKey(userId), data);
+};
+
+const hydrateBudgetAssignments = async (userId) => {
+  if (!userId) {
+    setBudgetAssignments({});
+    return;
+  }
+  const stored = await AsyncStorage.getItem(getBudgetAssignmentKey(userId));
+  if (!stored) {
+    setBudgetAssignments({});
+    return;
+  }
+  try {
+    const parsed = JSON.parse(stored);
+    setBudgetAssignments(parsed && typeof parsed === 'object' ? parsed : {});
+  } catch (err) {
+    console.log('Error parsing budget assignments', err);
+    setBudgetAssignments({});
+  }
+};
+
+const fetchBudgetAssignmentsFromSupabase = async (userId) => {
+  if (!userId) return;
+  const { data, error } = await supabase
+    .from('budget_group_transactions')
+    .select('*')
+    .eq('user_id', userId);
+
+  if (error) {
+    console.log('Error fetching budget assignments:', error);
+    await hydrateBudgetAssignments(userId);
+    return;
+  }
+
+  const map = {};
+  (data || []).forEach((row) => {
+    const txId = row.transaction_id;
+    if (!txId) return;
+    if (!map[txId]) map[txId] = [];
+    map[txId].push(row.group_id);
+  });
+
+  setBudgetAssignments(map);
+  persistBudgetAssignmentsLocally(map, userId);
+};
+
+const getBudgetSpendForGroup = useCallback(
+  (group, referenceDate = new Date()) => {
+    if (!group) {
+      return { spent: 0, start: null, end: null, income: 0 };
+    }
+
+    const { start, end } = getBudgetWindow(group.cadence, referenceDate);
+
+    const inWindow = finances.filter((t) => {
+      const ts = new Date(t.date || t.createdAt);
+      return ts >= start && ts < end;
+    });
+
+    const spent = inWindow
+      .filter((t) => t.type === 'expense')
+      .filter((t) => {
+        const assigned = budgetAssignments?.[t.id] || [];
+        return assigned.includes(group.id);
+      })
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+    const income = 0;
+
+    return { spent, start, end, income };
+  },
+  [finances, budgetAssignments]
+);
+
+const linkTransactionToBudgetGroups = async (transactionId, groupIds = []) => {
+  if (!authUser?.id || !transactionId) return;
+  const clean = Array.isArray(groupIds)
+    ? groupIds.filter(Boolean)
+    : [];
+  try {
+    await supabase
+      .from('budget_group_transactions')
+      .delete()
+      .eq('user_id', authUser.id)
+      .eq('transaction_id', transactionId);
+
+    if (clean.length) {
+      const rows = clean.map((groupId) => ({
+        id: uuid.v4(),
+        user_id: authUser.id,
+        transaction_id: transactionId,
+        group_id: groupId,
+      }));
+      await supabase
+        .from('budget_group_transactions')
+        .upsert(rows, { onConflict: 'transaction_id,group_id' });
+    }
+  } catch (err) {
+    console.log('Error syncing budget assignments:', err);
+  }
+
+  setBudgetAssignments((prev) => {
+    const next = { ...prev };
+    if (!clean.length) {
+      delete next[transactionId];
+    } else {
+      next[transactionId] = clean;
+    }
+    persistBudgetAssignmentsLocally(next, authUser.id);
+    return next;
+  });
+};
+
+const addBudgetGroup = async (payload = {}) => {
+  if (!authUser?.id) {
+    throw new Error('You must be logged in to add a budget.');
+  }
+
+  const nowISO = new Date().toISOString();
+  const insertPayload = {
+    user_id: authUser.id,
+    name: payload.name?.trim() || 'Budget group',
+    type: payload.type === 'recurring' ? 'recurring' : 'budget',
+    cadence: payload.cadence || 'monthly',
+    target: Number(payload.target) || 0,
+    categories: Array.isArray(payload.categories)
+      ? payload.categories.filter(Boolean)
+      : [],
+    currency: payload.currency || userSettings.defaultCurrencyCode || 'USD',
+    note: payload.note || '',
+    recurring_payments: Array.isArray(payload.recurringPayments)
+      ? payload.recurringPayments
+      : [],
+    start_date: payload.startDate || nowISO,
+  };
+
+  const { data, error } = await supabase
+    .from('budget_groups')
+    .insert(insertPayload)
+    .select()
+    .single();
+
+  if (error) {
+    console.log('Error adding budget group:', error);
+    throw error;
+  }
+
+  const newGroup = {
+    id: data.id,
+    name: data.name,
+    type: data.type,
+    cadence: data.cadence,
+    target: Number(data.target) || 0,
+    categories: Array.isArray(data.categories) ? data.categories : [],
+    currency: data.currency,
+    note: data.note,
+    recurringPayments: Array.isArray(data.recurring_payments)
+      ? data.recurring_payments
+      : [],
+    startDate: data.start_date || nowISO,
+    createdAt: data.created_at || nowISO,
+    updatedAt: data.updated_at || nowISO,
+  };
+
+  setBudgetGroups((prev) => {
+    const next = [...prev, newGroup];
+    persistBudgetGroupsLocally(next, authUser.id);
+    return next;
+  });
+
+  return newGroup;
+};
+
+const updateBudgetGroup = async (groupId, updates = {}) => {
+  if (!authUser?.id) return null;
+  let updated = null;
+
+  const updatePayload = {
+    name: updates.name,
+    type: updates.type,
+    cadence: updates.cadence,
+    target: updates.target,
+    categories: updates.categories,
+    currency: updates.currency,
+    note: updates.note,
+    recurring_payments: updates.recurringPayments,
+    start_date: updates.startDate,
+    updated_at: new Date().toISOString(),
+  };
+
+  await supabase
+    .from('budget_groups')
+    .update(updatePayload)
+    .eq('id', groupId)
+    .eq('user_id', authUser.id);
+
+  setBudgetGroups((prev) => {
+    const next = prev.map((group) => {
+      if (group.id !== groupId) return group;
+      updated = {
+        ...group,
+        ...updates,
+        updatedAt: new Date().toISOString(),
+      };
+      return updated;
+    });
+    persistBudgetGroupsLocally(next, authUser.id);
+    return next;
+  });
+
+  return updated;
+};
+
+const deleteBudgetGroup = async (groupId) => {
+  if (!authUser?.id) return;
+
+  await supabase
+    .from('budget_group_transactions')
+    .delete()
+    .eq('group_id', groupId)
+    .eq('user_id', authUser.id);
+
+  await supabase
+    .from('budget_groups')
+    .delete()
+    .eq('id', groupId)
+    .eq('user_id', authUser.id);
+
+  setBudgetGroups((prev) => {
+    const next = prev.filter((g) => g.id !== groupId);
+    persistBudgetGroupsLocally(next, authUser.id);
+    return next;
+  });
+
+  setBudgetAssignments((prev) => {
+    const next = {};
+    Object.entries(prev || {}).forEach(([txId, groupIds]) => {
+      const filtered = (groupIds || []).filter((gid) => gid !== groupId);
+      if (filtered.length) next[txId] = filtered;
+    });
+    persistBudgetAssignmentsLocally(next, authUser.id);
+    return next;
+  });
+};
+
+const addRecurringPaymentToGroup = async (groupId, payment = {}) => {
+  if (!authUser?.id) {
+    throw new Error('You must be logged in to add recurring payments.');
+  }
+
+  const newPayment = {
+    id: payment.id || uuid.v4(),
+    name: payment.name?.trim() || 'Recurring payment',
+    amount: Number(payment.amount) || 0,
+    cadence: payment.cadence || 'monthly',
+    nextDueDate: payment.nextDueDate || null,
+    startDate: payment.startDate || new Date().toISOString(),
+  };
+
+  setBudgetGroups((prev) => {
+    const next = prev.map((group) => {
+      if (group.id !== groupId) return group;
+      const recurringPayments = Array.isArray(group.recurringPayments)
+        ? [...group.recurringPayments, newPayment]
+        : [newPayment];
+      supabase
+        .from('budget_groups')
+        .update({ recurring_payments: recurringPayments, updated_at: new Date().toISOString() })
+        .eq('id', groupId)
+        .eq('user_id', authUser.id);
+      return {
+        ...group,
+        recurringPayments,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+    persistBudgetGroupsLocally(next, authUser.id);
+    return next;
+  });
+
+  return newPayment;
+};
+
+
 const fetchFinancesFromSupabase = async (userId) => {
   const { data, error } = await supabase
     .from('finance_transactions')
@@ -2899,11 +3302,25 @@ const addTransaction = async (transaction) => {
   };
 
   setFinances((prev) => [...prev, newTransaction]);
+
+  if (transaction.type === 'expense') {
+    const budgetGroupIds = Array.isArray(transaction.budgetGroupIds)
+      ? transaction.budgetGroupIds.filter(Boolean)
+      : [];
+    await linkTransactionToBudgetGroups(newTransaction.id, budgetGroupIds);
+  }
+
   return newTransaction;
 };
 
 const deleteTransaction = async (transactionId) => {
   if (!authUser?.id) return;
+
+  await supabase
+    .from('budget_group_transactions')
+    .delete()
+    .eq('transaction_id', transactionId)
+    .eq('user_id', authUser.id);
 
   const { error } = await supabase
     .from('finance_transactions')
@@ -2916,6 +3333,13 @@ const deleteTransaction = async (transactionId) => {
   }
 
   setFinances((prev) => prev.filter((f) => f.id !== transactionId));
+  setBudgetAssignments((prev) => {
+    if (!prev[transactionId]) return prev;
+    const next = { ...prev };
+    delete next[transactionId];
+    persistBudgetAssignmentsLocally(next, authUser.id);
+    return next;
+  });
 };
 
 const getTransactionsForDate = (date) => {
@@ -3792,6 +4216,14 @@ const getFinanceSummaryForDate = (date) => {
 
     // Finances
     finances,
+    budgetGroups,
+    budgetAssignments,
+    addBudgetGroup,
+    updateBudgetGroup,
+    deleteBudgetGroup,
+    addRecurringPaymentToGroup,
+    getBudgetSpendForGroup,
+    linkTransactionToBudgetGroups,
     addTransaction,
     deleteTransaction,
     getTransactionsForDate,
