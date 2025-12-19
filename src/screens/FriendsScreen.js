@@ -534,19 +534,6 @@ const createStyles = (themeColorsParam = colors) => {
       color: baseText,
       fontWeight: '600',
     },
-    actionDestructive: {
-      backgroundColor: '#d9534f',
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.md,
-      borderRadius: borderRadius.md,
-      minWidth: 96,
-      alignItems: 'center',
-    },
-    actionDestructiveText: {
-      ...typography.body,
-      color: '#ffffff',
-      fontWeight: '700',
-    },
     actionIconDestructive: {
       backgroundColor: '#d9534f',
       padding: spacing.sm,
