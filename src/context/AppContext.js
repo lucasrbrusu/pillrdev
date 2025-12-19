@@ -1047,33 +1047,40 @@ const mapProfileSummary = (row) => ({
       const userIds = Array.from(new Set((data || []).map((r) => r.user_id).filter(Boolean)));
       if (!userIds.length) return [];
 
-      // Profiles schema can be either id=auth.uid() or user_id=auth.uid(); try both.
-      const selectProfileFields = 'id, user_id, username, full_name, avatar_url, photo';
+      // Profiles schema can be either id=auth.uid() or user_id=auth.uid(); try both without
+      // assuming the non-existent column. Start with id-based select to avoid 42703 logs.
+      const byIdSelect = 'id, username, full_name, avatar_url, photo';
 
       const { data: byIdData, error: byIdError } = await supabase
         .from('profiles')
-        .select(selectProfileFields)
+        .select(byIdSelect)
         .in('id', userIds);
 
       if (!byIdError && Array.isArray(byIdData) && byIdData.length) {
         return byIdData.map((row) => mapProfileSummary(row));
       }
 
-      if (byIdError) {
+      if (byIdError && !isMissingColumnError(byIdError, 'id')) {
         console.log('Error fetching participant profiles (by id):', byIdError);
       }
 
+      // Fallback for schemas that use user_id as the PK
+      const userIdSelect = 'user_id, username, full_name, avatar_url, photo';
       const { data: byUserIdData, error: byUserIdError } = await supabase
         .from('profiles')
-        .select(selectProfileFields)
+        .select(userIdSelect)
         .in('user_id', userIds);
 
       if (byUserIdError) {
+        if (!isMissingColumnError(byUserIdError, 'user_id')) {
         console.log('Error fetching participant profiles (by user_id):', byUserIdError);
+        }
         return [];
       }
 
-      return (byUserIdData || []).map((row) => mapProfileSummary(row));
+      return (byUserIdData || []).map((row) =>
+        mapProfileSummary({ ...row, id: row.user_id || row.id })
+      );
     },
     [authUser?.id]
   );
