@@ -183,25 +183,25 @@ const FriendsScreen = () => {
 
         <View style={themedStyles.friendActions}>
           {relationship.isFriend ? (
-            <View style={themedStyles.inlineActions}>
-              <View style={themedStyles.friendTag}>
-                <Ionicons name="checkmark-circle" size={16} color={colors.success} />
-                <Text style={themedStyles.friendTagText}>Friends</Text>
+              <View style={themedStyles.inlineActions}>
+                <View style={themedStyles.friendTag}>
+                  <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+                  <Text style={themedStyles.friendTagText}>Friends</Text>
+                </View>
+                <TouchableOpacity
+                style={themedStyles.actionIconDestructive}
+                  disabled={!!loadingState}
+                  onPress={() => handleDeleteFriend(user.id, user.username || user.name)}
+                >
+                  {loadingState === 'deleting' ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Ionicons name="trash-outline" size={18} color="#fff" />
+                  )}
+                </TouchableOpacity>
               </View>
-              <TouchableOpacity
-                style={themedStyles.actionDestructive}
-                disabled={!!loadingState}
-                onPress={() => handleDeleteFriend(user.id, user.username || user.name)}
-              >
-                {loadingState === 'deleting' ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Text style={themedStyles.actionDestructiveText}>Delete</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          ) : relationship.incoming ? (
-            <View style={themedStyles.inlineActions}>
+            ) : relationship.incoming ? (
+              <View style={themedStyles.inlineActions}>
               <TouchableOpacity
                 style={themedStyles.actionPrimary}
                 disabled={!!loadingState}
@@ -546,6 +546,15 @@ const createStyles = (themeColorsParam = colors) => {
       ...typography.body,
       color: '#ffffff',
       fontWeight: '700',
+    },
+    actionIconDestructive: {
+      backgroundColor: '#d9534f',
+      padding: spacing.sm,
+      borderRadius: borderRadius.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: 44,
+      height: 44,
     },
     avatarFallback: {
       backgroundColor: `${colors.primary}15`,
