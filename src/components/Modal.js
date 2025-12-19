@@ -30,7 +30,7 @@ const Modal = ({
   const insets = useSafeAreaInsets();
   const bottomInset = insets.bottom > 0 ? insets.bottom : spacing.lg;
   const contentBottomPadding = bottomInset + spacing.xl;
-  const headerTopOffset = fullScreen ? insets.top + spacing.lg : 0;
+  const headerTopOffset = fullScreen ? Math.max(insets.top, spacing.lg) : 0;
   const keyboardBehavior =
     Platform.OS === 'ios' ? 'padding' : fullScreen ? 'padding' : 'height';
   const contentTopPadding = 0;
@@ -78,9 +78,17 @@ const Modal = ({
               )}
             </View>
             {fullScreen ? (
-              <View style={[styles.content, { flex: 1, paddingBottom: contentBottomPadding, paddingTop: contentTopPadding }]}>
+              <ScrollView
+                style={[styles.content, styles.fullScreenContent]}
+                contentContainerStyle={[
+                  styles.fullScreenContentContainer,
+                  { paddingBottom: contentBottomPadding, paddingTop: contentTopPadding },
+                ]}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
                 {children}
-              </View>
+              </ScrollView>
             ) : (
               <ScrollView
                 style={styles.content}
@@ -143,6 +151,12 @@ const createStyles = (themeColors) =>
     },
     content: {
       paddingHorizontal: spacing.xl,
+    },
+    fullScreenContent: {
+      flex: 1,
+    },
+    fullScreenContentContainer: {
+      flexGrow: 1,
     },
   });
 
