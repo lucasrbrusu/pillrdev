@@ -67,7 +67,7 @@ const defaultProfile = {
   email: 'user@pillr.app',
   photo: null,
   dailyCalorieGoal: 2000,
-  dailyWaterGoal: 8,
+  dailyWaterGoal: 2,
   dailySleepGoal: 8,
   profileId: null,
   plan: 'free',
@@ -2814,28 +2814,43 @@ const upsertHealthDayRecord = async (dateISO, healthDay) => {
       throw new Error('You must be logged in to update health data.');
     }
 
-  const normalizedDate = normalizeDateKey(dateISO);
-  const base = healthData[normalizedDate] || defaultHealthDay();
-  const { energy: _ignoreEnergy, ...updatesWithoutEnergy } = updates || {};
-  const { energy: _ignoreBaseEnergy, ...baseWithoutEnergy } = base;
-  const nowISO = new Date().toISOString();
-  const createdAt = baseWithoutEnergy.createdAt || updatesWithoutEnergy?.createdAt || nowISO;
-  const newHealth = {
-    ...baseWithoutEnergy,
-    ...updatesWithoutEnergy,
-    mood: asNumber(updatesWithoutEnergy.mood, baseWithoutEnergy.mood),
-    waterIntake: asNumber(updatesWithoutEnergy.waterIntake, baseWithoutEnergy.waterIntake),
-    createdAt,
-    updatedAt: nowISO,
-  };
-  const newHealthData = { ...healthData, [normalizedDate]: newHealth };
-  setHealthData(newHealthData);
+    const normalizedDate = normalizeDateKey(dateISO);
+    const { energy: _ignoreEnergy, waterIntakeDelta, ...updatesWithoutEnergy } = updates || {};
+    const nowISO = new Date().toISOString();
+    const todayISO = new Date().toISOString().slice(0, 10);
+    let newHealth = null;
 
-  // Update todayHealth if this is the current day
-  const todayISO = new Date().toISOString().slice(0, 10);
-  if (normalizedDate === todayISO) {
-    setTodayHealth(newHealth);
-  }
+    setHealthData((prev) => {
+      const base = prev[normalizedDate] || defaultHealthDay();
+      const { energy: _ignoreBaseEnergy, ...baseWithoutEnergy } = base;
+      const createdAt = baseWithoutEnergy.createdAt || updatesWithoutEnergy?.createdAt || nowISO;
+      const merged = {
+        ...baseWithoutEnergy,
+        ...updatesWithoutEnergy,
+      };
+
+      const baseWater = asNumber(baseWithoutEnergy.waterIntake, 0) || 0;
+      const explicitWater = updatesWithoutEnergy.waterIntake;
+      const coercedWater =
+        explicitWater !== undefined ? asNumber(explicitWater, baseWater) : baseWater;
+      const deltaValue =
+        waterIntakeDelta !== undefined ? asNumber(waterIntakeDelta, 0) : null;
+      const newWaterIntake = deltaValue !== null ? coercedWater + deltaValue : coercedWater;
+
+      newHealth = {
+        ...merged,
+        mood: asNumber(updatesWithoutEnergy.mood, baseWithoutEnergy.mood),
+        waterIntake: Math.max(0, newWaterIntake),
+        createdAt,
+        updatedAt: nowISO,
+      };
+
+      return { ...prev, [normalizedDate]: newHealth };
+    });
+
+    if (normalizedDate === todayISO && newHealth) {
+      setTodayHealth(newHealth);
+    }
 
     // Persist food logs locally so they survive logout/app close
     if (updates.foods !== undefined) {
@@ -2845,18 +2860,22 @@ const upsertHealthDayRecord = async (dateISO, healthDay) => {
       await persistFoodLogsLocally(updatedFoodLogs, authUser.id);
     }
 
-  const healthDayRecord = await upsertHealthDayRecord(normalizedDate, newHealth);
-  if (healthDayRecord) {
-    const persistedHealth = mapHealthRow(healthDayRecord, newHealth);
-    setHealthData((prev) => ({
-      ...prev,
-      [normalizedDate]: persistedHealth,
-    }));
-    if (normalizedDate === todayISO) {
-      setTodayHealth(persistedHealth);
+    if (!newHealth) {
+      return;
     }
-  }
-};
+
+    const healthDayRecord = await upsertHealthDayRecord(normalizedDate, newHealth);
+    if (healthDayRecord) {
+      const persistedHealth = mapHealthRow(healthDayRecord, newHealth);
+      setHealthData((prev) => ({
+        ...prev,
+        [normalizedDate]: persistedHealth,
+      }));
+      if (normalizedDate === todayISO) {
+        setTodayHealth(persistedHealth);
+      }
+    }
+  };
 
 const updateTodayHealth = async (updates) => {
   const todayISO = new Date().toISOString().slice(0, 10);
@@ -2985,8 +3004,8 @@ const addFoodEntry = async (food) => {
   const getAverageWater = () => {
     const entries = Object.values(healthData);
     if (entries.length === 0) return 0;
-    const total = entries.reduce((sum, day) => sum + (day.waterIntake || 0), 0);
-    return (total / entries.length).toFixed(1);
+    const total = entries.reduce((sum, day) => sum + (Number(day.waterIntake) || 0), 0);
+    return Math.round((total / entries.length) * 100) / 100;
   };
 
   const getAverageSleep = () => {

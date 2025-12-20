@@ -44,7 +44,7 @@ const EditProfileScreen = () => {
       email: email.trim(),
       photo,
       dailyCalorieGoal: parseInt(calorieGoal) || 2000,
-      dailyWaterGoal: parseInt(waterGoal) || 8,
+      dailyWaterGoal: parseFloat(waterGoal) || 2,
       dailySleepGoal: parseInt(sleepGoal) || 8,
     });
     navigation.goBack();
@@ -178,11 +178,11 @@ const EditProfileScreen = () => {
             rightIcon="nutrition-outline"
           />
           <Input
-            label="Daily Water Goal (cups)"
+            label="Daily Water Goal (L)"
             value={waterGoal}
             onChangeText={setWaterGoal}
-            placeholder="8"
-            keyboardType="numeric"
+            placeholder="2.0"
+            keyboardType="decimal-pad"
             rightIcon="water-outline"
           />
           <Input

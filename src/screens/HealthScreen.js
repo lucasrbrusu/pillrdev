@@ -68,6 +68,7 @@ const HealthScreen = () => {
   const [showMoodModal, setShowMoodModal] = useState(false);
   const [selectedMoodIndex, setSelectedMoodIndex] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [waterInput, setWaterInput] = useState('');
   const [sleepForm, setSleepForm] = useState({
     sleepTime: null,
     wakeTime: null,
@@ -77,8 +78,20 @@ const HealthScreen = () => {
 
   const sleepQualities = ['Excellent', 'Good', 'Fair', 'Poor'];
 
-  const handleAddWater = () => {
-    updateTodayHealth({ waterIntake: (todayHealth.waterIntake || 0) + 1 });
+  const handleLogWater = async () => {
+    const amount = parseFloat(waterInput);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      Alert.alert('Enter litres', 'Please enter a positive amount in litres (e.g., 0.25).');
+      return;
+    }
+
+    try {
+      await updateTodayHealth({ waterIntakeDelta: amount });
+      setWaterInput('');
+    } catch (err) {
+      console.log('Error logging water', err);
+      Alert.alert('Unable to log water', 'Please try again.');
+    }
   };
 
   const handleSleepQualitySelect = (quality) => {
@@ -326,7 +339,11 @@ const HealthScreen = () => {
     selectedHealth.wakeTime
   );
 
-  const waterProgress = (todayHealth.waterIntake || 0) / profile.dailyWaterGoal;
+  const todayWaterLitres = Number(todayHealth.waterIntake) || 0;
+  const normalizedWaterGoal = Math.max(0, Number(profile.dailyWaterGoal) || 0);
+  const waterProgress = normalizedWaterGoal
+    ? Math.min(1, todayWaterLitres / normalizedWaterGoal)
+    : 0;
   const caloriesConsumed = selectedHealth.calories || 0;
   const caloriesRemaining = profile.dailyCalorieGoal - caloriesConsumed;
   const remainingRatio = profile.dailyCalorieGoal
@@ -367,6 +384,11 @@ const HealthScreen = () => {
   const formatMacroValue = (value) => {
     if (value === null || value === undefined) return 'N/A';
     return `${value}g`;
+  };
+
+  const formatWaterLitres = (value) => {
+    const num = Math.round((Number(value) || 0) * 100) / 100;
+    return `${num}`;
   };
 
   return (
@@ -412,8 +434,10 @@ const HealthScreen = () => {
               <Ionicons name="water" size={18} color={colors.info} />
               <Text style={styles.statLabel}>Avg Water</Text>
             </View>
-            <Text style={styles.statValue}>{getAverageWater()} cups</Text>
-            <Text style={styles.statGoal}>Goal: {profile.dailyWaterGoal} cups/day</Text>
+            <Text style={styles.statValue}>{formatWaterLitres(getAverageWater())} L</Text>
+            <Text style={styles.statGoal}>
+              Goal: {formatWaterLitres(profile.dailyWaterGoal)} L/day
+            </Text>
           </Card>
           <Card style={styles.statCard}>
             <View style={styles.statHeader}>
@@ -636,26 +660,37 @@ const HealthScreen = () => {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Water Intake</Text>
             <Text style={styles.waterCount}>
-              {todayHealth.waterIntake || 0} / {profile.dailyWaterGoal} cups
+              {formatWaterLitres(todayWaterLitres)} / {formatWaterLitres(normalizedWaterGoal)} L
             </Text>
           </View>
-          <View style={styles.waterProgressContainer}>
-            {Array.from({ length: profile.dailyWaterGoal }).map((_, index) => (
-              <View
-                key={index}
-                style={[
-                  styles.waterDot,
-                  index < (todayHealth.waterIntake || 0) && styles.waterDotFilled,
-                ]}
-              />
-            ))}
+          <View style={styles.waterSummaryRow}>
+            <Text style={styles.waterSummaryLabel}>Today's total</Text>
+            <Text style={styles.waterSummaryValue}>{formatWaterLitres(todayWaterLitres)} L</Text>
           </View>
-          <Button
-            title="Add Cup"
-            icon="add"
-            onPress={handleAddWater}
-            style={styles.addWaterButton}
-          />
+          <View style={styles.waterProgressBar}>
+            <View
+              style={[
+                styles.waterProgressFill,
+                { width: `${Math.min(100, Math.max(0, waterProgress * 100))}%` },
+              ]}
+            />
+          </View>
+          <View style={styles.waterActions}>
+            <Input
+              label="Amount to log (L)"
+              value={waterInput}
+              onChangeText={setWaterInput}
+              placeholder="e.g., 0.25"
+              keyboardType="decimal-pad"
+              containerStyle={styles.waterInput}
+            />
+            <Button
+              title="Log Water"
+              icon="add"
+              onPress={handleLogWater}
+              style={styles.addWaterButton}
+            />
+          </View>
         </Card>
       </PlatformScrollView>
 
@@ -954,20 +989,36 @@ const createStyles = () => StyleSheet.create({
     color: colors.info,
     fontWeight: '600',
   },
-  waterProgressContainer: {
+  waterSummaryRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: spacing.md,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
   },
-  waterDot: {
-    width: 28,
-    height: 28,
+  waterSummaryLabel: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
+  waterSummaryValue: {
+    ...typography.body,
+    fontWeight: '600',
+  },
+  waterProgressBar: {
+    height: 10,
     borderRadius: borderRadius.sm,
     backgroundColor: colors.inputBackground,
-    margin: spacing.xs,
+    overflow: 'hidden',
+    marginBottom: spacing.md,
   },
-  waterDotFilled: {
+  waterProgressFill: {
+    height: '100%',
     backgroundColor: colors.info,
+  },
+  waterActions: {
+    marginTop: spacing.sm,
+  },
+  waterInput: {
+    marginBottom: spacing.sm,
   },
   addWaterButton: {
     marginTop: spacing.sm,

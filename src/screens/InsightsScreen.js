@@ -45,6 +45,11 @@ const safeCurrency = (n) => {
   return `${value < 0 ? '-' : ''}${rounded}`;
 };
 
+const formatWaterLitres = (value) => {
+  const litres = Math.round((Number(value) || 0) * 100) / 100;
+  return `${litres}`;
+};
+
 export default function InsightsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -381,10 +386,10 @@ export default function InsightsScreen() {
             <MetricCard
               styles={styles}
               title="Water"
-              value={`${Math.round(insights.waterTotal)} cups`}
+              value={`${formatWaterLitres(insights.waterTotal)} L`}
               subtitle={
                 insights.waterAvg
-                  ? `Avg ${Math.round(insights.waterAvg * 10) / 10}/day`
+                  ? `Avg ${formatWaterLitres(insights.waterAvg)} L/day`
                   : 'No water logs'
               }
               icon="water-outline"
