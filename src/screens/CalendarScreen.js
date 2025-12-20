@@ -161,6 +161,11 @@ const CalendarScreen = () => {
     navigation.navigate('Tasks', { taskId: task.id });
   };
 
+  const handleToggleTaskCompletion = async (taskId, evt) => {
+    evt?.stopPropagation?.();
+    await toggleTaskCompletion(taskId);
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
@@ -314,6 +319,23 @@ const CalendarScreen = () => {
                     </View>
                   </View>
                 </View>
+                <TouchableOpacity
+                  style={[
+                    styles.completeButton,
+                    task.completed && styles.completeButtonCompleted,
+                  ]}
+                  onPress={(evt) => handleToggleTaskCompletion(task.id, evt)}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.completeButtonText,
+                      task.completed && styles.completeButtonTextCompleted,
+                    ]}
+                  >
+                    {task.completed ? 'Mark as uncomplete' : 'Mark complete'}
+                  </Text>
+                </TouchableOpacity>
               </TouchableOpacity>
             ))}
           </Card>
@@ -346,6 +368,23 @@ const CalendarScreen = () => {
                       <Text style={styles.timeSlotTaskTitle} numberOfLines={1}>
                         {task.title}
                       </Text>
+                      <TouchableOpacity
+                        style={[
+                          styles.completeButton,
+                          task.completed && styles.completeButtonCompleted,
+                        ]}
+                        onPress={(evt) => handleToggleTaskCompletion(task.id, evt)}
+                        activeOpacity={0.8}
+                      >
+                        <Text
+                          style={[
+                            styles.completeButtonText,
+                            task.completed && styles.completeButtonTextCompleted,
+                          ]}
+                        >
+                          {task.completed ? 'Mark as uncomplete' : 'Mark complete'}
+                        </Text>
+                      </TouchableOpacity>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -621,6 +660,25 @@ const createStyles = () => StyleSheet.create({
   },
   timeSlotTaskTitle: {
     ...typography.bodySmall,
+  },
+  completeButton: {
+    marginTop: spacing.sm,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.primaryLight,
+    alignSelf: 'flex-start',
+  },
+  completeButtonCompleted: {
+    backgroundColor: `${colors.success}22`,
+  },
+  completeButtonText: {
+    ...typography.bodySmall,
+    color: colors.primary,
+    fontWeight: '700',
+  },
+  completeButtonTextCompleted: {
+    color: colors.success,
   },
   listTaskItem: {
     flexDirection: 'row',
