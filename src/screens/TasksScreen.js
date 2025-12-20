@@ -6,8 +6,6 @@ import {
   TouchableOpacity,
   Alert,
   TextInput,
-  Animated,
-  Easing,
 } from 'react-native';
 import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -86,8 +84,6 @@ const TasksScreen = () => {
   const [invitingFriends, setInvitingFriends] = useState(false);
   const [taskPeople, setTaskPeople] = useState([]);
   const [loadingTaskPeople, setLoadingTaskPeople] = useState(false);
-  const [taskModalWidth, setTaskModalWidth] = useState(0);
-  const taskModalTranslateX = React.useRef(new Animated.Value(0)).current;
   const [noteToUnlock, setNoteToUnlock] = useState(null);
   const [unlockedNoteIds, setUnlockedNoteIds] = useState([]);
   const [noteTitleDraft, setNoteTitleDraft] = useState('');
@@ -249,17 +245,6 @@ const TasksScreen = () => {
       active = false;
     };
   }, [fetchTaskParticipants, selectedTask, showTaskDetailModal]);
-
-  useEffect(() => {
-    if (!taskModalWidth) return;
-
-    Animated.timing(taskModalTranslateX, {
-      toValue: showPeopleModal ? -taskModalWidth : 0,
-      duration: 280,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [showPeopleModal, taskModalTranslateX, taskModalWidth]);
 
   const toggleInvitedFriend = (userId) => {
     if (!userId) return;
@@ -723,228 +708,206 @@ const TasksScreen = () => {
           title={showPeopleModal ? 'People' : 'New Task'}
           fullScreen
         >
-        <View
-          style={styles.taskModalPager}
-          onLayout={(e) => {
-            const nextWidth = Math.round(e?.nativeEvent?.layout?.width || 0);
-            if (!nextWidth || nextWidth === taskModalWidth) return;
-            setTaskModalWidth(nextWidth);
-            taskModalTranslateX.setValue(showPeopleModal ? -nextWidth : 0);
-          }}
-        >
-          <Animated.View
-            style={[
-              styles.taskModalPagerRow,
-              {
-                width: taskModalWidth ? taskModalWidth * 2 : '200%',
-                transform: [{ translateX: taskModalTranslateX }],
-              },
-            ]}
-          >
-            <View style={{ width: taskModalWidth || '50%' }}>
-              <PlatformScrollView contentContainerStyle={{ paddingBottom: spacing.xl }}>
-                <Input
-                  label="Task Title"
-                  value={taskTitle}
-                  onChangeText={setTaskTitle}
-                  placeholder="e.g., Complete project proposal"
-                />
+        {showPeopleModal ? (
+          <PlatformScrollView contentContainerStyle={{ paddingBottom: spacing.xl }}>
+            <Text style={styles.peopleModalHint}>
+              Select friends to invite. Invites are sent when you create the task.
+            </Text>
 
-                <Input
-                  label="Description (Optional)"
-                  value={taskDescription}
-                  onChangeText={setTaskDescription}
-                  placeholder="Add more details..."
-                  multiline
-                  numberOfLines={3}
-                />
-
-                <View style={styles.peopleButtonRow}>
-                  <Button
-                    title={
-                      invitedFriendIds.length ? `People (${invitedFriendIds.length})` : 'People'
-                    }
-                    variant="secondary"
-                    icon="people-outline"
-                    fullWidth={false}
-                    disableTranslation
-                    onPress={() => setShowPeopleModal(true)}
-                  />
-                  <Text style={styles.peopleHintText}>
-                    Invites are sent when you create the task.
-                  </Text>
-                </View>
-
-                <Text style={styles.inputLabel}>Priority</Text>
-                <View style={styles.priorityRow}>
-                  {priorityLevels.map((level) => (
-                    <TouchableOpacity
-                      key={level.value}
-                      style={[
-                        styles.priorityOption,
-                        taskPriority === level.value && styles.priorityOptionActive,
-                        taskPriority === level.value && {
-                          backgroundColor: level.color,
-                        },
-                      ]}
-                      onPress={() => setTaskPriority(level.value)}
-                    >
-                      <Text
-                        style={[
-                          styles.priorityOptionText,
-                          taskPriority === level.value && styles.priorityOptionTextActive,
-                        ]}
-                      >
-                        {level.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <View style={styles.dateTimeRow}>
-                  <View style={styles.dateInput}>
-                    <Text style={styles.inputLabel}>Date</Text>
-                    <TouchableOpacity
-                      style={styles.dateButton}
-                      onPress={openDatePicker}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.dateButtonText}>{formatDate(taskDate)}</Text>
-                      <Ionicons
-                        name="calendar-outline"
-                        size={18}
-                        color={colors.textLight}
+            {friends.length === 0 ? (
+              <View style={styles.peopleEmpty}>
+                <Ionicons name="people-outline" size={22} color={colors.textSecondary} />
+                <Text style={styles.peopleEmptyText}>No friends yet.</Text>
+              </View>
+            ) : (
+              <Card style={styles.peopleCard}>
+                {friends.map((friend) => {
+                  const invited = invitedFriendIds.includes(friend.id);
+                  return (
+                    <View key={friend.id} style={styles.peopleRow}>
+                      <View style={styles.peopleRowText}>
+                        <Text style={styles.peopleName} numberOfLines={1}>
+                          {friend.name || friend.username || 'Friend'}
+                        </Text>
+                        <Text style={styles.peopleUsername} numberOfLines={1}>
+                          {friend.username ? `@${friend.username}` : ''}
+                        </Text>
+                      </View>
+                      <Button
+                        title={invited ? 'Invited' : 'Invite'}
+                        variant={invited ? 'outline' : 'primary'}
+                        size="small"
+                        fullWidth={false}
+                        disableTranslation
+                        onPress={() => toggleInvitedFriend(friend.id)}
                       />
-                    </TouchableOpacity>
-                  </View>
-                  <View style={styles.timeInput}>
-                    <Text style={styles.inputLabel}>Time</Text>
-                    <TouchableOpacity
-                      style={styles.dateButton}
-                      onPress={() => openTimePicker('task')}
-                      activeOpacity={0.8}
-                    >
-                      <Text
-                        style={[
-                          styles.dateButtonText,
-                          !taskTime && styles.placeholderText,
-                        ]}
-                      >
-                        {taskTime || 'Select time'}
-                      </Text>
-                      <Ionicons name="time-outline" size={18} color={colors.textLight} />
-                    </TouchableOpacity>
-                  </View>
-                </View>
+                    </View>
+                  );
+                })}
+              </Card>
+            )}
 
-                <PlatformDatePicker
-                  visible={showDatePicker}
-                  value={taskDate}
-                  onChange={handleSelectDate}
-                  onClose={() => setShowDatePicker(false)}
-                  accentColor={colors.tasks}
-                />
+            <View style={styles.modalButtons}>
+              <Button
+                title="Back"
+                variant="secondary"
+                onPress={() => setShowPeopleModal(false)}
+                disableTranslation
+                style={styles.modalButton}
+              />
+              <Button
+                title="Done"
+                onPress={() => setShowPeopleModal(false)}
+                disableTranslation
+                style={styles.modalButton}
+              />
+            </View>
+          </PlatformScrollView>
+        ) : (
+          <PlatformScrollView contentContainerStyle={{ paddingBottom: spacing.xl }}>
+            <Input
+              label="Task Title"
+              value={taskTitle}
+              onChangeText={setTaskTitle}
+              placeholder="e.g., Complete project proposal"
+            />
 
-                <PlatformTimePicker
-                  visible={showTimePicker}
-                  value={
-                    timePickerTarget === 'task'
-                      ? taskTime
-                      : timePickerTarget === 'sleep'
-                      ? todayHealth?.sleepTime
-                      : timePickerTarget === 'wake'
-                      ? todayHealth?.wakeTime
-                      : ''
-                  }
-                  onChange={handleSelectTime}
-                  onClose={() => {
-                    setShowTimePicker(false);
-                    setTimePickerTarget(null);
-                  }}
-                  options={timeOptions}
-                  accentColor={colors.tasks}
-                />
+            <Input
+              label="Description (Optional)"
+              value={taskDescription}
+              onChangeText={setTaskDescription}
+              placeholder="Add more details..."
+              multiline
+              numberOfLines={3}
+            />
 
-                <View style={styles.modalButtons}>
-                  <Button
-                    title="Cancel"
-                    variant="secondary"
-                    onPress={() => {
-                      setShowTaskModal(false);
-                      resetTaskForm();
-                    }}
-                    style={styles.modalButton}
-                  />
-                  <Button
-                    title="Create Task"
-                    onPress={handleCreateTask}
-                    disabled={!taskTitle.trim() || !taskTime || invitingFriends}
-                    loading={invitingFriends}
-                    style={styles.modalButton}
-                  />
-                </View>
-              </PlatformScrollView>
+            <View style={styles.peopleButtonRow}>
+              <Button
+                title={
+                  invitedFriendIds.length ? `People (${invitedFriendIds.length})` : 'People'
+                }
+                variant="secondary"
+                icon="people-outline"
+                fullWidth={false}
+                disableTranslation
+                onPress={() => setShowPeopleModal(true)}
+              />
+              <Text style={styles.peopleHintText}>
+                Invites are sent when you create the task.
+              </Text>
             </View>
 
-            <View style={{ width: taskModalWidth || '50%' }}>
-              <PlatformScrollView contentContainerStyle={{ paddingBottom: spacing.xl }}>
-                <Text style={styles.peopleModalHint}>
-                  Select friends to invite. Invites are sent when you create the task.
-                </Text>
-
-                {friends.length === 0 ? (
-                  <View style={styles.peopleEmpty}>
-                    <Ionicons name="people-outline" size={22} color={colors.textSecondary} />
-                    <Text style={styles.peopleEmptyText}>No friends yet.</Text>
-                  </View>
-                ) : (
-                  <Card style={styles.peopleCard}>
-                    {friends.map((friend) => {
-                      const invited = invitedFriendIds.includes(friend.id);
-                      return (
-                        <View key={friend.id} style={styles.peopleRow}>
-                          <View style={styles.peopleRowText}>
-                            <Text style={styles.peopleName} numberOfLines={1}>
-                              {friend.name || friend.username || 'Friend'}
-                            </Text>
-                            <Text style={styles.peopleUsername} numberOfLines={1}>
-                              {friend.username ? `@${friend.username}` : ''}
-                            </Text>
-                          </View>
-                          <Button
-                            title={invited ? 'Invited' : 'Invite'}
-                            variant={invited ? 'outline' : 'primary'}
-                            size="small"
-                            fullWidth={false}
-                            disableTranslation
-                            onPress={() => toggleInvitedFriend(friend.id)}
-                          />
-                        </View>
-                      );
-                    })}
-                  </Card>
-                )}
-
-                <View style={styles.modalButtons}>
-                  <Button
-                    title="Back"
-                    variant="secondary"
-                    onPress={() => setShowPeopleModal(false)}
-                    disableTranslation
-                    style={styles.modalButton}
-                  />
-                  <Button
-                    title="Done"
-                    onPress={() => setShowPeopleModal(false)}
-                    disableTranslation
-                    style={styles.modalButton}
-                  />
-                </View>
-              </PlatformScrollView>
+            <Text style={styles.inputLabel}>Priority</Text>
+            <View style={styles.priorityRow}>
+              {priorityLevels.map((level) => (
+                <TouchableOpacity
+                  key={level.value}
+                  style={[
+                    styles.priorityOption,
+                    taskPriority === level.value && styles.priorityOptionActive,
+                    taskPriority === level.value && {
+                      backgroundColor: level.color,
+                    },
+                  ]}
+                  onPress={() => setTaskPriority(level.value)}
+                >
+                  <Text
+                    style={[
+                      styles.priorityOptionText,
+                      taskPriority === level.value && styles.priorityOptionTextActive,
+                    ]}
+                  >
+                    {level.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
-          </Animated.View>
-        </View>
-      </Modal>
+
+            <View style={styles.dateTimeRow}>
+              <View style={styles.dateInput}>
+                <Text style={styles.inputLabel}>Date</Text>
+                <TouchableOpacity
+                  style={styles.dateButton}
+                  onPress={openDatePicker}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.dateButtonText}>{formatDate(taskDate)}</Text>
+                  <Ionicons
+                    name="calendar-outline"
+                    size={18}
+                    color={colors.textLight}
+                  />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.timeInput}>
+                <Text style={styles.inputLabel}>Time</Text>
+                <TouchableOpacity
+                  style={styles.dateButton}
+                  onPress={() => openTimePicker('task')}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.dateButtonText,
+                      !taskTime && styles.placeholderText,
+                    ]}
+                  >
+                    {taskTime || 'Select time'}
+                  </Text>
+                  <Ionicons name="time-outline" size={18} color={colors.textLight} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <PlatformDatePicker
+              visible={showDatePicker}
+              value={taskDate}
+              onChange={handleSelectDate}
+              onClose={() => setShowDatePicker(false)}
+              accentColor={colors.tasks}
+            />
+
+            <PlatformTimePicker
+              visible={showTimePicker}
+              value={
+                timePickerTarget === 'task'
+                  ? taskTime
+                  : timePickerTarget === 'sleep'
+                  ? todayHealth?.sleepTime
+                  : timePickerTarget === 'wake'
+                  ? todayHealth?.wakeTime
+                  : ''
+              }
+              onChange={handleSelectTime}
+              onClose={() => {
+                setShowTimePicker(false);
+                setTimePickerTarget(null);
+              }}
+              options={timeOptions}
+              accentColor={colors.tasks}
+            />
+
+            <View style={styles.modalButtons}>
+              <Button
+                title="Cancel"
+                variant="secondary"
+                onPress={() => {
+                  setShowTaskModal(false);
+                  resetTaskForm();
+                }}
+                style={styles.modalButton}
+              />
+              <Button
+                title="Create Task"
+                onPress={handleCreateTask}
+                disabled={!taskTitle.trim() || !taskTime || invitingFriends}
+                loading={invitingFriends}
+                style={styles.modalButton}
+              />
+            </View>
+          </PlatformScrollView>
+        )}
+        </Modal>
 
       {/* Quick Note Modal */}
       <Modal
@@ -1677,14 +1640,6 @@ const createStyles = (themeColors) => {
     paddingVertical: spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-  },
-  taskModalPager: {
-    flex: 1,
-    overflow: 'hidden',
-  },
-  taskModalPagerRow: {
-    flex: 1,
-    flexDirection: 'row',
   },
   peopleRowText: {
     flex: 1,
