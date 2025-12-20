@@ -277,7 +277,8 @@ const TasksScreen = () => {
     if (task) {
       handleTaskPress(task);
     }
-  }, [route.params?.taskId, tasks]);
+    navigation.setParams?.({ taskId: undefined });
+  }, [route.params?.taskId, tasks, navigation]);
 
   const handleDeleteTask = async () => {
     if (selectedTask) {
@@ -289,9 +290,12 @@ const TasksScreen = () => {
 
   const handleCompleteTask = async () => {
     if (selectedTask) {
+      const nextCompleted = !selectedTask.completed;
       await toggleTaskCompletion(selectedTask.id);
-      setShowTaskDetailModal(false);
-      setSelectedTask(null);
+      // Keep the modal open and reflect the new completion state immediately.
+      setSelectedTask((prev) =>
+        prev ? { ...prev, completed: nextCompleted } : prev
+      );
     }
   };
 
@@ -1050,9 +1054,9 @@ const TasksScreen = () => {
             </View>
 
             <Button
-              title="Mark Complete"
-              variant="success"
-              icon="checkmark"
+              title={selectedTask.completed ? 'Mark Uncomplete' : 'Mark Complete'}
+              variant={selectedTask.completed ? 'danger' : 'success'}
+              icon={selectedTask.completed ? 'close' : 'checkmark'}
               onPress={handleCompleteTask}
               style={styles.completeButton}
             />

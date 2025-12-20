@@ -266,59 +266,60 @@ const CalendarScreen = () => {
         ) : (
           <Card style={styles.tasksCard}>
             {selectedDateTasks.map((task) => (
-              <TouchableOpacity
-                key={task.id}
-                style={styles.taskItem}
-                onPress={() => handleTaskPress(task)}
-                onLongPress={() => toggleTaskCompletion(task.id)}
-              >
-                <View
-                  style={[
-                    styles.checkbox,
-                    task.completed && styles.checkboxChecked,
-                  ]}
+              <View key={task.id} style={styles.taskItemRow}>
+                <TouchableOpacity
+                  style={styles.taskItem}
+                  onPress={() => handleTaskPress(task)}
+                  activeOpacity={0.8}
                 >
-                  {task.completed && (
-                    <Ionicons name="checkmark" size={14} color="#FFFFFF" />
-                  )}
-                </View>
-                <View style={styles.taskContent}>
-                  <Text
+                  <View
                     style={[
-                      styles.taskTitle,
-                      task.completed && styles.taskTitleCompleted,
+                      styles.checkbox,
+                      task.completed && styles.checkboxChecked,
                     ]}
                   >
-                    {task.title}
-                  </Text>
-                  <View style={styles.taskMeta}>
-                    {task.time && (
-                      <View style={styles.timeTag}>
-                        <Ionicons
-                          name="time-outline"
-                          size={12}
-                          color={colors.textSecondary}
-                        />
-                        <Text style={styles.timeText}>{task.time}</Text>
-                      </View>
+                    {task.completed && (
+                      <Ionicons name="checkmark" size={14} color="#FFFFFF" />
                     )}
-                    <View
+                  </View>
+                  <View style={styles.taskContent}>
+                    <Text
                       style={[
-                        styles.priorityTag,
-                        { backgroundColor: `${getPriorityColor(task.priority)}20` },
+                        styles.taskTitle,
+                        task.completed && styles.taskTitleCompleted,
                       ]}
                     >
-                      <Text
+                      {task.title}
+                    </Text>
+                    <View style={styles.taskMeta}>
+                      {task.time && (
+                        <View style={styles.timeTag}>
+                          <Ionicons
+                            name="time-outline"
+                            size={12}
+                            color={colors.textSecondary}
+                          />
+                          <Text style={styles.timeText}>{task.time}</Text>
+                        </View>
+                      )}
+                      <View
                         style={[
-                          styles.priorityText,
-                          { color: getPriorityColor(task.priority) },
+                          styles.priorityTag,
+                          { backgroundColor: `${getPriorityColor(task.priority)}20` },
                         ]}
                       >
-                        {task.priority}
-                      </Text>
+                        <Text
+                          style={[
+                            styles.priorityText,
+                            { color: getPriorityColor(task.priority) },
+                          ]}
+                        >
+                          {task.priority}
+                        </Text>
+                      </View>
                     </View>
                   </View>
-                </View>
+                </TouchableOpacity>
                 <TouchableOpacity
                   style={[
                     styles.completeButton,
@@ -336,7 +337,7 @@ const CalendarScreen = () => {
                     {task.completed ? 'Mark as uncomplete' : 'Mark complete'}
                   </Text>
                 </TouchableOpacity>
-              </TouchableOpacity>
+              </View>
             ))}
           </Card>
         )}
@@ -356,18 +357,21 @@ const CalendarScreen = () => {
                 <Text style={styles.timeLabel}>{time}</Text>
                 <View style={styles.timeSlotContent}>
                   {tasksAtTime.map((task) => (
-                    <TouchableOpacity
+                    <View
                       key={task.id}
                       style={[
                         styles.timeSlotTask,
                         { borderLeftColor: getPriorityColor(task.priority) },
                       ]}
-                      onPress={() => handleTaskPress(task)}
-                      onLongPress={() => toggleTaskCompletion(task.id)}
                     >
-                      <Text style={styles.timeSlotTaskTitle} numberOfLines={1}>
-                        {task.title}
-                      </Text>
+                      <TouchableOpacity
+                        onPress={() => handleTaskPress(task)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.timeSlotTaskTitle} numberOfLines={1}>
+                          {task.title}
+                        </Text>
+                      </TouchableOpacity>
                       <TouchableOpacity
                         style={[
                           styles.completeButton,
@@ -385,7 +389,7 @@ const CalendarScreen = () => {
                           {task.completed ? 'Mark as uncomplete' : 'Mark complete'}
                         </Text>
                       </TouchableOpacity>
-                    </TouchableOpacity>
+                    </View>
                   ))}
                 </View>
               </View>
@@ -572,12 +576,18 @@ const createStyles = () => StyleSheet.create({
   tasksCard: {
     marginBottom: spacing.lg,
   },
+  taskItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+    gap: spacing.sm,
+  },
   taskItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
+    flex: 1,
   },
   checkbox: {
     width: 22,
