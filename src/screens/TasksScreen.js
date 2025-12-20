@@ -285,6 +285,15 @@ const TasksScreen = () => {
     setShowTaskDetailModal(true);
   };
 
+  useEffect(() => {
+    const taskId = route.params?.taskId;
+    if (!taskId) return;
+    const task = tasks.find((t) => t.id === taskId);
+    if (task) {
+      handleTaskPress(task);
+    }
+  }, [route.params?.taskId, tasks]);
+
   const handleDeleteTask = async () => {
     if (selectedTask) {
       await deleteTask(selectedTask.id);

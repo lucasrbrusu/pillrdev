@@ -114,7 +114,7 @@ const CalendarScreen = () => {
   };
 
   const timeSlots = [];
-  for (let i = 6; i <= 22; i++) {
+  for (let i = 0; i < 24; i++) {
     timeSlots.push(`${i.toString().padStart(2, '0')}:00`);
   }
 
@@ -137,6 +137,28 @@ const CalendarScreen = () => {
       month: 'short',
       day: 'numeric',
     });
+  };
+
+  const parseHour = (timeString) => {
+    if (!timeString) return null;
+    const trimmed = timeString.trim();
+    // Handle formats like "08:00", "8:30 PM"
+    const match12 = /^(\d{1,2}):(\d{2})\s*(am|pm)$/i.exec(trimmed);
+    if (match12) {
+      let hour = parseInt(match12[1], 10) % 12;
+      const minutes = parseInt(match12[2], 10);
+      if (match12[3].toLowerCase() === 'pm') hour += 12;
+      return { hour, minutes };
+    }
+    const match24 = /^(\d{1,2}):(\d{2})/.exec(trimmed);
+    if (match24) {
+      return { hour: parseInt(match24[1], 10), minutes: parseInt(match24[2], 10) };
+    }
+    return null;
+  };
+
+  const handleTaskPress = (task) => {
+    navigation.navigate('Tasks', { taskId: task.id });
   };
 
   return (
@@ -242,7 +264,8 @@ const CalendarScreen = () => {
               <TouchableOpacity
                 key={task.id}
                 style={styles.taskItem}
-                onPress={() => toggleTaskCompletion(task.id)}
+                onPress={() => handleTaskPress(task)}
+                onLongPress={() => toggleTaskCompletion(task.id)}
               >
                 <View
                   style={[
@@ -300,25 +323,30 @@ const CalendarScreen = () => {
         <Card style={styles.timelineCard}>
           <Text style={styles.timelineTitle}>Day Timeline</Text>
           {timeSlots.map((time) => {
-            const tasksAtTime = selectedDateTasks.filter(
-              (task) => task.time && task.time.startsWith(time.split(':')[0])
-            );
+            const slotHour = parseInt(time.split(':')[0], 10);
+            const tasksAtTime = selectedDateTasks.filter((task) => {
+              const parsed = parseHour(task.time);
+              if (!parsed) return false;
+              return parsed.hour === slotHour;
+            });
             return (
               <View key={time} style={styles.timeSlot}>
                 <Text style={styles.timeLabel}>{time}</Text>
                 <View style={styles.timeSlotContent}>
                   {tasksAtTime.map((task) => (
-                    <View
+                    <TouchableOpacity
                       key={task.id}
                       style={[
                         styles.timeSlotTask,
                         { borderLeftColor: getPriorityColor(task.priority) },
                       ]}
+                      onPress={() => handleTaskPress(task)}
+                      onLongPress={() => toggleTaskCompletion(task.id)}
                     >
                       <Text style={styles.timeSlotTaskTitle} numberOfLines={1}>
                         {task.title}
                       </Text>
-                    </View>
+                    </TouchableOpacity>
                   ))}
                 </View>
               </View>

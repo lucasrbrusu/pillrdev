@@ -72,14 +72,20 @@ const FocusModeScreen = ({ navigation }) => {
 
   const handleExit = () => {
     const now = Date.now();
-    const total = paused ? accumulatedMs : accumulatedMs + (now - startMs);
+    const hasSession = !!sessionStartMsRef.current;
+    const total = hasSession ? (paused ? accumulatedMs : accumulatedMs + (now - startMs)) : 0;
     setActive(false);
     setPaused(false);
     setAccumulatedMs(total);
     setStartMs(0);
     setTick(0);
+    if (!hasSession || total <= 0) {
+      sessionStartMsRef.current = null;
+      navigation.navigate('Main', { screen: 'Home' });
+      return;
+    }
     const message = `You have just spent ${formatDuration(total)} in focus mode`;
-    if (authUser?.id && total > 0 && sessionStartMsRef.current) {
+    if (authUser?.id) {
       appendFocusSession(authUser.id, {
         startAt: new Date(sessionStartMsRef.current).toISOString(),
         endAt: new Date(now).toISOString(),
