@@ -22,12 +22,19 @@ const HabitsScreen = () => {
   const {
     habits,
     addHabit,
+    addGroupHabit,
     updateHabit,
     deleteHabit,
     toggleHabitCompletion,
+    toggleGroupHabitCompletion,
     isHabitCompletedToday,
     getBestStreak,
     getTodayHabitsCount,
+    groups,
+    groupHabits,
+    groupHabitCompletions,
+    authUser,
+    isPremiumUser,
     themeColors,
     streakFrozen,
   } = useApp();
@@ -46,12 +53,14 @@ const HabitsScreen = () => {
   const [habitRepeat, setHabitRepeat] = useState('Daily');
   const [repeatEveryday, setRepeatEveryday] = useState(true);
   const [selectedDays, setSelectedDays] = useState(daysOfWeek);
+  const [habitGroupId, setHabitGroupId] = useState(null);
 
   const bestStreak = getBestStreak();
   const todayCount = getTodayHabitsCount();
   const streakFlameColor = streakFrozen ? '#4da6ff' : '#ff4d4f';
   const streakFlameBackground = streakFrozen ? 'rgba(77, 166, 255, 0.12)' : 'rgba(255, 77, 79, 0.12)';
   const selectedCompleted = selectedHabit ? isHabitCompletedToday(selectedHabit.id) : false;
+  const todayKey = new Date().toISOString().slice(0, 10);
 
   const sortedHabits = useMemo(() => {
     const habitsCopy = [...habits];
@@ -83,6 +92,15 @@ const HabitsScreen = () => {
     return grouped;
   }, [sortedHabits]);
 
+  const groupHabitsByGroup = useMemo(() => {
+    const map = {};
+    (groupHabits || []).forEach((habit) => {
+      if (!map[habit.groupId]) map[habit.groupId] = [];
+      map[habit.groupId].push(habit);
+    });
+    return map;
+  }, [groupHabits]);
+
   const resetForm = () => {
     setHabitTitle('');
     setHabitCategory('Personal');
@@ -90,6 +108,7 @@ const HabitsScreen = () => {
     setHabitRepeat('Daily');
     setRepeatEveryday(true);
     setSelectedDays(daysOfWeek);
+    setHabitGroupId(null);
     setIsEditingHabit(false);
     setSelectedHabit(null);
   };
@@ -102,11 +121,13 @@ const HabitsScreen = () => {
       category: habitCategory,
       description: habitDescription.trim(),
       repeat: habitRepeat,
-      days: repeatEveryday ? daysOfWeek : selectedDays,
-    };
+    days: repeatEveryday ? daysOfWeek : selectedDays,
+  };
 
     if (isEditingHabit && selectedHabit) {
       await updateHabit(selectedHabit.id, payload);
+    } else if (habitGroupId) {
+      await addGroupHabit({ groupId: habitGroupId, ...payload });
     } else {
       await addHabit(payload);
     }
@@ -131,6 +152,7 @@ const HabitsScreen = () => {
     setSelectedDays(days);
     setRepeatEveryday(days.length === daysOfWeek.length);
     setIsEditingHabit(true);
+    setHabitGroupId(null);
     setShowDetailModal(false);
     setShowAddModal(true);
   };
@@ -310,6 +332,56 @@ const HabitsScreen = () => {
             ))
           )}
         </Card>
+
+        {groups.length > 0 ? (
+          <Card style={styles.groupCard}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Group habits</Text>
+              <Text style={styles.sectionMeta}>{groupHabits.length} total</Text>
+            </View>
+            {groupHabits.length === 0 ? (
+              <Text style={styles.emptyText}>No group habits yet. Share one when creating a habit.</Text>
+            ) : (
+              groups.map((group) => {
+                const groupList = groupHabitsByGroup[group.id] || [];
+                if (!groupList.length) return null;
+                const memberCount = group.members?.length || 1;
+                return (
+                  <View key={group.id} style={styles.groupSection}>
+                    <Text style={styles.groupName}>{group.name}</Text>
+                    {groupList.map((habit) => {
+                      const completions = groupHabitCompletions[habit.id] || [];
+                      const todayCompletions = completions.filter((c) => c.date === todayKey);
+                      const completedByMe = todayCompletions.some((c) => c.userId === authUser?.id);
+
+                      return (
+                        <View key={habit.id} style={styles.groupHabitRow}>
+                          <View style={styles.groupHabitText}>
+                            <Text style={styles.groupHabitTitle}>{habit.title}</Text>
+                            {habit.description ? (
+                              <Text style={styles.groupHabitMeta}>{habit.description}</Text>
+                            ) : null}
+                            <Text style={styles.groupHabitMeta}>
+                              {todayCompletions.length}/{memberCount} completed today
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            style={[styles.checkbox, completedByMe && styles.checkboxChecked]}
+                            onPress={() => toggleGroupHabitCompletion(habit.id)}
+                          >
+                            {completedByMe ? (
+                              <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                            ) : null}
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })}
+                  </View>
+                );
+              })
+            )}
+          </Card>
+        ) : null}
       </PlatformScrollView>
 
       {/* Add Habit Modal */}
@@ -345,6 +417,21 @@ const HabitsScreen = () => {
           multiline
           numberOfLines={3}
         />
+
+        {groups.length > 0 ? (
+          <>
+            <Text style={styles.inputLabel}>Share with group</Text>
+            <ChipGroup
+              options={[
+                { label: 'Personal', value: null },
+                ...groups.map((g) => ({ label: g.name, value: g.id })),
+              ]}
+              selectedValue={habitGroupId}
+              onSelect={setHabitGroupId}
+              style={styles.chipGroup}
+            />
+          </>
+        ) : null}
 
         <Text style={styles.inputLabel}>Repeat</Text>
         <ChipGroup
@@ -566,6 +653,19 @@ const createStyles = () => StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.lg,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  sectionTitle: {
+    ...typography.h4,
+  },
+  sectionMeta: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
   filterChip: {
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.md,
@@ -586,6 +686,37 @@ const createStyles = () => StyleSheet.create({
   },
   habitsCard: {
     minHeight: 200,
+  },
+  groupCard: {
+    marginTop: spacing.md,
+  },
+  groupSection: {
+    marginBottom: spacing.md,
+  },
+  groupName: {
+    ...typography.body,
+    fontWeight: '700',
+    marginBottom: spacing.xs,
+  },
+  groupHabitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderColor: colors.border,
+  },
+  groupHabitText: {
+    flex: 1,
+    marginRight: spacing.sm,
+  },
+  groupHabitTitle: {
+    ...typography.body,
+  },
+  groupHabitMeta: {
+    ...typography.bodySmall,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   emptyState: {
     alignItems: 'center',

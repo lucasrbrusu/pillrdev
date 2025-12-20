@@ -278,15 +278,27 @@ export const AppProvider = ({ children }) => {
   const [friends, setFriends] = useState([]);
   const [friendRequests, setFriendRequests] = useState({ incoming: [], outgoing: [], responses: [] });
   const [taskInvites, setTaskInvites] = useState({ incoming: [], outgoing: [], responses: [] });
+  const [groups, setGroups] = useState([]);
+  const [groupInvites, setGroupInvites] = useState({ incoming: [], outgoing: [], responses: [] });
+  const [groupHabits, setGroupHabits] = useState([]);
+  const [groupHabitCompletions, setGroupHabitCompletions] = useState({});
+  const [groupRoutines, setGroupRoutines] = useState([]);
   const [userStatuses, setUserStatuses] = useState({});
   const friendResponseSignatureRef = useRef('');
   const taskInviteResponseSignatureRef = useRef('');
+  const groupInviteSignatureRef = useRef('');
 
  // Profile State
   const [profile, setProfile] = useState(defaultProfile);
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [userSettings, setUserSettings] = useState(defaultUserSettings);
   const [language, setLanguage] = useState(defaultUserSettings.language);
+  const isPremiumUser = useMemo(
+    () =>
+      profile?.isPremium ||
+      computeIsPremium(profile?.plan, profile?.premiumExpiresAt || profile?.premium_expires_at),
+    [profile]
+  );
 
   // Auth State
   const [authUser, setAuthUser] = useState(null);
@@ -393,12 +405,16 @@ export const AppProvider = ({ children }) => {
 
 const loadUserDataFromSupabase = async (userId) => {
   try {
+    const groupList = await fetchGroups(userId);
     await Promise.all([
       fetchProfileFromSupabase(userId),
       fetchUserSettings(userId),
       refreshFriendData(userId),
+      fetchGroupInvites(userId),
+      fetchGroupHabits(userId, groupList),
+      fetchGroupRoutines(userId, groupList),
       fetchTaskInvites(userId),
-      fetchHabitsFromSupabase(userId),
+      fetchHabitsFromSupabase(userId, groupList),
       fetchTasksFromSupabase(userId),
       fetchNotesFromSupabase(userId),
       fetchHealthFromSupabase(userId),
@@ -446,6 +462,11 @@ const loadUserDataFromSupabase = async (userId) => {
       setFriends([]);
       setFriendRequests({ incoming: [], outgoing: [], responses: [] });
       setTaskInvites({ incoming: [], outgoing: [], responses: [] });
+      setGroups([]);
+      setGroupInvites({ incoming: [], outgoing: [], responses: [] });
+      setGroupHabits([]);
+      setGroupHabitCompletions({});
+      setGroupRoutines([]);
       setUserStatuses({});
       setFoodLogs({});
       setProfile(defaultProfile);
@@ -878,6 +899,710 @@ const mapProfileSummary = (row) => ({
       return { incoming, outgoing, responses };
     },
     [authUser?.id]
+  );
+
+  const fetchGroupMembers = useCallback(
+    async (groupId) => {
+      if (!authUser?.id || !groupId) return [];
+      const { data, error } = await supabase
+        .from('group_members')
+        .select('group_id, user_id, role')
+        .eq('group_id', groupId);
+
+      if (error) {
+        console.log('Error fetching group members:', error);
+        return [];
+      }
+
+      const ids = Array.from(new Set((data || []).map((row) => row.user_id).filter(Boolean)));
+      let profileMap = {};
+      if (ids.length) {
+        const { data: profileRows, error: profileError } = await supabase
+          .from('profiles')
+          .select('id, username, full_name, avatar_url, photo')
+          .in('id', ids);
+
+        if (profileError) {
+          console.log('Error fetching group member profiles:', profileError);
+        } else {
+          profileRows.forEach((row) => {
+            profileMap[row.id] = mapProfileSummary(row);
+          });
+        }
+      }
+
+      return (data || []).map((row) => ({
+        id: row.user_id,
+        role: row.role || 'member',
+        ...(profileMap[row.user_id] || mapProfileSummary({ id: row.user_id })),
+      }));
+    },
+    [authUser?.id]
+  );
+
+  const fetchGroups = useCallback(
+    async (userIdParam) => {
+      const userId = userIdParam || authUser?.id;
+      if (!userId) return [];
+
+      const { data, error } = await supabase
+        .from('group_members')
+        .select('group_id, role, created_at, groups(id, name, owner_id, created_at)')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.log('Error fetching groups:', error);
+        setGroups([]);
+        return [];
+      }
+
+      const groupIds = Array.from(
+        new Set((data || []).map((row) => row.group_id || row.groups?.id).filter(Boolean))
+      );
+
+      let membersByGroup = {};
+      if (groupIds.length) {
+        const { data: memberRows, error: memberError } = await supabase
+          .from('group_members')
+          .select('group_id, user_id, role')
+          .in('group_id', groupIds);
+
+        if (memberError) {
+          console.log('Error fetching group member roster:', memberError);
+        } else {
+          const ids = Array.from(
+            new Set((memberRows || []).map((row) => row.user_id).filter(Boolean))
+          );
+          let profileMap = {};
+          if (ids.length) {
+            const { data: profileRows, error: profileError } = await supabase
+              .from('profiles')
+              .select('id, username, full_name, avatar_url, photo')
+              .in('id', ids);
+
+            if (profileError) {
+              console.log('Error fetching roster profiles:', profileError);
+            } else {
+              profileRows.forEach((row) => {
+                profileMap[row.id] = mapProfileSummary(row);
+              });
+            }
+          }
+
+          memberRows.forEach((row) => {
+            const list = membersByGroup[row.group_id] || [];
+            list.push({
+              id: row.user_id,
+              role: row.role || 'member',
+              ...(profileMap[row.user_id] || mapProfileSummary({ id: row.user_id })),
+            });
+            membersByGroup[row.group_id] = list;
+          });
+        }
+      }
+
+      const mapped = (data || []).map((row) => {
+        const id = row.group_id || row.groups?.id;
+        return {
+          id,
+          name: row.groups?.name || 'Group',
+          ownerId: row.groups?.owner_id || null,
+          role: row.role || 'member',
+          createdAt: row.groups?.created_at || row.created_at,
+          members: membersByGroup[id] || [],
+        };
+      });
+
+      setGroups(mapped);
+      return mapped;
+    },
+    [authUser?.id]
+  );
+
+  const fetchGroupInvites = useCallback(
+    async (userIdParam) => {
+      const userId = userIdParam || authUser?.id;
+      if (!userId) return { incoming: [], outgoing: [], responses: [] };
+
+      const { data, error } = await supabase
+        .from('group_invites')
+        .select('*')
+        .or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        if (!isMissingRelationError(error, 'group_invites')) {
+          console.log('Error fetching group invites:', error);
+        }
+        const empty = { incoming: [], outgoing: [], responses: [] };
+        setGroupInvites(empty);
+        return empty;
+      }
+
+      const groupIds = Array.from(new Set((data || []).map((row) => row.group_id).filter(Boolean)));
+      const userIds = Array.from(
+        new Set(
+          (data || [])
+            .flatMap((row) => [row.from_user_id, row.to_user_id])
+            .filter(Boolean)
+        )
+      );
+
+      let groupMap = {};
+      if (groupIds.length) {
+        const { data: groupRows, error: groupError } = await supabase
+          .from('groups')
+          .select('id, name, owner_id, created_at')
+          .in('id', groupIds);
+
+        if (groupError) {
+          console.log('Error fetching invite groups:', groupError);
+        } else {
+          groupRows.forEach((row) => {
+            groupMap[row.id] = row;
+          });
+        }
+      }
+
+      let profileMap = {};
+      if (userIds.length) {
+        const { data: profileRows, error: profileError } = await supabase
+          .from('profiles')
+          .select('id, username, full_name, avatar_url, photo')
+          .in('id', userIds);
+
+        if (profileError) {
+          console.log('Error fetching group invite profiles:', profileError);
+        } else {
+          profileRows.forEach((row) => {
+            profileMap[row.id] = mapProfileSummary(row);
+          });
+        }
+      }
+
+      const mapped = (data || []).map((row) => ({
+        ...row,
+        group: groupMap[row.group_id] || null,
+        fromUser: profileMap[row.from_user_id] || null,
+        toUser: profileMap[row.to_user_id] || null,
+      }));
+
+      const incoming = mapped.filter(
+        (row) => row.to_user_id === userId && row.status === 'pending'
+      );
+      const outgoing = mapped.filter(
+        (row) => row.from_user_id === userId && row.status === 'pending'
+      );
+      const responses = mapped.filter(
+        (row) => row.from_user_id === userId && row.status !== 'pending'
+      );
+
+      setGroupInvites({ incoming, outgoing, responses });
+
+      const signature = responses.map((r) => `${r.id}:${r.status}`).join('|');
+      if (signature !== groupInviteSignatureRef.current) {
+        groupInviteSignatureRef.current = signature;
+      }
+
+      return { incoming, outgoing, responses };
+    },
+    [authUser?.id]
+  );
+
+  const refreshGroupData = useCallback(
+    async (userIdParam) => {
+      const userId = userIdParam || authUser?.id;
+      const fetchedGroups = await fetchGroups(userId);
+      await Promise.all([
+        fetchGroupInvites(userId),
+        fetchGroupHabits(userId, fetchedGroups),
+        fetchGroupRoutines(userId, fetchedGroups),
+      ]);
+      return fetchedGroups;
+    },
+    [authUser?.id, fetchGroups, fetchGroupInvites, fetchGroupHabits, fetchGroupRoutines]
+  );
+
+  const createGroup = useCallback(
+    async ({ name, inviteUserIds = [] }) => {
+      if (!authUser?.id) throw new Error('You must be logged in to create a group.');
+      if (!isPremiumUser) throw new Error('Only premium users can create groups.');
+      const trimmedName = (name || '').trim();
+      if (!trimmedName) throw new Error('Group name is required.');
+
+      const { data, error } = await supabase
+        .from('groups')
+        .insert({ name: trimmedName, owner_id: authUser.id })
+        .select()
+        .single();
+
+      if (error) {
+        console.log('Error creating group:', error);
+        throw error;
+      }
+
+      const groupId = data.id;
+
+      await supabase
+        .from('group_members')
+        .upsert({ group_id: groupId, user_id: authUser.id, role: 'owner' }, { onConflict: 'group_id,user_id' });
+
+      if (inviteUserIds.length) {
+        await supabase.from('group_invites').insert(
+          inviteUserIds.map((id) => ({
+            group_id: groupId,
+            from_user_id: authUser.id,
+            to_user_id: id,
+            status: 'pending',
+          }))
+        );
+      }
+
+      await refreshGroupData(authUser.id);
+      return data;
+    },
+    [authUser?.id, isPremiumUser, refreshGroupData]
+  );
+
+  const sendGroupInvites = useCallback(
+    async ({ groupId, userIds }) => {
+      if (!authUser?.id || !groupId) throw new Error('Missing group.');
+      if (!isPremiumUser) throw new Error('Only premium users can invite to groups.');
+      const ids = Array.from(new Set(userIds || [])).filter(Boolean);
+      if (!ids.length) return [];
+
+      const { data, error } = await supabase
+        .from('group_invites')
+        .insert(
+          ids.map((id) => ({
+            group_id: groupId,
+            from_user_id: authUser.id,
+            to_user_id: id,
+            status: 'pending',
+          }))
+        )
+        .select();
+
+      if (error) {
+        console.log('Error sending group invites:', error);
+        throw error;
+      }
+
+      await fetchGroupInvites(authUser.id);
+      return data;
+    },
+    [authUser?.id, fetchGroupInvites]
+  );
+
+  const respondToGroupInvite = useCallback(
+    async (inviteId, status) => {
+      if (!authUser?.id) throw new Error('You must be logged in.');
+      if (!inviteId) throw new Error('Invalid invite.');
+      const normalizedStatus = (status || '').toLowerCase();
+      if (!['accepted', 'declined'].includes(normalizedStatus)) {
+        throw new Error('Invalid response.');
+      }
+
+      const { data: invite, error: inviteError } = await supabase
+        .from('group_invites')
+        .select('*')
+        .eq('id', inviteId)
+        .single();
+
+      if (inviteError || !invite) {
+        console.log('Error loading group invite:', inviteError);
+        throw new Error('Unable to load invite.');
+      }
+
+      if (invite.to_user_id !== authUser.id) {
+        throw new Error('You cannot respond to this invite.');
+      }
+
+      const respondedAt = new Date().toISOString();
+
+      if (normalizedStatus === 'accepted') {
+        await supabase
+          .from('group_members')
+          .upsert(
+            { group_id: invite.group_id, user_id: authUser.id, role: 'member' },
+            { onConflict: 'group_id,user_id' }
+          );
+      }
+
+      const { error: updateError } = await supabase
+        .from('group_invites')
+        .update({ status: normalizedStatus, responded_at: respondedAt })
+        .eq('id', inviteId);
+
+      if (updateError) {
+        console.log('Error updating group invite:', updateError);
+      }
+
+      await refreshGroupData(authUser.id);
+      return true;
+    },
+    [authUser?.id, refreshGroupData]
+  );
+
+  const fetchGroupHabits = useCallback(
+    async (userIdParam, groupListParam) => {
+      const userId = userIdParam || authUser?.id;
+      const groupList = groupListParam || groups;
+      const groupIds = (groupList || []).map((g) => g.id).filter(Boolean);
+      if (!userId || !groupIds.length) {
+        setGroupHabits([]);
+        setGroupHabitCompletions({});
+        return [];
+      }
+
+      const { data, error } = await supabase
+        .from('group_habits')
+        .select('*')
+        .in('group_id', groupIds)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        if (!isMissingRelationError(error, 'group_habits')) {
+          console.log('Error fetching group habits:', error);
+        }
+        setGroupHabits([]);
+        setGroupHabitCompletions({});
+        return [];
+      }
+
+      const habitIds = (data || []).map((h) => h.id).filter(Boolean);
+      const completionMap = {};
+
+      if (habitIds.length) {
+        const { data: completionRows, error: completionError } = await supabase
+          .from('group_habit_completions')
+          .select('group_habit_id, user_id, date')
+          .in('group_habit_id', habitIds);
+
+        if (completionError) {
+          if (!isMissingRelationError(completionError, 'group_habit_completions')) {
+            console.log('Error fetching group habit completions:', completionError);
+          }
+        } else {
+          (completionRows || []).forEach((row) => {
+            if (!row?.group_habit_id) return;
+            const list = completionMap[row.group_habit_id] || [];
+            list.push({
+              habitId: row.group_habit_id,
+              userId: row.user_id,
+              date: normalizeDateKey(row.date),
+            });
+            completionMap[row.group_habit_id] = list;
+          });
+        }
+      }
+
+      const mapped = (data || []).map((h) => ({
+        id: h.id,
+        groupId: h.group_id,
+        title: h.title,
+        category: h.category || 'Group',
+        description: h.description,
+        repeat: h.repeat || 'Daily',
+        days: Array.isArray(h.days) ? h.days : [],
+        createdAt: h.created_at,
+        createdBy: h.created_by,
+      }));
+
+      setGroupHabits(mapped);
+      setGroupHabitCompletions(completionMap);
+      return mapped;
+    },
+    [authUser?.id, groups]
+  );
+
+  const addGroupHabit = useCallback(
+    async ({ groupId, title, category, description, repeat, days }) => {
+      if (!authUser?.id) throw new Error('You must be logged in to create a group habit.');
+      if (!groupId) throw new Error('Select a group to share this habit with.');
+      const trimmedTitle = (title || '').trim();
+      if (!trimmedTitle) throw new Error('Habit title is required.');
+
+      const { data, error } = await supabase
+        .from('group_habits')
+        .insert({
+          group_id: groupId,
+          created_by: authUser.id,
+          title: trimmedTitle,
+          category: category || 'Group',
+          description: description?.trim() || null,
+          repeat: repeat || 'Daily',
+          days: days || [],
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.log('Error creating group habit:', error);
+        throw error;
+      }
+
+      await fetchGroupHabits(authUser.id);
+      return data;
+    },
+    [authUser?.id, fetchGroupHabits]
+  );
+
+  const toggleGroupHabitCompletion = useCallback(
+    async (habitId) => {
+      if (!authUser?.id || !habitId) return;
+      const todayISO = new Date().toISOString().slice(0, 10);
+      const completions = groupHabitCompletions[habitId] || [];
+      const existing = completions.find(
+        (c) => c.userId === authUser.id && normalizeDateKey(c.date) === todayISO
+      );
+
+      if (existing) {
+        const { error } = await supabase
+          .from('group_habit_completions')
+          .delete()
+          .eq('group_habit_id', habitId)
+          .eq('user_id', authUser.id)
+          .eq('date', todayISO);
+
+        if (error) {
+          console.log('Error removing group habit completion:', error);
+          return;
+        }
+
+        setGroupHabitCompletions((prev) => {
+          const list = prev[habitId] || [];
+          return {
+            ...prev,
+            [habitId]: list.filter(
+              (c) => !(c.userId === authUser.id && normalizeDateKey(c.date) === todayISO)
+            ),
+          };
+        });
+        return;
+      }
+
+      const { error } = await supabase
+        .from('group_habit_completions')
+        .insert({ group_habit_id: habitId, user_id: authUser.id, date: todayISO });
+
+      if (error) {
+        console.log('Error adding group habit completion:', error);
+        return;
+      }
+
+      setGroupHabitCompletions((prev) => {
+        const list = prev[habitId] || [];
+        return {
+          ...prev,
+          [habitId]: [...list, { habitId, userId: authUser.id, date: todayISO }],
+        };
+      });
+    },
+    [authUser?.id, groupHabitCompletions]
+  );
+
+  const fetchGroupRoutines = useCallback(
+    async (userIdParam, groupListParam) => {
+      const userId = userIdParam || authUser?.id;
+      const groupList = groupListParam || groups;
+      const groupIds = (groupList || []).map((g) => g.id).filter(Boolean);
+      if (!userId || !groupIds.length) {
+        setGroupRoutines([]);
+        return [];
+      }
+
+      const { data, error } = await supabase
+        .from('group_routines')
+        .select('*')
+        .in('group_id', groupIds)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        if (!isMissingRelationError(error, 'group_routines')) {
+          console.log('Error fetching group routines:', error);
+        }
+        setGroupRoutines([]);
+        return [];
+      }
+
+      const routineIds = (data || []).map((r) => r.id).filter(Boolean);
+      let tasksByRoutine = {};
+      if (routineIds.length) {
+        const { data: taskRows, error: taskError } = await supabase
+          .from('group_routine_tasks')
+          .select('*')
+          .in('group_routine_id', routineIds)
+          .order('position', { ascending: true });
+
+        if (taskError) {
+          if (!isMissingRelationError(taskError, 'group_routine_tasks')) {
+            console.log('Error fetching group routine tasks:', taskError);
+          }
+        } else {
+          tasksByRoutine = (taskRows || []).reduce((acc, row) => {
+            const list = acc[row.group_routine_id] || [];
+            list.push({
+              id: row.id,
+              name: row.name,
+              position: row.position ?? list.length,
+              createdAt: row.created_at,
+              addedBy: row.created_by || row.user_id,
+            });
+            acc[row.group_routine_id] = list.sort(
+              (a, b) => (a.position ?? 0) - (b.position ?? 0)
+            );
+            return acc;
+          }, {});
+        }
+      }
+
+      const mapped = (data || []).map((row) => ({
+        id: row.id,
+        groupId: row.group_id,
+        name: row.name,
+        createdAt: row.created_at,
+        createdBy: row.created_by,
+        tasks: tasksByRoutine[row.id] || [],
+      }));
+
+      setGroupRoutines(mapped);
+      return mapped;
+    },
+    [authUser?.id, groups]
+  );
+
+  const addGroupRoutine = useCallback(
+    async ({ groupId, name }) => {
+      if (!authUser?.id) throw new Error('You must be logged in to create a group routine.');
+      if (!groupId) throw new Error('Select a group for this routine.');
+      const trimmedName = (name || '').trim();
+      if (!trimmedName) throw new Error('Routine name is required.');
+
+      const { data, error } = await supabase
+        .from('group_routines')
+        .insert({
+          group_id: groupId,
+          name: trimmedName,
+          created_by: authUser.id,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.log('Error creating group routine:', error);
+        throw error;
+      }
+
+      await fetchGroupRoutines(authUser.id);
+      return data;
+    },
+    [authUser?.id, fetchGroupRoutines]
+  );
+
+  const deleteGroupRoutine = useCallback(
+    async (routineId) => {
+      if (!authUser?.id || !routineId) return;
+
+      await supabase.from('group_routine_tasks').delete().eq('group_routine_id', routineId);
+      const { error } = await supabase.from('group_routines').delete().eq('id', routineId);
+      if (error && !isMissingRelationError(error, 'group_routines')) {
+        console.log('Error deleting group routine:', error);
+      }
+
+      setGroupRoutines((prev) => prev.filter((r) => r.id !== routineId));
+    },
+    [authUser?.id]
+  );
+
+  const addTaskToGroupRoutine = useCallback(
+    async (routineId, task) => {
+      if (!authUser?.id || !routineId) return;
+
+      const routine = groupRoutines.find((r) => r.id === routineId);
+      if (!routine) return;
+
+      const nextPosition = routine.tasks?.length || 0;
+      const { data, error } = await supabase
+        .from('group_routine_tasks')
+        .insert({
+          group_routine_id: routineId,
+          name: task.name,
+          position: nextPosition,
+          created_by: authUser.id,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.log('Error adding task to group routine:', error);
+        return;
+      }
+
+      const newTask = {
+        id: data.id,
+        name: data.name,
+        position: data.position ?? nextPosition,
+        createdAt: data.created_at,
+        addedBy: data.created_by,
+      };
+
+      const updatedTasks = [...(routine.tasks || []), newTask].sort(
+        (a, b) => (a.position ?? 0) - (b.position ?? 0)
+      );
+
+      setGroupRoutines((prev) =>
+        prev.map((r) => (r.id === routineId ? { ...r, tasks: updatedTasks } : r))
+      );
+    },
+    [authUser?.id, groupRoutines]
+  );
+
+  const removeTaskFromGroupRoutine = useCallback(
+    async (routineId, taskId) => {
+      if (!authUser?.id || !routineId || !taskId) return;
+
+      const routine = groupRoutines.find((r) => r.id === routineId);
+      if (!routine) return;
+
+      const updatedTasks = (routine.tasks || []).filter((t) => t.id !== taskId);
+      const resequenced = updatedTasks.map((t, idx) => ({ ...t, position: idx }));
+
+      await supabase.from('group_routine_tasks').delete().eq('id', taskId);
+      await Promise.all(
+        resequenced.map((t) =>
+          supabase.from('group_routine_tasks').update({ position: t.position }).eq('id', t.id)
+        )
+      );
+
+      setGroupRoutines((prev) =>
+        prev.map((r) => (r.id === routineId ? { ...r, tasks: resequenced } : r))
+      );
+    },
+    [authUser?.id, groupRoutines]
+  );
+
+  const reorderGroupRoutineTasks = useCallback(
+    async (routineId, newTaskOrder) => {
+      if (!authUser?.id || !routineId) return;
+
+      const routine = groupRoutines.find((r) => r.id === routineId);
+      if (!routine) return;
+
+      const resequenced = (newTaskOrder || []).map((t, idx) => ({ ...t, position: idx }));
+
+      await Promise.all(
+        resequenced.map((t) =>
+          supabase.from('group_routine_tasks').update({ position: t.position }).eq('id', t.id)
+        )
+      );
+
+      setGroupRoutines((prev) =>
+        prev.map((r) => (r.id === routineId ? { ...r, tasks: resequenced } : r))
+      );
+    },
+    [authUser?.id, groupRoutines]
   );
 
   const ensureTaskParticipant = async (taskId, participantTaskId, role = 'participant') => {
@@ -1313,7 +2038,7 @@ const mapProfileSummary = (row) => ({
     [friends, isUserOnline]
   );
 
-const fetchHabitsFromSupabase = async (userId) => {
+const fetchHabitsFromSupabase = async (userId, _groupListParam) => {
   // Get all habits
   const { data: habitRows, error: habitError } = await supabase
     .from('habits')
@@ -4240,6 +4965,23 @@ const getFinanceSummaryForDate = (date) => {
     sendFriendRequest,
     respondToFriendRequest,
     getFriendRelationship,
+    groups,
+    groupInvites,
+    groupHabits,
+    groupHabitCompletions,
+    groupRoutines,
+    fetchGroupMembers,
+    refreshGroupData,
+    createGroup,
+    sendGroupInvites,
+    respondToGroupInvite,
+    addGroupHabit,
+    toggleGroupHabitCompletion,
+    addGroupRoutine,
+    deleteGroupRoutine,
+    addTaskToGroupRoutine,
+    removeTaskFromGroupRoutine,
+    reorderGroupRoutineTasks,
 
     // Profile
     updateProfile,
@@ -4262,6 +5004,7 @@ const getFinanceSummaryForDate = (date) => {
     themeName,
     themeColors,
     changeTheme,
+    isPremiumUser,
   };
 
   if (!themeReady) {

@@ -44,6 +44,8 @@ const FriendsScreen = () => {
     friends,
     onlineFriends,
     friendRequests,
+    groups,
+    isPremiumUser,
     searchUsersByUsername,
     sendFriendRequest,
     respondToFriendRequest,
@@ -89,6 +91,10 @@ const FriendsScreen = () => {
 
   const setLoading = (key, value) => {
     setActionState((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleOpenGroups = () => {
+    navigation.navigate('Groups');
   };
 
   const handleAdd = async (userId) => {
@@ -286,6 +292,17 @@ const FriendsScreen = () => {
         contentContainerStyle={themedStyles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        <TouchableOpacity style={themedStyles.groupsButton} onPress={handleOpenGroups}>
+          <View style={themedStyles.groupsLeft}>
+            <Ionicons name="people-outline" size={20} color={themedStyles.iconColor} />
+            <Text style={themedStyles.groupsText}>Groups</Text>
+          </View>
+          <View style={themedStyles.groupsRight}>
+            <Text style={themedStyles.groupsMeta}>{`${groups.length} joined`}</Text>
+            <Ionicons name="chevron-forward" size={18} color={themedStyles.subduedText} />
+          </View>
+        </TouchableOpacity>
+
         <Card style={themedStyles.sectionCard}>
           <View style={themedStyles.cardHeader}>
             <Text style={themedStyles.cardTitle}>Online now</Text>
@@ -393,6 +410,39 @@ const createStyles = (themeColorsParam = colors) => {
       marginLeft: spacing.sm,
       ...typography.body,
       color: baseText,
+    },
+    groupsButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginHorizontal: spacing.lg,
+      marginBottom: spacing.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      borderRadius: borderRadius.lg,
+      backgroundColor: themeColorsParam?.card || colors.card,
+      borderWidth: 1,
+      borderColor: themeColorsParam?.border || colors.border,
+      ...shadows.small,
+    },
+    groupsLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    groupsText: {
+      ...typography.body,
+      color: baseText,
+      fontWeight: '700',
+    },
+    groupsRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+    },
+    groupsMeta: {
+      ...typography.bodySmall,
+      color: subdued,
     },
     scroll: {
       flex: 1,

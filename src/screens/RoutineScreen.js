@@ -15,6 +15,7 @@ import {
   Modal,
   Button,
   Input,
+  ChipGroup,
   PlatformScrollView,
   PlatformDatePicker,
   PlatformTimePicker,
@@ -39,14 +40,20 @@ const RoutineScreen = () => {
   const insets = useSafeAreaInsets();
   const {
     routines,
+    groupRoutines,
     chores,
     reminders,
     groceries,
     addRoutine,
+    addGroupRoutine,
     deleteRoutine,
+    deleteGroupRoutine,
     addTaskToRoutine,
+    addTaskToGroupRoutine,
     removeTaskFromRoutine,
+    removeTaskFromGroupRoutine,
     reorderRoutineTasks,
+    reorderGroupRoutineTasks,
     addChore,
     updateChore,
     deleteChore,
@@ -56,6 +63,8 @@ const RoutineScreen = () => {
     toggleGroceryItem,
     deleteGroceryItem,
     clearCompletedGroceries,
+    groups,
+    isPremiumUser,
     themeColors,
   } = useApp();
   const styles = useMemo(() => createStyles(), [themeColors]);
@@ -68,6 +77,7 @@ const RoutineScreen = () => {
   const [selectedRoutineId, setSelectedRoutineId] = useState(null);
 
   const [routineName, setRoutineName] = useState('');
+  const [routineGroupId, setRoutineGroupId] = useState(null);
   const [choreName, setChoreName] = useState('');
   const [choreDate, setChoreDate] = useState(new Date().toISOString().split('T')[0]);
   const [showChoreDatePicker, setShowChoreDatePicker] = useState(false);
@@ -82,8 +92,13 @@ const RoutineScreen = () => {
 
   const handleCreateRoutine = async () => {
     if (!routineName.trim()) return;
-    await addRoutine({ name: routineName.trim() });
+    if (routineGroupId) {
+      await addGroupRoutine({ name: routineName.trim(), groupId: routineGroupId });
+    } else {
+      await addRoutine({ name: routineName.trim() });
+    }
     setRoutineName('');
+    setRoutineGroupId(null);
     setShowRoutineModal(false);
   };
 
@@ -117,7 +132,12 @@ const RoutineScreen = () => {
 
   const handleAddTaskToRoutine = async () => {
     if (!taskName.trim() || !selectedRoutineId) return;
-    await addTaskToRoutine(selectedRoutineId, { name: taskName.trim() });
+    const isGroup = groupRoutines.some((r) => r.id === selectedRoutineId);
+    if (isGroup) {
+      await addTaskToGroupRoutine(selectedRoutineId, { name: taskName.trim() });
+    } else {
+      await addTaskToRoutine(selectedRoutineId, { name: taskName.trim() });
+    }
     setTaskName('');
     setShowTaskModal(false);
     setSelectedRoutineId(null);
@@ -131,6 +151,18 @@ const RoutineScreen = () => {
 
   const handleMoveRoutineTask = (routineId, index, direction) => {
     const routine = routines.find((r) => r.id === routineId);
+    const isGroup = groupRoutines.some((r) => r.id === routineId);
+    if (isGroup) {
+      const groupRoutine = groupRoutines.find((r) => r.id === routineId);
+      if (!groupRoutine || !groupRoutine.tasks || !groupRoutine.tasks.length) return;
+      const newIndex = index + direction;
+      if (newIndex < 0 || newIndex >= groupRoutine.tasks.length) return;
+      const newOrder = [...groupRoutine.tasks];
+      const [item] = newOrder.splice(index, 1);
+      newOrder.splice(newIndex, 0, item);
+      reorderGroupRoutineTasks(routineId, newOrder);
+      return;
+    }
     if (!routine || !routine.tasks || !routine.tasks.length) return;
     const newIndex = index + direction;
     if (newIndex < 0 || newIndex >= routine.tasks.length) return;
@@ -363,6 +395,94 @@ const RoutineScreen = () => {
           )}
         </Card>
 
+        {(groupRoutines.length > 0 || groups.length > 0) ? (
+          <Card style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Group Routines</Text>
+              <TouchableOpacity
+                style={styles.createButton}
+                onPress={() => setShowRoutineModal(true)}
+              >
+                <Ionicons name="add" size={18} color={colors.primary} />
+                <Text style={styles.createButtonText}>Create</Text>
+              </TouchableOpacity>
+            </View>
+
+            {groupRoutines.length === 0 ? (
+              <Text style={styles.emptyText}>No group routines yet</Text>
+            ) : (
+              groupRoutines.map((routine) => (
+                <View key={routine.id} style={styles.routineSection}>
+                  <View style={styles.routineHeader}>
+                    <View>
+                      <Text style={styles.routineName}>{routine.name}</Text>
+                      <Text style={styles.routineMeta}>
+                        {(groups.find((g) => g.id === routine.groupId)?.name) || 'Group'}
+                      </Text>
+                    </View>
+                    <View style={styles.routineActions}>
+                      <TouchableOpacity
+                        style={styles.routineActionButton}
+                        onPress={() => openAddTaskModal(routine.id)}
+                      >
+                        <Ionicons name="add" size={18} color={colors.textSecondary} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.routineActionButton}
+                        onPress={() => deleteGroupRoutine(routine.id)}
+                      >
+                        <Ionicons name="trash-outline" size={16} color={colors.danger} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  {routine.tasks && routine.tasks.length > 0 ? (
+                    routine.tasks.map((task, index) => {
+                      const atTop = index === 0;
+                      const atBottom = index === routine.tasks.length - 1;
+                      return (
+                        <View key={task.id} style={styles.routineTaskItem}>
+                          <View style={styles.taskOrderControls}>
+                            <TouchableOpacity
+                              style={styles.orderButton}
+                              onPress={() => handleMoveRoutineTask(routine.id, index, -1)}
+                              disabled={atTop}
+                            >
+                              <Ionicons
+                                name="chevron-up"
+                                size={16}
+                                color={atTop ? colors.border : colors.textSecondary}
+                              />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.orderButton}
+                              onPress={() => handleMoveRoutineTask(routine.id, index, 1)}
+                              disabled={atBottom}
+                            >
+                              <Ionicons
+                                name="chevron-down"
+                                size={16}
+                                color={atBottom ? colors.border : colors.textSecondary}
+                              />
+                            </TouchableOpacity>
+                          </View>
+                          <Text style={styles.routineTaskText}>{task.name}</Text>
+                          <TouchableOpacity
+                            onPress={() => removeTaskFromGroupRoutine(routine.id, task.id)}
+                          >
+                            <Ionicons name="close" size={18} color={colors.textLight} />
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })
+                  ) : (
+                    <Text style={styles.noTasksText}>No tasks added</Text>
+                  )}
+                </View>
+              ))
+            )}
+          </Card>
+        ) : null}
+
         {/* Chores Section */}
         <Card style={styles.sectionCard}>
           <View style={styles.sectionHeader}>
@@ -502,6 +622,20 @@ const RoutineScreen = () => {
             onChangeText={setRoutineName}
             placeholder="e.g., Morning Routine"
           />
+          {groups.length > 0 ? (
+            <>
+              <Text style={styles.inputLabel}>Share with group</Text>
+              <ChipGroup
+                options={[
+                  { label: 'Personal', value: null },
+                  ...groups.map((g) => ({ label: g.name, value: g.id })),
+                ]}
+                selectedValue={routineGroupId}
+                onSelect={setRoutineGroupId}
+                style={styles.chipGroup}
+              />
+            </>
+          ) : null}
           <View style={styles.modalButtons}>
             <Button
               title="Cancel"
@@ -794,6 +928,10 @@ const createStyles = () => StyleSheet.create({
     ...typography.label,
     color: colors.primary,
   },
+  routineMeta: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
   routineActions: {
     flexDirection: 'row',
   },
@@ -978,6 +1116,9 @@ const createStyles = () => StyleSheet.create({
   inputLabel: {
     ...typography.label,
     marginBottom: spacing.sm,
+  },
+  chipGroup: {
+    marginBottom: spacing.lg,
   },
   dateButton: {
     flexDirection: 'row',

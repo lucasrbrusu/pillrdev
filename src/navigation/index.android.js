@@ -33,6 +33,8 @@ import AppearanceScreen from '../screens/AppearanceScreen';
 import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';
 import NotificationCenterScreen from '../screens/NotificationCenterScreen';
 import FriendsScreen from '../screens/FriendsScreen';
+import GroupsScreen from '../screens/GroupsScreen';
+import GroupDetailScreen from '../screens/GroupDetailScreen';
 import ChatScreen from '../screens/ChatScreen';
 import FocusModeScreen from '../screens/FocusModeScreen';
 import CountdownTimerScreen from '../screens/CountdownTimerScreen';
@@ -246,6 +248,8 @@ const Navigation = () => {
               gestureResponseDistance: FRIENDS_GESTURE_DISTANCE,
             }}
           />
+          <Stack.Screen name="Groups" component={GroupsScreen} />
+          <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />
           <Stack.Screen name="Insights" component={InsightsScreen} />
           <Stack.Screen name="Chat" component={ChatScreen} />
           <Stack.Screen name="FocusMode" component={FocusModeScreen} />

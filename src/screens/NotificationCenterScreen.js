@@ -77,13 +77,24 @@ const groupNotifications = (items) => {
 const NotificationCenterScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { themeColors, friendRequests, taskInvites, respondToFriendRequest, respondToTaskInvite } = useApp();
+  const {
+    themeColors,
+    friendRequests,
+    taskInvites,
+    groupInvites,
+    respondToFriendRequest,
+    respondToTaskInvite,
+    respondToGroupInvite,
+  } = useApp();
   const [respondingMap, setRespondingMap] = React.useState({});
   const [respondingTaskMap, setRespondingTaskMap] = React.useState({});
+  const [respondingGroupMap, setRespondingGroupMap] = React.useState({});
   const pendingRequests = friendRequests?.incoming || [];
   const responseNotifications = friendRequests?.responses || [];
   const pendingTaskInvites = taskInvites?.incoming || [];
   const taskInviteResponses = taskInvites?.responses || [];
+  const pendingGroupInvites = groupInvites?.incoming || [];
+  const groupInviteResponses = groupInvites?.responses || [];
 
   const handleRespond = async (requestId, status) => {
     setRespondingMap((prev) => ({ ...prev, [requestId]: status }));
@@ -108,6 +119,17 @@ const NotificationCenterScreen = () => {
   };
 
   const themedStyles = React.useMemo(() => createStyles(themeColors || colors), [themeColors]);
+
+  const handleRespondGroup = async (inviteId, status) => {
+    setRespondingGroupMap((prev) => ({ ...prev, [inviteId]: status }));
+    try {
+      await respondToGroupInvite(inviteId, status);
+    } catch (err) {
+      Alert.alert('Unable to update group invite', err?.message || 'Please try again.');
+    } finally {
+      setRespondingGroupMap((prev) => ({ ...prev, [inviteId]: null }));
+    }
+  };
 
   const groupedPending = React.useMemo(() => {
     const items = (pendingRequests || []).map((item) => ({
@@ -255,6 +277,74 @@ const NotificationCenterScreen = () => {
     return groupNotifications(items);
   }, [taskInviteResponses, themedStyles]);
 
+  const groupedGroupInvites = React.useMemo(() => {
+    const items = (pendingGroupInvites || []).map((item) => ({
+      key: `group-invite-${item.id}`,
+      component: (
+        <View key={item.id} style={themedStyles.card}>
+          <View style={[themedStyles.iconWrap, { backgroundColor: `${colors.primary}15` }]} />
+          <View style={themedStyles.textWrap}>
+            <Text style={themedStyles.cardTitle}>
+              {(item.fromUser?.name || item.fromUser?.username || 'Someone')} invited you to{' '}
+              {item.group?.name || 'a group'}
+            </Text>
+            <Text style={themedStyles.cardBody}>
+              {item.created_at ? `Sent ${formatTimeAgo(item.created_at)}` : ''}
+            </Text>
+            <View style={themedStyles.actionRow}>
+              <TouchableOpacity
+                onPress={() => handleRespondGroup(item.id, 'accepted')}
+                style={themedStyles.primaryButton}
+                disabled={!!respondingGroupMap[item.id]}
+              >
+                {respondingGroupMap[item.id] === 'accepted' ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={themedStyles.primaryButtonText}>Join</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleRespondGroup(item.id, 'declined')}
+                style={themedStyles.secondaryButton}
+                disabled={!!respondingGroupMap[item.id]}
+              >
+                {respondingGroupMap[item.id] === 'declined' ? (
+                  <ActivityIndicator color={themedStyles.subduedText} size="small" />
+                ) : (
+                  <Text style={themedStyles.secondaryButtonText}>Decline</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      ),
+      timestamp: item.created_at,
+    }));
+    return groupNotifications(items);
+  }, [pendingGroupInvites, themedStyles, respondingGroupMap]);
+
+  const groupedGroupResponses = React.useMemo(() => {
+    const items = (groupInviteResponses || []).map((item) => ({
+      key: `group-response-${item.id}`,
+      component: (
+        <View key={item.id} style={themedStyles.card}>
+          <View style={[themedStyles.iconWrap, { backgroundColor: `${colors.primary}15` }]} />
+          <View style={themedStyles.textWrap}>
+            <Text style={themedStyles.cardTitle}>
+              {(item.toUser?.name || item.toUser?.username || 'Someone')}{' '}
+              {item.status === 'accepted' ? 'joined' : 'declined'} {item.group?.name || 'your group'}
+            </Text>
+            <Text style={themedStyles.cardBody}>
+              {item.responded_at ? `Updated ${formatTimeAgo(item.responded_at)}` : ''}
+            </Text>
+          </View>
+        </View>
+      ),
+      timestamp: item.responded_at || item.updated_at || item.created_at,
+    }));
+    return groupNotifications(items);
+  }, [groupInviteResponses, themedStyles]);
+
   return (
     <View style={[themedStyles.container, { paddingTop: insets.top || spacing.lg }]}>
       <View style={themedStyles.header}>
@@ -307,6 +397,21 @@ const NotificationCenterScreen = () => {
           ))
         )}
 
+        <Text style={[themedStyles.sectionLabel, { marginTop: spacing.lg }]}>Group invites</Text>
+        {pendingGroupInvites.length === 0 ? (
+          <View style={themedStyles.placeholderBox}>
+            <Ionicons name="people-outline" size={20} color={themedStyles.subduedText} />
+            <Text style={themedStyles.placeholderText}>No group invites right now.</Text>
+          </View>
+        ) : (
+          groupedGroupInvites.map((group) => (
+            <View key={group.label}>
+              <Text style={themedStyles.groupLabel}>{group.label}</Text>
+              {group.data.map((n) => n.component)}
+            </View>
+          ))
+        )}
+
         <Text style={[themedStyles.sectionLabel, { marginTop: spacing.lg }]}>Updates</Text>
         {responseNotifications.length === 0 ? (
           <View style={themedStyles.placeholderBox}>
@@ -334,6 +439,23 @@ const NotificationCenterScreen = () => {
           </View>
         ) : (
           groupedTaskResponses.map((group) => (
+            <View key={group.label}>
+              <Text style={themedStyles.groupLabel}>{group.label}</Text>
+              {group.data.map((n) => n.component)}
+            </View>
+          ))
+        )}
+
+        <Text style={[themedStyles.sectionLabel, { marginTop: spacing.lg }]}>Group updates</Text>
+        {groupInviteResponses.length === 0 ? (
+          <View style={themedStyles.placeholderBox}>
+            <Ionicons name="information-circle-outline" size={20} color={themedStyles.subduedText} />
+            <Text style={themedStyles.placeholderText}>
+              When someone responds to your group invite, it will appear here.
+            </Text>
+          </View>
+        ) : (
+          groupedGroupResponses.map((group) => (
             <View key={group.label}>
               <Text style={themedStyles.groupLabel}>{group.label}</Text>
               {group.data.map((n) => n.component)}
