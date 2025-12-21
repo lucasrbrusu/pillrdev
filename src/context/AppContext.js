@@ -296,6 +296,9 @@ const userStatusesRef = useRef({});
 const lastPresenceUpdateRef = useRef(0);
 const dataLoadTimestampsRef = useRef({});
 const lastStatusPollRef = useRef(0);
+const realtimePresenceChannelRef = useRef(null);
+const realtimeFriendRequestChannelRef = useRef(null);
+const realtimeEnabledRef = useRef(false);
   const [blockedUsers, setBlockedUsers] = useState({ blocked: [], blockedBy: [] });
   const friendResponseSignatureRef = useRef('');
   const taskInviteResponseSignatureRef = useRef('');
@@ -540,9 +543,11 @@ const loadUserDataFromSupabase = async (userId) => {
       if (now - lastStatusPollRef.current < STATUS_POLL_INTERVAL_MS) return;
       lastStatusPollRef.current = now;
       await updateUserPresence();
-      await refreshFriendStatuses();
-      await fetchBlockedUsers(authUser.id);
-      await fetchFriendRequests(authUser.id);
+      if (!realtimeEnabledRef.current) {
+        await refreshFriendStatuses();
+        await fetchBlockedUsers(authUser.id);
+        await fetchFriendRequests(authUser.id);
+      }
       await fetchTaskInvites(authUser.id);
     };
 
@@ -582,6 +587,53 @@ const loadUserDataFromSupabase = async (userId) => {
   useEffect(() => {
     userStatusesRef.current = userStatuses;
   }, [userStatuses]);
+
+  // Supabase Realtime for presence + friend requests
+  useEffect(() => {
+    if (!authUser?.id) {
+      realtimeEnabledRef.current = false;
+      realtimePresenceChannelRef.current?.unsubscribe?.();
+      realtimePresenceChannelRef.current = null;
+      realtimeFriendRequestChannelRef.current?.unsubscribe?.();
+      realtimeFriendRequestChannelRef.current = null;
+      return undefined;
+    }
+
+    const presenceChannel = supabase
+      .channel(`user:${authUser.id}:status`, { config: { broadcast: { self: true } }, type: 'private' })
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'user_status' },
+        async () => {
+          await refreshFriendStatuses();
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') realtimeEnabledRef.current = true;
+      });
+
+    const friendRequestChannel = supabase
+      .channel(`user:${authUser.id}:friend_requests`, { config: { broadcast: { self: true } }, type: 'private' })
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'friend_requests' },
+        async () => {
+          await fetchFriendRequests(authUser.id);
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') realtimeEnabledRef.current = true;
+      });
+
+    realtimePresenceChannelRef.current = presenceChannel;
+    realtimeFriendRequestChannelRef.current = friendRequestChannel;
+
+    return () => {
+      realtimeEnabledRef.current = false;
+      presenceChannel?.unsubscribe?.();
+      friendRequestChannel?.unsubscribe?.();
+    };
+  }, [authUser?.id, fetchFriendRequests, refreshFriendStatuses]);
 
   const shouldRefreshData = useCallback(
     (key, ttl = DATA_REFRESH_TTL_MS) => {
