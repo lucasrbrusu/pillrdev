@@ -174,7 +174,11 @@ const FriendsScreen = () => {
 
     return (
       <View key={user.id} style={themedStyles.friendRow}>
-        <View style={themedStyles.friendInfo}>
+        <TouchableOpacity
+          style={themedStyles.friendInfo}
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('FriendProfile', { friendId: user.id })}
+        >
           {renderAvatar(user, 52)}
           <View style={themedStyles.friendTextWrap}>
             <Text style={themedStyles.friendName} numberOfLines={1}>
@@ -185,7 +189,7 @@ const FriendsScreen = () => {
             </Text>
             {statusText ? <Text style={themedStyles.friendStatus}>{statusText}</Text> : null}
           </View>
-        </View>
+        </TouchableOpacity>
 
         <View style={themedStyles.friendActions}>
           {relationship.isFriend ? (

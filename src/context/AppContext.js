@@ -284,6 +284,8 @@ export const AppProvider = ({ children }) => {
   const [groupHabitCompletions, setGroupHabitCompletions] = useState({});
   const [groupRoutines, setGroupRoutines] = useState([]);
   const [userStatuses, setUserStatuses] = useState({});
+  const userStatusesRef = useRef({});
+  const [blockedUsers, setBlockedUsers] = useState({ blocked: [], blockedBy: [] });
   const friendResponseSignatureRef = useRef('');
   const taskInviteResponseSignatureRef = useRef('');
   const groupInviteSignatureRef = useRef('');
@@ -468,6 +470,7 @@ const loadUserDataFromSupabase = async (userId) => {
       setGroupHabitCompletions({});
       setGroupRoutines([]);
       setUserStatuses({});
+      setBlockedUsers({ blocked: [], blockedBy: [] });
       setFoodLogs({});
       setProfile(defaultProfile);
       setProfileLoaded(false);
@@ -550,6 +553,7 @@ const loadUserDataFromSupabase = async (userId) => {
       if (isCancelled) return;
       await updateUserPresence();
       await refreshFriendStatuses();
+      await fetchBlockedUsers(authUser.id);
       await fetchFriendRequests(authUser.id);
       await fetchTaskInvites(authUser.id);
     };
@@ -561,7 +565,11 @@ const loadUserDataFromSupabase = async (userId) => {
       isCancelled = true;
       clearInterval(interval);
     };
-  }, [authUser?.id, fetchFriendRequests, fetchTaskInvites, refreshFriendStatuses, updateUserPresence]);
+  }, [authUser?.id, fetchBlockedUsers, fetchFriendRequests, fetchTaskInvites, refreshFriendStatuses, updateUserPresence]);
+
+  useEffect(() => {
+    userStatusesRef.current = userStatuses;
+  }, [userStatuses]);
 
   // Save helpers
   const saveToStorage = async (key, data) => {
@@ -621,6 +629,19 @@ const mapProfileSummary = (row) => ({
   avatarUrl: getAvatarPublicUrl(row?.photo || row?.avatar_url || row?.avatar) || null,
 });
 
+const mapExternalProfile = (row) => ({
+  id: row?.id || row?.user_id || null,
+  username: row?.username || '',
+  name: row?.full_name || row?.name || row?.email || 'Unknown user',
+  email: row?.email || '',
+  avatarUrl: getAvatarPublicUrl(row?.photo || row?.avatar_url || row?.avatar) || null,
+  dailyCalorieGoal: row?.daily_calorie_goal ?? null,
+  dailyWaterGoal: row?.daily_water_goal ?? null,
+  dailySleepGoal: row?.daily_sleep_goal ?? null,
+  plan: row?.plan || defaultProfile.plan,
+  premiumExpiresAt: row?.premium_expires_at || row?.premiumExpiresAt || null,
+});
+
   const updateUserPresence = useCallback(async () => {
     if (!authUser?.id) return;
     const nowISO = new Date().toISOString();
@@ -657,9 +678,15 @@ const mapProfileSummary = (row) => ({
   }, [authUser?.id, profile.name, profile.username, profile.email]);
 
   const fetchFriendships = useCallback(
-    async (userIdParam) => {
+    async (userIdParam, blockStateParam) => {
       const userId = userIdParam || authUser?.id;
       if (!userId) return [];
+
+      const blockState = blockStateParam || blockedUsers;
+      const blockedSet = new Set([
+        ...((blockState?.blocked || [])),
+        ...((blockState?.blockedBy || [])),
+      ]);
 
       const { data, error } = await supabase
         .from('friendships')
@@ -678,7 +705,12 @@ const mapProfileSummary = (row) => ({
             .map((row) => (row.user_id === userId ? row.friend_id : row.user_id))
             .filter(Boolean)
         )
-      );
+      ).filter((id) => !blockedSet.has(id));
+
+      if (!friendIds.length) {
+        setFriends([]);
+        return [];
+      }
 
       let profileRows = [];
       if (friendIds.length) {
@@ -727,13 +759,19 @@ const mapProfileSummary = (row) => ({
       setFriends(mapped);
       return mapped;
     },
-    [authUser?.id]
+    [authUser?.id, blockedUsers.blocked, blockedUsers.blockedBy]
   );
 
   const fetchFriendRequests = useCallback(
-    async (userIdParam) => {
+    async (userIdParam, blockStateParam) => {
       const userId = userIdParam || authUser?.id;
       if (!userId) return { incoming: [], outgoing: [], responses: [] };
+
+      const blockState = blockStateParam || blockedUsers;
+      const blockedSet = new Set([
+        ...((blockState?.blocked || [])),
+        ...((blockState?.blockedBy || [])),
+      ]);
 
       const { data, error } = await supabase
         .from('friend_requests')
@@ -779,13 +817,17 @@ const mapProfileSummary = (row) => ({
         toUser: profileLookup[row.to_user_id] || null,
       }));
 
-      const incoming = mapped.filter(
+      const filtered = mapped.filter(
+        (row) => !blockedSet.has(row.from_user_id) && !blockedSet.has(row.to_user_id)
+      );
+
+      const incoming = filtered.filter(
         (row) => row.to_user_id === userId && row.status === 'pending'
       );
-      const outgoing = mapped.filter(
+      const outgoing = filtered.filter(
         (row) => row.from_user_id === userId && row.status === 'pending'
       );
-      const responses = mapped.filter(
+      const responses = filtered.filter(
         (row) => row.from_user_id === userId && row.status !== 'pending'
       );
 
@@ -803,7 +845,7 @@ const mapProfileSummary = (row) => ({
 
       return { incoming, outgoing, responses };
     },
-    [authUser?.id, fetchFriendships, refreshFriendStatuses]
+    [authUser?.id, blockedUsers.blocked, blockedUsers.blockedBy, fetchFriendships, refreshFriendStatuses]
   );
 
   const isMissingRelationError = (error, relation) => {
@@ -816,6 +858,42 @@ const mapProfileSummary = (row) => ({
       (relationName && message.includes(relationName))
     );
   };
+
+  const fetchBlockedUsers = useCallback(
+    async (userIdParam) => {
+      const userId = userIdParam || authUser?.id;
+      if (!userId) return { blocked: [], blockedBy: [] };
+
+      const { data, error } = await supabase
+        .from('user_blocks')
+        .select('blocker_id, blocked_user_id')
+        .or(`blocker_id.eq.${userId},blocked_user_id.eq.${userId}`);
+
+      if (error) {
+        if (!isMissingRelationError(error, 'user_blocks')) {
+          console.log('Error fetching blocked users:', error);
+        }
+        const empty = { blocked: [], blockedBy: [] };
+        setBlockedUsers(empty);
+        return empty;
+      }
+
+      const blocked = [];
+      const blockedBy = [];
+      (data || []).forEach((row) => {
+        if (row.blocker_id === userId && row.blocked_user_id) {
+          blocked.push(row.blocked_user_id);
+        }
+        if (row.blocked_user_id === userId && row.blocker_id) {
+          blockedBy.push(row.blocker_id);
+        }
+      });
+      const nextState = { blocked, blockedBy };
+      setBlockedUsers(nextState);
+      return nextState;
+    },
+    [authUser?.id, isMissingRelationError]
+  );
 
   const fetchTaskInvites = useCallback(
     async (userIdParam) => {
@@ -1855,11 +1933,12 @@ const mapProfileSummary = (row) => ({
     async (userIdParam) => {
       const userId = userIdParam || authUser?.id;
       if (!userId) return;
-      const friendList = await fetchFriendships(userId);
-      await fetchFriendRequests(userId);
+      const blockState = await fetchBlockedUsers(userId);
+      const friendList = await fetchFriendships(userId, blockState);
+      await fetchFriendRequests(userId, blockState);
       await refreshFriendStatuses(friendList);
     },
-    [authUser?.id, fetchFriendships, fetchFriendRequests, refreshFriendStatuses]
+    [authUser?.id, fetchBlockedUsers, fetchFriendships, fetchFriendRequests, refreshFriendStatuses]
   );
 
   const isUserOnline = useCallback(
@@ -1873,8 +1952,23 @@ const mapProfileSummary = (row) => ({
     [userStatuses]
   );
 
+  const isUserBlocked = useCallback(
+    (userId) => (blockedUsers?.blocked || []).includes(userId),
+    [blockedUsers.blocked]
+  );
+
+  const isBlockedByUser = useCallback(
+    (userId) => (blockedUsers?.blockedBy || []).includes(userId),
+    [blockedUsers.blockedBy]
+  );
+
   const getFriendRelationship = useCallback(
     (userId) => {
+      const blocked = isUserBlocked(userId);
+      const blockedBy = isBlockedByUser(userId);
+      if (blocked || blockedBy) {
+        return { isFriend: false, incoming: null, outgoing: null, blocked, blockedBy };
+      }
       const isFriend = friends.some((f) => f.id === userId);
       const incoming = friendRequests.incoming.find(
         (r) => r.from_user_id === userId && r.status === 'pending'
@@ -1882,9 +1976,9 @@ const mapProfileSummary = (row) => ({
       const outgoing = friendRequests.outgoing.find(
         (r) => r.to_user_id === userId && r.status === 'pending'
       );
-      return { isFriend, incoming, outgoing };
+      return { isFriend, incoming, outgoing, blocked, blockedBy };
     },
-    [friends, friendRequests]
+    [friends, friendRequests, isBlockedByUser, isUserBlocked]
   );
 
   const searchUsersByUsername = useCallback(
@@ -1925,13 +2019,17 @@ const mapProfileSummary = (row) => ({
         .filter((row) => row.id !== authUser.id)
         .map((row) => {
           const relationship = getFriendRelationship(row.id);
+          if (relationship.blocked || relationship.blockedBy) return null;
           return {
             ...mapProfileSummary(row),
             isFriend: relationship.isFriend,
             pendingIncoming: !!relationship.incoming,
             pendingOutgoing: !!relationship.outgoing,
+            isBlocked: relationship.blocked,
+            blockedBy: relationship.blockedBy,
           };
-        });
+        })
+        .filter(Boolean);
     },
     [authUser?.id, getFriendRelationship]
   );
@@ -1942,6 +2040,8 @@ const mapProfileSummary = (row) => ({
       if (!toUserId) throw new Error('Invalid user.');
       if (toUserId === authUser.id) throw new Error('You cannot add yourself.');
       const existing = getFriendRelationship(toUserId);
+      if (existing.blocked) throw new Error('You have blocked this user.');
+      if (existing.blockedBy) throw new Error('This user has blocked you.');
       if (existing.isFriend) throw new Error('Already friends.');
       if (existing.incoming) {
         await respondToFriendRequest(existing.incoming.id, 'accepted');
@@ -2031,6 +2131,176 @@ const mapProfileSummary = (row) => ({
       await refreshFriendData(authUser.id);
     },
     [authUser?.id, refreshFriendData]
+  );
+
+  const blockUser = useCallback(
+    async (targetUserId) => {
+      if (!authUser?.id) throw new Error('You must be logged in to block someone.');
+      if (!targetUserId || targetUserId === authUser.id) throw new Error('Invalid user.');
+      const payload = {
+        blocker_id: authUser.id,
+        blocked_user_id: targetUserId,
+        created_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from('user_blocks')
+        .upsert(payload, { onConflict: 'blocker_id,blocked_user_id' });
+
+      if (error && !isMissingRelationError(error, 'user_blocks')) {
+        console.log('Error blocking user:', error);
+        throw new Error(error.message || 'Unable to block this user.');
+      }
+
+      try {
+        await supabase
+          .from('friendships')
+          .delete()
+          .or(
+            `and(user_id.eq.${authUser.id},friend_id.eq.${targetUserId}),and(user_id.eq.${targetUserId},friend_id.eq.${authUser.id})`
+          );
+      } catch (err) {
+        if (!isMissingRelationError(err, 'friendships')) {
+          console.log('Error clearing friendships while blocking:', err);
+        }
+      }
+
+      try {
+        await supabase
+          .from('friend_requests')
+          .delete()
+          .or(
+            `and(from_user_id.eq.${authUser.id},to_user_id.eq.${targetUserId}),and(from_user_id.eq.${targetUserId},to_user_id.eq.${authUser.id})`
+          );
+      } catch (err) {
+        if (!isMissingRelationError(err, 'friend_requests')) {
+          console.log('Error clearing friend requests while blocking:', err);
+        }
+      }
+
+      setBlockedUsers((prev) => ({
+        blocked: Array.from(new Set([...(prev?.blocked || []), targetUserId])),
+        blockedBy: prev?.blockedBy || [],
+      }));
+      setFriends((prev) => prev.filter((f) => f.id !== targetUserId));
+      setFriendRequests((prev) => ({
+        incoming: prev.incoming.filter(
+          (r) => r.from_user_id !== targetUserId && r.to_user_id !== targetUserId
+        ),
+        outgoing: prev.outgoing.filter(
+          (r) => r.from_user_id !== targetUserId && r.to_user_id !== targetUserId
+        ),
+        responses: prev.responses.filter(
+          (r) => r.from_user_id !== targetUserId && r.to_user_id !== targetUserId
+        ),
+      }));
+      await refreshFriendData(authUser.id);
+    },
+    [authUser?.id, isMissingRelationError, refreshFriendData]
+  );
+
+  const unblockUser = useCallback(
+    async (targetUserId) => {
+      if (!authUser?.id || !targetUserId) return;
+      const { error } = await supabase
+        .from('user_blocks')
+        .delete()
+        .eq('blocker_id', authUser.id)
+        .eq('blocked_user_id', targetUserId);
+
+      if (error && !isMissingRelationError(error, 'user_blocks')) {
+        console.log('Error unblocking user:', error);
+        throw new Error(error.message || 'Unable to unblock this user.');
+      }
+
+      setBlockedUsers((prev) => ({
+        blocked: (prev?.blocked || []).filter((id) => id !== targetUserId),
+        blockedBy: prev?.blockedBy || [],
+      }));
+      await refreshFriendData(authUser.id);
+    },
+    [authUser?.id, isMissingRelationError, refreshFriendData]
+  );
+
+  const submitFriendReport = useCallback(
+    async (reportedUserId, description) => {
+      if (!authUser?.id) throw new Error('You must be logged in to report someone.');
+      if (!reportedUserId) throw new Error('Invalid user.');
+      const cleanDescription = (description || '').trim();
+
+      let insertedRow = null;
+      const { data, error } = await supabase
+        .from('friend_reports')
+        .insert({
+          reporter_id: authUser.id,
+          reported_user_id: reportedUserId,
+          description: cleanDescription || null,
+          created_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (error && !isMissingRelationError(error, 'friend_reports')) {
+        console.log('Error submitting friend report:', error);
+        throw new Error(error.message || 'Unable to submit report.');
+      }
+
+      insertedRow = data || null;
+
+      try {
+        await supabase.functions.invoke('send-report-email', {
+          body: {
+            reporterId: authUser.id,
+            reportedUserId: reportedUserId,
+            description: cleanDescription,
+          },
+        });
+      } catch (err) {
+        console.log('Error invoking report email function:', err);
+      }
+
+      return insertedRow;
+    },
+    [authUser?.id, isMissingRelationError]
+  );
+
+  const getUserProfileById = useCallback(
+    async (userId) => {
+      if (!userId) return null;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .or(`id.eq.${userId},user_id.eq.${userId}`)
+        .limit(1);
+
+      if (error) {
+        if (!isMissingColumnError(error, 'id') && !isMissingColumnError(error, 'user_id')) {
+          console.log('Error fetching profile for user:', error);
+        }
+        return null;
+      }
+
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row) return null;
+
+      let lastSeen = userStatusesRef.current[userId];
+      if (!lastSeen) {
+        const { data: statusData, error: statusError } = await supabase
+          .from('user_status')
+          .select('last_seen')
+          .eq('user_id', userId)
+          .limit(1);
+
+        if (!statusError && statusData?.[0]?.last_seen) {
+          lastSeen = statusData[0].last_seen;
+          setUserStatuses((prev) => ({ ...prev, [userId]: lastSeen }));
+        }
+      }
+
+      return { ...mapExternalProfile(row), lastSeen };
+    },
+    [isMissingColumnError]
   );
 
   const onlineFriends = useMemo(
@@ -5031,13 +5301,21 @@ const getFinanceSummaryForDate = (date) => {
     friends,
     onlineFriends,
     friendRequests,
+    blockedUsers,
     isUserOnline,
+    isUserBlocked,
+    isBlockedByUser,
     deleteFriend,
+    blockUser,
+    unblockUser,
+    fetchBlockedUsers,
     refreshFriendData,
     searchUsersByUsername,
     sendFriendRequest,
     respondToFriendRequest,
     getFriendRelationship,
+    submitFriendReport,
+    getUserProfileById,
     groups,
     groupInvites,
     groupHabits,

@@ -34,6 +34,7 @@ import FocusModeScreen from '../screens/FocusModeScreen';
 import CountdownTimerScreen from '../screens/CountdownTimerScreen';
 import InsightsScreen from '../screens/InsightsScreen';
 import BudgetGroupInsightScreen from '../screens/BudgetGroupInsightScreen';
+import FriendProfileScreen from '../screens/FriendProfileScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -243,6 +244,7 @@ const Navigation = () => {
               gestureResponseDistance: FRIENDS_GESTURE_DISTANCE,
             }}
           />
+          <Stack.Screen name="FriendProfile" component={FriendProfileScreen} />
           <Stack.Screen name="Groups" component={GroupsScreen} />
           <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />
           <Stack.Screen name="Insights" component={InsightsScreen} />
