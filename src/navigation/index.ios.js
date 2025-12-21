@@ -35,6 +35,7 @@ import CountdownTimerScreen from '../screens/CountdownTimerScreen';
 import InsightsScreen from '../screens/InsightsScreen';
 import BudgetGroupInsightScreen from '../screens/BudgetGroupInsightScreen';
 import FriendProfileScreen from '../screens/FriendProfileScreen';
+import PaywallScreen from '../screens/PaywallScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -223,6 +224,7 @@ const Navigation = () => {
             {() => <MainWithChatButton styles={styles} isPremium={isPremium} />}
           </Stack.Screen>
           <Stack.Screen name="Profile" component={ProfileScreen} />
+          <Stack.Screen name="Paywall" component={PaywallScreen} />
           <Stack.Screen name="EditProfile" component={EditProfileScreen} />
           <Stack.Screen name="GeneralSettings" component={GeneralSettingsScreen} />
           <Stack.Screen name="Finance" component={FinanceScreen} />

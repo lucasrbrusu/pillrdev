@@ -131,21 +131,27 @@ const ProfileScreen = () => {
           </TouchableOpacity>
 
           {!isPremium && (
-            <LinearGradient
-              colors={['#fbe7a1', '#f5c542', '#f3b11c']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.premiumUpsell}
+            <TouchableOpacity
+              activeOpacity={0.92}
+              onPress={() => navigation.navigate('Paywall', { source: 'profile' })}
+              style={{ width: '100%' }}
             >
-              <View style={styles.premiumShine} />
-              <View style={styles.premiumIconWrap}>
-                <Ionicons name="star" size={22} color="#b8860b" />
-              </View>
-              <View style={styles.premiumTextWrap}>
-                <Text style={styles.premiumTitle}>Upgrade to Premium</Text>
-                <Text style={styles.premiumSubtitle}>Unlock AI agent and premium perks.</Text>
-              </View>
-            </LinearGradient>
+              <LinearGradient
+                colors={['#fbe7a1', '#f5c542', '#f3b11c']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.premiumUpsell}
+              >
+                <View style={styles.premiumShine} />
+                <View style={styles.premiumIconWrap}>
+                  <Ionicons name="star" size={22} color="#b8860b" />
+                </View>
+                <View style={styles.premiumTextWrap}>
+                  <Text style={styles.premiumTitle}>Upgrade to Premium</Text>
+                  <Text style={styles.premiumSubtitle}>Unlock AI agent and premium perks.</Text>
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
           )}
         </View>
 

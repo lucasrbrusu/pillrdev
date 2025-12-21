@@ -115,7 +115,7 @@ const GroupsScreen = () => {
           ]}
           onPress={() => {
             if (!isPremiumUser) {
-              Alert.alert('Premium required', 'Upgrade to create or invite to groups.');
+              navigation.navigate('Paywall', { source: 'groups' });
               return;
             }
             setShowCreate(true);

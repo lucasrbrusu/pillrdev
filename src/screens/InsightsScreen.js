@@ -345,7 +345,7 @@ export default function InsightsScreen() {
             </Text>
             <Button
               title="Upgrade to Premium"
-              onPress={() => navigation.navigate('Profile')}
+              onPress={() => navigation.navigate('Paywall', { source: 'insights' })}
               icon="star"
               style={styles.upgradeButton}
               disableTranslation

@@ -451,23 +451,28 @@ const HomeScreen = () => {
 
         {/* Premium Upsell for free users */}
         {!isPremium && (
-          <LinearGradient
-            colors={['#fbe7a1', '#f5c542', '#f3b11c']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.premiumUpsell}
+          <TouchableOpacity
+            activeOpacity={0.92}
+            onPress={() => navigation.navigate('Paywall', { source: 'home' })}
           >
-            <View style={styles.premiumShine} />
-            <View style={styles.premiumIconWrap}>
-              <Ionicons name="star" size={28} color="#b8860b" />
-            </View>
-            <View style={styles.premiumTextWrap}>
-              <Text style={styles.premiumTitle}>Upgrade to Premium!</Text>
-              <Text style={styles.premiumSubtitle}>
-                Unlock the AI agent and premium features tailored to power up your day.
-              </Text>
-            </View>
-          </LinearGradient>
+            <LinearGradient
+              colors={['#fbe7a1', '#f5c542', '#f3b11c']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.premiumUpsell}
+            >
+              <View style={styles.premiumShine} />
+              <View style={styles.premiumIconWrap}>
+                <Ionicons name="star" size={28} color="#b8860b" />
+              </View>
+              <View style={styles.premiumTextWrap}>
+                <Text style={styles.premiumTitle}>Upgrade to Premium!</Text>
+                <Text style={styles.premiumSubtitle}>
+                  Unlock the AI agent and premium features tailored to power up your day.
+                </Text>
+              </View>
+            </LinearGradient>
+          </TouchableOpacity>
         )}
 
         {/* Upcoming Reminders */}

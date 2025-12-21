@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { useApp } from "../context/AppContext";
+import { useNavigation } from "@react-navigation/native";
 
 import {
   applyProposal,
@@ -55,6 +56,7 @@ function prettyActionTitle(actionType: string) {
 
 export default function ChatScreen() {
   const { profile, themeColors } = useApp();
+  const navigation = useNavigation();
   const isPremium = !!profile?.isPremium;
   const backgroundColor = themeColors?.background ?? "#0f0f0f";
   const surfaceColor = themeColors?.card ?? "#1a1a1a";
@@ -193,6 +195,19 @@ export default function ChatScreen() {
             <Text style={{ color: mutedTextColor, fontSize: 15, lineHeight: 22 }}>
               Upgrade to a premium plan to unlock the Pillr AI agent and start chatting.
             </Text>
+            <TouchableOpacity
+              onPress={() => navigation.navigate("Paywall", { source: "chat" })}
+              activeOpacity={0.9}
+              style={{
+                marginTop: 16,
+                paddingVertical: 12,
+                borderRadius: 12,
+                backgroundColor: primaryColor,
+                alignItems: "center",
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "700" }}>View Pillr Premium</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </SafeAreaView>

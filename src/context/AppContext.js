@@ -103,7 +103,8 @@ const DEFAULT_EVENT_TIME = { hour: 9, minute: 0 };
 const HABIT_REMINDER_TIME = { hour: 8, minute: 0 };
 const ROUTINE_REMINDER_TIME = { hour: 7, minute: 30 };
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
-const STATUS_POLL_INTERVAL_MS = 2 * 60 * 1000;
+// Poll less frequently to reduce Supabase egress (friend/user status checks).
+const STATUS_POLL_INTERVAL_MS = 5 * 60 * 1000;
 const PRESENCE_WRITE_INTERVAL_MS = 2 * 60 * 1000;
 const DATA_REFRESH_TTL_MS = 5 * 60 * 1000;
 
@@ -291,9 +292,10 @@ export const AppProvider = ({ children }) => {
   const [groupHabitCompletions, setGroupHabitCompletions] = useState({});
   const [groupRoutines, setGroupRoutines] = useState([]);
   const [userStatuses, setUserStatuses] = useState({});
-  const userStatusesRef = useRef({});
-  const lastPresenceUpdateRef = useRef(0);
-  const dataLoadTimestampsRef = useRef({});
+const userStatusesRef = useRef({});
+const lastPresenceUpdateRef = useRef(0);
+const dataLoadTimestampsRef = useRef({});
+const lastStatusPollRef = useRef(0);
   const [blockedUsers, setBlockedUsers] = useState({ blocked: [], blockedBy: [] });
   const friendResponseSignatureRef = useRef('');
   const taskInviteResponseSignatureRef = useRef('');
@@ -534,6 +536,9 @@ const loadUserDataFromSupabase = async (userId) => {
 
     const tick = async () => {
       if (isCancelled || appStateRef.current !== 'active') return;
+      const now = Date.now();
+      if (now - lastStatusPollRef.current < STATUS_POLL_INTERVAL_MS) return;
+      lastStatusPollRef.current = now;
       await updateUserPresence();
       await refreshFriendStatuses();
       await fetchBlockedUsers(authUser.id);

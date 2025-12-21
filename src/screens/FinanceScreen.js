@@ -885,7 +885,7 @@ const FinanceScreen = () => {
             <Button
               title="Upgrade to Premium"
               icon="star"
-              onPress={() => navigation.navigate('Profile')}
+              onPress={() => navigation.navigate('Paywall', { source: 'finance' })}
               style={styles.upgradeButton}
               disableTranslation
             />

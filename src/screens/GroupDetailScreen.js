@@ -347,7 +347,7 @@ const GroupDetailScreen = () => {
                   style={themedStyles.iconButton}
                   onPress={() => {
                     if (!isPremiumUser) {
-                      Alert.alert('Premium required', 'Upgrade to invite new members.');
+                      navigation.navigate('Paywall', { source: 'groups' });
                       return;
                     }
                     setShowInviteModal(true);

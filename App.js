@@ -6,9 +6,15 @@ import { AppProvider } from './src/context/AppContext';
 import Navigation from './src/navigation';
 import { useApp } from './src/context/AppContext';
 import { View } from 'react-native';
+import { useEffect } from 'react';
+import { configureRevenueCat } from './RevenueCat';
 
 const AppContent = () => {
   const { themeColors, themeName } = useApp();
+
+  useEffect(() => {
+    configureRevenueCat();
+  }, []);
 
   return (
     <View style={{ flex: 1, backgroundColor: themeColors.background }}>
