@@ -32,6 +32,7 @@ import ChatScreen from '../screens/ChatScreen';
 import FocusModeScreen from '../screens/FocusModeScreen';
 import CountdownTimerScreen from '../screens/CountdownTimerScreen';
 import InsightsScreen from '../screens/InsightsScreen';
+import BudgetGroupInsightScreen from '../screens/BudgetGroupInsightScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -223,6 +224,10 @@ const Navigation = () => {
           <Stack.Screen name="EditProfile" component={EditProfileScreen} />
           <Stack.Screen name="GeneralSettings" component={GeneralSettingsScreen} />
           <Stack.Screen name="Finance" component={FinanceScreen} />
+          <Stack.Screen
+            name="BudgetGroupInsight"
+            component={BudgetGroupInsightScreen}
+          />
           <Stack.Screen name="Calendar" component={CalendarScreen} />
           <Stack.Screen name="Appearance" component={AppearanceScreen} />
           <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />

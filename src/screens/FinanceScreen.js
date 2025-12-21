@@ -458,6 +458,23 @@ const FinanceScreen = () => {
     });
   };
 
+  useEffect(() => {
+    if (!assignToBudget) return;
+    if (!selectedBudgetGroup) {
+      setCategory('');
+      return;
+    }
+    const allowedIds = expenseCategoryOptions.map((cat) => cat.id);
+    if (!allowedIds.includes(category)) {
+      setCategory(allowedIds[0] || '');
+    }
+  }, [
+    assignToBudget,
+    selectedBudgetGroup,
+    expenseCategoryOptions,
+    category,
+  ]);
+
   const handleOpenIncome = () => {
     setTransactionDate(formatDateForInput(selectedDate));
     setShowIncomeModal(true);
@@ -473,10 +490,27 @@ const FinanceScreen = () => {
     setTransactionDate(formatDateForInput(date));
   };
 
+  const openBudgetGroupInsight = (groupId) => {
+    if (!groupId) return;
+    navigation.navigate('BudgetGroupInsight', { groupId });
+  };
+
   const monthlyWindowLabel = formatWindowLabel(monthStart, nextMonthStart);
   const activeRecurringGroup = budgetGroups.find(
     (group) => group.id === activeGroupForRecurring
   );
+  const selectedBudgetGroup = useMemo(
+    () => budgetGroups.find((group) => group.id === selectedBudgetGroupId),
+    [budgetGroups, selectedBudgetGroupId]
+  );
+  const expenseCategoryOptions = useMemo(() => {
+    if (assignToBudget && selectedBudgetGroup) {
+      const allowedIds = selectedBudgetGroup.categories || [];
+      if (!allowedIds.length) return [];
+      return expenseCategories.filter((cat) => allowedIds.includes(cat.id));
+    }
+    return expenseCategories;
+  }, [assignToBudget, selectedBudgetGroup]);
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <PlatformScrollView
@@ -668,7 +702,12 @@ const FinanceScreen = () => {
                 </View>
               ) : (
                 budgetSummaries.map((summary) => (
-                  <View key={summary.group.id} style={styles.budgetGroupCard}>
+                  <TouchableOpacity
+                    key={summary.group.id}
+                    style={styles.budgetGroupCard}
+                    activeOpacity={0.9}
+                    onPress={() => openBudgetGroupInsight(summary.group.id)}
+                  >
                     <View style={styles.budgetGroupHeader}>
                       <View style={styles.budgetTitleBlock}>
                         <Text style={styles.budgetGroupTitle}>
@@ -683,9 +722,10 @@ const FinanceScreen = () => {
                         {summary.group.type === 'recurring' && (
                           <TouchableOpacity
                             style={styles.iconButton}
-                            onPress={() =>
-                              openRecurringModalForGroup(summary.group.id)
-                            }
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              openRecurringModalForGroup(summary.group.id);
+                            }}
                           >
                             <Feather
                               name="repeat"
@@ -696,7 +736,10 @@ const FinanceScreen = () => {
                         )}
                         <TouchableOpacity
                           style={styles.iconButton}
-                          onPress={() => deleteBudgetGroup(summary.group.id)}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            deleteBudgetGroup(summary.group.id);
+                          }}
                         >
                           <Feather
                             name="trash-2"
@@ -803,16 +846,17 @@ const FinanceScreen = () => {
                         )}
                         <Button
                           title="Add recurring payment"
-                          onPress={() =>
-                            openRecurringModalForGroup(summary.group.id)
-                          }
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            openRecurringModalForGroup(summary.group.id);
+                          }}
                           variant="secondary"
                           style={styles.inlineButton}
                           disableTranslation
                         />
                       </View>
                     )}
-                  </View>
+                  </TouchableOpacity>
                 ))
               )}
             </Card>
@@ -1000,32 +1044,42 @@ const FinanceScreen = () => {
         </View>
 
         <Text style={styles.inputLabel}>Category</Text>
-        <View style={styles.categoryGrid}>
-          {expenseCategories.map((cat) => (
-            <TouchableOpacity
-              key={cat.id}
-              style={[
-                styles.categoryOption,
-                category === cat.id && styles.categoryOptionActive,
-              ]}
-              onPress={() => setCategory(cat.id)}
-            >
-              <Feather
-                name={cat.icon}
-                size={20}
-                color={category === cat.id ? palette.primary : palette.textSecondary}
-              />
-              <Text
+        {assignToBudget && !selectedBudgetGroup ? (
+          <Text style={styles.subduedLabel}>
+            Select a budget group to choose its categories.
+          </Text>
+        ) : expenseCategoryOptions.length === 0 ? (
+          <Text style={styles.subduedLabel}>
+            This budget group has no categories yet.
+          </Text>
+        ) : (
+          <View style={styles.categoryGrid}>
+            {expenseCategoryOptions.map((cat) => (
+              <TouchableOpacity
+                key={cat.id}
                 style={[
-                  styles.categoryLabel,
-                  category === cat.id && styles.categoryLabelActive,
+                  styles.categoryOption,
+                  category === cat.id && styles.categoryOptionActive,
                 ]}
+                onPress={() => setCategory(cat.id)}
               >
-                {cat.name}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+                <Feather
+                  name={cat.icon}
+                  size={20}
+                  color={category === cat.id ? palette.primary : palette.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.categoryLabel,
+                    category === cat.id && styles.categoryLabelActive,
+                  ]}
+                >
+                  {cat.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         <TouchableOpacity
           style={styles.budgetToggle}

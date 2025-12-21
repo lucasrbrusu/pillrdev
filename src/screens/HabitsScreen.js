@@ -16,6 +16,20 @@ import {
 } from '../utils/theme';
 
 const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const repeatChoices = repeatOptions.filter(
+  (option) => option !== 'Custom' && option !== 'Yearly'
+);
+const defaultMonthlyDay = new Date().getDate();
+const monthDays = Array.from({ length: 31 }, (_, idx) => idx + 1);
+const formatOrdinal = (day) => {
+  const value = parseInt(day, 10) || 0;
+  const j = value % 10;
+  const k = value % 100;
+  if (j === 1 && k !== 11) return `${value}st`;
+  if (j === 2 && k !== 12) return `${value}nd`;
+  if (j === 3 && k !== 13) return `${value}rd`;
+  return `${value}th`;
+};
 
 const HabitsScreen = () => {
   const insets = useSafeAreaInsets();
@@ -53,6 +67,8 @@ const HabitsScreen = () => {
   const [habitRepeat, setHabitRepeat] = useState('Daily');
   const [repeatEveryday, setRepeatEveryday] = useState(true);
   const [selectedDays, setSelectedDays] = useState(daysOfWeek);
+  const [monthlyDay, setMonthlyDay] = useState(defaultMonthlyDay);
+  const [showMonthlyDatePicker, setShowMonthlyDatePicker] = useState(false);
   const [habitGroupId, setHabitGroupId] = useState(null);
 
   const bestStreak = getBestStreak();
@@ -108,6 +124,8 @@ const HabitsScreen = () => {
     setHabitRepeat('Daily');
     setRepeatEveryday(true);
     setSelectedDays(daysOfWeek);
+    setMonthlyDay(defaultMonthlyDay);
+    setShowMonthlyDatePicker(false);
     setHabitGroupId(null);
     setIsEditingHabit(false);
     setSelectedHabit(null);
@@ -116,13 +134,29 @@ const HabitsScreen = () => {
   const handleSubmitHabit = async () => {
     if (!habitTitle.trim()) return;
 
+    const getRepeatDays = () => {
+      if (habitRepeat === 'Daily') {
+        return repeatEveryday ? daysOfWeek : selectedDays;
+      }
+      if (habitRepeat === 'Weekly') {
+        if (!selectedDays.length) return [daysOfWeek[0]];
+        return [selectedDays[0]];
+      }
+      if (habitRepeat === 'Monthly') {
+        const parsedDay = parseInt(monthlyDay, 10);
+        const safeDay = Math.min(Math.max(parsedDay || defaultMonthlyDay, 1), 31);
+        return [String(safeDay)];
+      }
+      return selectedDays;
+    };
+
     const payload = {
       title: habitTitle.trim(),
       category: habitCategory,
       description: habitDescription.trim(),
       repeat: habitRepeat,
-    days: repeatEveryday ? daysOfWeek : selectedDays,
-  };
+      days: getRepeatDays(),
+    };
 
     if (isEditingHabit && selectedHabit) {
       await updateHabit(selectedHabit.id, payload);
@@ -147,10 +181,26 @@ const HabitsScreen = () => {
     setHabitTitle(selectedHabit.title || '');
     setHabitCategory(selectedHabit.category || 'Personal');
     setHabitDescription(selectedHabit.description || '');
-    setHabitRepeat(selectedHabit.repeat || 'Daily');
+    const repeatValue = selectedHabit.repeat || 'Daily';
     const days = selectedHabit.days?.length ? selectedHabit.days : daysOfWeek;
-    setSelectedDays(days);
-    setRepeatEveryday(days.length === daysOfWeek.length);
+    setHabitRepeat(repeatValue);
+    setShowMonthlyDatePicker(false);
+
+    if (repeatValue === 'Monthly') {
+      const parsedDay = parseInt(days[0], 10);
+      const safeDay = Math.min(Math.max(parsedDay || defaultMonthlyDay, 1), 31);
+      setMonthlyDay(safeDay);
+      setSelectedDays([]);
+      setRepeatEveryday(false);
+    } else if (repeatValue === 'Weekly') {
+      const firstDay = days[0] || daysOfWeek[0];
+      setSelectedDays([firstDay]);
+      setRepeatEveryday(false);
+    } else {
+      setSelectedDays(days);
+      setRepeatEveryday(days.length === daysOfWeek.length);
+    }
+
     setIsEditingHabit(true);
     setHabitGroupId(null);
     setShowDetailModal(false);
@@ -177,6 +227,12 @@ const HabitsScreen = () => {
   };
 
   const toggleDay = (day) => {
+    if (habitRepeat === 'Weekly') {
+      setSelectedDays([day]);
+      setRepeatEveryday(false);
+      return;
+    }
+
     if (selectedDays.includes(day)) {
       setSelectedDays(selectedDays.filter((d) => d !== day));
     } else {
@@ -186,12 +242,38 @@ const HabitsScreen = () => {
   };
 
   const toggleEveryday = () => {
+    if (habitRepeat !== 'Daily') return;
     if (repeatEveryday) {
       setRepeatEveryday(false);
       setSelectedDays([]);
     } else {
       setRepeatEveryday(true);
       setSelectedDays(daysOfWeek);
+    }
+  };
+
+  const handleSelectRepeat = (value) => {
+    setHabitRepeat(value);
+    setShowMonthlyDatePicker(false);
+
+    if (value === 'Daily') {
+      setRepeatEveryday(true);
+      setSelectedDays(daysOfWeek);
+      return;
+    }
+
+    if (value === 'Weekly') {
+      setRepeatEveryday(false);
+      setSelectedDays([selectedDays[0] || daysOfWeek[0]]);
+      return;
+    }
+
+    if (value === 'Monthly') {
+      setRepeatEveryday(false);
+      setSelectedDays([]);
+      if (!monthlyDay) {
+        setMonthlyDay(defaultMonthlyDay);
+      }
     }
   };
 
@@ -435,33 +517,37 @@ const HabitsScreen = () => {
 
         <Text style={styles.inputLabel}>Repeat</Text>
         <ChipGroup
-          options={repeatOptions}
+          options={repeatChoices}
           selectedValue={habitRepeat}
-          onSelect={setHabitRepeat}
+          onSelect={handleSelectRepeat}
           style={styles.chipGroup}
         />
 
-        {habitRepeat === 'Daily' && (
+        {(habitRepeat === 'Daily' || habitRepeat === 'Weekly') && (
           <View style={styles.daysSection}>
-            <TouchableOpacity
-              style={styles.everydayToggle}
-              onPress={toggleEveryday}
-            >
-              <Text style={styles.everydayLabel}>Repeat everyday</Text>
-              <View
-                style={[
-                  styles.toggle,
-                  repeatEveryday && styles.toggleActive,
-                ]}
+            {habitRepeat === 'Daily' ? (
+              <TouchableOpacity
+                style={styles.everydayToggle}
+                onPress={toggleEveryday}
               >
+                <Text style={styles.everydayLabel}>Repeat everyday</Text>
                 <View
                   style={[
-                    styles.toggleThumb,
-                    repeatEveryday && styles.toggleThumbActive,
+                    styles.toggle,
+                    repeatEveryday && styles.toggleActive,
                   ]}
-                />
-              </View>
-            </TouchableOpacity>
+                >
+                  <View
+                    style={[
+                      styles.toggleThumb,
+                      repeatEveryday && styles.toggleThumbActive,
+                    ]}
+                  />
+                </View>
+              </TouchableOpacity>
+            ) : (
+              <Text style={styles.inputLabel}>Repeat on</Text>
+            )}
 
             <View style={styles.daysRow}>
               {daysOfWeek.map((day) => (
@@ -484,8 +570,70 @@ const HabitsScreen = () => {
                 </TouchableOpacity>
               ))}
             </View>
+
+            {habitRepeat === 'Weekly' ? (
+              <Text style={styles.helperText}>Choose one day for this weekly habit.</Text>
+            ) : null}
           </View>
         )}
+
+        {habitRepeat === 'Monthly' && (
+          <View style={styles.monthlySection}>
+            <Text style={styles.inputLabel}>Day of the month</Text>
+            <TouchableOpacity
+              style={styles.dateButton}
+              onPress={() => setShowMonthlyDatePicker(true)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.dateButtonText}>
+                Repeats on {formatOrdinal(monthlyDay)} of every month
+              </Text>
+              <Ionicons
+                name="calendar-outline"
+                size={18}
+                color={colors.textLight}
+              />
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {showMonthlyDatePicker ? (
+          <View style={styles.dayPickerOverlay}>
+            <TouchableOpacity
+              style={styles.dayPickerBackdrop}
+              onPress={() => setShowMonthlyDatePicker(false)}
+              activeOpacity={1}
+            />
+            <View style={styles.dayPickerSheet}>
+              <Text style={styles.dayPickerTitle}>Select day</Text>
+              <View style={styles.dayPickerGrid}>
+                {monthDays.map((day) => (
+                  <TouchableOpacity
+                    key={day}
+                    style={[
+                      styles.dayOption,
+                      monthlyDay === day && styles.dayOptionActive,
+                    ]}
+                    onPress={() => {
+                      setMonthlyDay(day);
+                      setShowMonthlyDatePicker(false);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        styles.dayOptionText,
+                        monthlyDay === day && styles.dayOptionTextActive,
+                      ]}
+                    >
+                      {day}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.modalButtons}>
           <Button
@@ -854,6 +1002,73 @@ const createStyles = () => StyleSheet.create({
     color: colors.textSecondary,
   },
   dayTextActive: {
+    color: '#FFFFFF',
+  },
+  helperText: {
+    ...typography.bodySmall,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
+  },
+  monthlySection: {
+    marginBottom: spacing.lg,
+  },
+  dateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.inputBackground,
+    borderRadius: borderRadius.md,
+  },
+  dateButtonText: {
+    ...typography.body,
+  },
+  dayPickerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    paddingTop: spacing.xxxl,
+    zIndex: 40,
+  },
+  dayPickerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  dayPickerSheet: {
+    width: '92%',
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    ...shadows.medium,
+  },
+  dayPickerTitle: {
+    ...typography.h3,
+    marginBottom: spacing.md,
+  },
+  dayPickerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  dayOption: {
+    width: '18%',
+    aspectRatio: 1,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.inputBackground,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
+  },
+  dayOptionActive: {
+    backgroundColor: colors.primary,
+  },
+  dayOptionText: {
+    ...typography.body,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  dayOptionTextActive: {
     color: '#FFFFFF',
   },
   modalButtons: {
