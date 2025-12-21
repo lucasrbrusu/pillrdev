@@ -4,21 +4,32 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { colors, borderRadius, spacing, typography, shadows } from '../utils/theme';
 
 const normalizeDate = (value) => {
-  if (value instanceof Date) return value;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? new Date() : value;
+
   if (typeof value === 'string') {
     const parsed = new Date();
-    const [time, suffix] = value.split(' ');
+    const [time, suffixRaw] = value.split(' ');
     if (time) {
       const [h, m] = time.split(':');
-      let hour = Number(h) || 0;
+      let hour = Number(h);
       const minute = Number(m) || 0;
-      const isPM = (suffix || '').toUpperCase().includes('PM');
+      const suffixClean = (suffixRaw || '')
+        .replace(/[^a-zA-Z]/g, '')
+        .toUpperCase();
+      const isPM = suffixClean === 'PM';
+      const isAM = suffixClean === 'AM';
+
       if (isPM && hour < 12) hour += 12;
-      if (!isPM && hour === 12) hour = 0;
-      parsed.setHours(hour, minute, 0, 0);
+      if (isAM && hour === 12) hour = 0;
+      if (!isPM && !isAM) {
+        hour = Number.isFinite(hour) ? Math.min(Math.max(hour, 0), 23) : 0;
+      }
+
+      parsed.setHours(hour || 0, minute, 0, 0);
     }
     return parsed;
   }
+
   const date = new Date(value || Date.now());
   return Number.isNaN(date.getTime()) ? new Date() : date;
 };
@@ -36,7 +47,7 @@ const PlatformTimePicker = ({
   useEffect(() => {
     if (!visible) return;
     setCurrent(normalizeDate(value));
-  }, [value, visible]);
+  }, [visible]);
 
   const handleChange = (_event, selectedDate) => {
     const picked = selectedDate || current;

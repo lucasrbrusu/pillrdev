@@ -2329,12 +2329,17 @@ const isHabitCompletedToday = (habitId) => {
     await writeLastActive(userId, now);
   }, [authUser?.id, profile?.isPremium, profile?.plan, profile?.premiumExpiresAt, profile?.premium_expires_at, profileLoaded, resetAllHabitStreaks, persistStreakFrozenState, streakFrozen, habits]);
 
+const TASK_SELECT_FIELDS =
+  'id,title,description,priority,date,time,completed,created_at,shared_task_id';
+
 const fetchTasksFromSupabase = async (userId) => {
   const { data, error } = await supabase
-    .from('tasks')
-    .select('*')
+    .from('tasks_list')
+    .select(TASK_SELECT_FIELDS)
     .eq('user_id', userId)
-    .order('date', { ascending: true });
+    .order('date', { ascending: true })
+    .order('created_at', { ascending: true })
+    .limit(50);
 
   if (error) {
     console.log('Error fetching tasks:', error);
