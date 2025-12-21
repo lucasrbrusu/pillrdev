@@ -544,7 +544,6 @@ const loadUserDataFromSupabase = async (userId) => {
       lastStatusPollRef.current = now;
       await updateUserPresence();
       if (!realtimeEnabledRef.current) {
-        await refreshFriendStatuses();
         await fetchBlockedUsers(authUser.id);
         await fetchFriendRequests(authUser.id);
       }
@@ -599,14 +598,23 @@ const loadUserDataFromSupabase = async (userId) => {
       return undefined;
     }
 
+    const handleStatusEvent = (payload) => {
+      const row = payload?.new || payload?.old;
+      const userId = row?.user_id;
+      if (!userId) return;
+      const lastSeen = row?.last_seen || null;
+      setUserStatuses((prev) => ({ ...prev, [userId]: lastSeen }));
+      setFriends((prev) =>
+        prev.map((friend) => (friend.id === userId ? { ...friend, lastSeen } : friend))
+      );
+    };
+
     const presenceChannel = supabase
       .channel(`user:${authUser.id}:status`, { config: { broadcast: { self: true } }, type: 'private' })
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'user_status' },
-        async () => {
-          await refreshFriendStatuses();
-        }
+        handleStatusEvent
       )
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') realtimeEnabledRef.current = true;
@@ -824,26 +832,7 @@ const mapExternalProfile = (row) => ({
         }
       }
 
-      let statusRows = [];
-      if (friendIds.length) {
-        const { data: statusesData, error: statusError } = await supabase
-          .from('user_status')
-          .select('user_id, last_seen')
-          .in('user_id', friendIds);
-        if (statusError) {
-          console.log('Error fetching friend statuses:', statusError);
-        } else {
-          statusRows = statusesData || [];
-        }
-      }
-
-      const statusMap = {};
-      statusRows.forEach((row) => {
-        if (row?.user_id) statusMap[row.user_id] = row.last_seen;
-      });
-      if (Object.keys(statusMap).length) {
-        setUserStatuses((prev) => ({ ...prev, ...statusMap }));
-      }
+      const statusMap = { ...(userStatusesRef.current || {}) };
 
       const mapped = friendIds.map((id) => {
         const profileRow = profileRows.find((p) => p.id === id) || {};
@@ -938,7 +927,9 @@ const mapExternalProfile = (row) => ({
         if (responses.length) {
           // A response happened; refresh friendships so both sides see the new link
           await fetchFriendships(userId);
-          await refreshFriendStatuses();
+          if (!realtimeEnabledRef.current) {
+            await refreshFriendStatuses();
+          }
         }
       }
 
@@ -2201,35 +2192,11 @@ const mapExternalProfile = (row) => ({
   );
 
   const refreshFriendStatuses = useCallback(
-    async (friendListParam) => {
-      const list = friendListParam || friends;
-      const ids = list.map((f) => f.id).filter(Boolean);
-      if (!ids.length) return;
-
-      const { data, error } = await supabase
-        .from('user_status')
-        .select('user_id, last_seen')
-        .in('user_id', ids);
-
-      if (error) {
-        console.log('Error refreshing friend statuses:', error);
-        return;
-      }
-
-      const statusMap = {};
-      (data || []).forEach((row) => {
-        if (row?.user_id) statusMap[row.user_id] = row.last_seen;
-      });
-      if (Object.keys(statusMap).length) {
-        setUserStatuses((prev) => ({ ...prev, ...statusMap }));
-        setFriends((prev) =>
-          prev.map((friend) =>
-            statusMap[friend.id] ? { ...friend, lastSeen: statusMap[friend.id] } : friend
-          )
-        );
-      }
+    async () => {
+      // Status now updates exclusively via Supabase Realtime events to avoid REST egress.
+      return;
     },
-    [friends]
+    []
   );
 
   const refreshFriendData = useCallback(
@@ -2239,7 +2206,7 @@ const mapExternalProfile = (row) => ({
       const blockState = await fetchBlockedUsers(userId);
       const friendList = await fetchFriendships(userId, blockState);
       await fetchFriendRequests(userId, blockState);
-      await refreshFriendStatuses(friendList);
+      // User status updates now come only via Realtime, so skip REST status fetches.
     },
     [authUser?.id, fetchBlockedUsers, fetchFriendships, fetchFriendRequests, refreshFriendStatuses]
   );
@@ -2761,19 +2728,7 @@ const mapExternalProfile = (row) => ({
       const row = Array.isArray(data) ? data[0] : data;
       if (!row) return null;
 
-      let lastSeen = userStatusesRef.current[userId];
-      if (!lastSeen) {
-        const { data: statusData, error: statusError } = await supabase
-          .from('user_status')
-          .select('last_seen')
-          .eq('user_id', userId)
-          .limit(1);
-
-        if (!statusError && statusData?.[0]?.last_seen) {
-          lastSeen = statusData[0].last_seen;
-          setUserStatuses((prev) => ({ ...prev, [userId]: lastSeen }));
-        }
-      }
+      const lastSeen = userStatusesRef.current[userId] || null;
 
       return { ...mapExternalProfile(row), lastSeen };
     },
