@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -53,9 +53,14 @@ const BudgetGroupInsightScreen = () => {
     finances,
     getBudgetSpendForGroup,
     themeColors,
+    ensureFinancesLoaded,
   } = useApp();
   const palette = themeColors || colors;
   const styles = useMemo(() => createStyles(palette), [palette]);
+
+  useEffect(() => {
+    ensureFinancesLoaded();
+  }, [ensureFinancesLoaded]);
 
   const groupId = route.params?.groupId;
   const group = useMemo(

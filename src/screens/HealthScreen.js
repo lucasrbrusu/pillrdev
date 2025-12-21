@@ -53,8 +53,13 @@ const HealthScreen = () => {
     getAverageWater,
     getAverageSleep,
     themeColors,
+    ensureHealthLoaded,
   } = useApp();
   const styles = useMemo(() => createStyles(), [themeColors]);
+
+  useEffect(() => {
+    ensureHealthLoaded();
+  }, [ensureHealthLoaded]);
 
   const [showFoodModal, setShowFoodModal] = useState(false);
   const [foodName, setFoodName] = useState('');

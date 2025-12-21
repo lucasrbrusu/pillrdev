@@ -85,6 +85,9 @@ const NotificationCenterScreen = () => {
     respondToFriendRequest,
     respondToTaskInvite,
     respondToGroupInvite,
+    ensureFriendDataLoaded,
+    ensureTaskInvitesLoaded,
+    ensureGroupInvitesLoaded,
   } = useApp();
   const [respondingMap, setRespondingMap] = React.useState({});
   const [respondingTaskMap, setRespondingTaskMap] = React.useState({});
@@ -95,6 +98,12 @@ const NotificationCenterScreen = () => {
   const taskInviteResponses = taskInvites?.responses || [];
   const pendingGroupInvites = groupInvites?.incoming || [];
   const groupInviteResponses = groupInvites?.responses || [];
+
+  React.useEffect(() => {
+    ensureFriendDataLoaded();
+    ensureTaskInvitesLoaded();
+    ensureGroupInvitesLoaded();
+  }, [ensureFriendDataLoaded, ensureGroupInvitesLoaded, ensureTaskInvitesLoaded]);
 
   const handleRespond = async (requestId, status) => {
     setRespondingMap((prev) => ({ ...prev, [requestId]: status }));

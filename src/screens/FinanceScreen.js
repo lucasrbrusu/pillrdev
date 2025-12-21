@@ -158,10 +158,15 @@ const FinanceScreen = () => {
     isPremium,
     userSettings,
     themeColors,
+    ensureFinancesLoaded,
   } = useApp();
   const palette = themeColors || colors;
   const premiumActive = !!(isPremium || profile?.isPremium);
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
+
+  useEffect(() => {
+    ensureFinancesLoaded();
+  }, [ensureFinancesLoaded]);
 
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showIncomeModal, setShowIncomeModal] = useState(false);

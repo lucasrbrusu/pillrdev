@@ -14,7 +14,8 @@ const GroupsScreen = () => {
     groups,
     friends,
     groupInvites,
-    refreshGroupData,
+    ensureGroupDataLoaded,
+    ensureFriendDataLoaded,
     createGroup,
     respondToGroupInvite,
     themeColors,
@@ -28,8 +29,9 @@ const GroupsScreen = () => {
   const [responding, setResponding] = useState({});
 
   useEffect(() => {
-    refreshGroupData();
-  }, [refreshGroupData]);
+    ensureGroupDataLoaded();
+    ensureFriendDataLoaded();
+  }, [ensureFriendDataLoaded, ensureGroupDataLoaded]);
 
   const themedStyles = useMemo(() => createStyles(themeColors || colors), [themeColors]);
 

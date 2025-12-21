@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -51,8 +51,13 @@ const HabitsScreen = () => {
     isPremiumUser,
     themeColors,
     streakFrozen,
+    ensureHabitsLoaded,
   } = useApp();
   const styles = useMemo(() => createStyles(), [themeColors]);
+
+  useEffect(() => {
+    ensureHabitsLoaded();
+  }, [ensureHabitsLoaded]);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);

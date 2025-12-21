@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -23,7 +23,7 @@ import {
 const CalendarScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { tasks, toggleTaskCompletion, themeColors } = useApp();
+  const { tasks, toggleTaskCompletion, themeColors, ensureTasksLoaded } = useApp();
   const styles = useMemo(() => createStyles(), [themeColors]);
 
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -50,6 +50,10 @@ const CalendarScreen = () => {
   };
 
   const weekDays = getWeekDays();
+
+  useEffect(() => {
+    ensureTasksLoaded();
+  }, [ensureTasksLoaded]);
 
   const selectedDateTasks = useMemo(() => {
     return tasks.filter((task) => {

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -38,11 +38,11 @@ const REMINDER_TIME_OPTIONS = Array.from({ length: 48 }).map((_, idx) => {
 
 const RoutineScreen = () => {
   const insets = useSafeAreaInsets();
-  const {
-    routines,
-    groupRoutines,
-    chores,
-    reminders,
+    const {
+      routines,
+      groupRoutines,
+      chores,
+      reminders,
     groceries,
     addRoutine,
     addGroupRoutine,
@@ -56,20 +56,31 @@ const RoutineScreen = () => {
     reorderGroupRoutineTasks,
     addChore,
     updateChore,
-    deleteChore,
-    addReminder,
-    deleteReminder,
-    addGroceryItem,
-    toggleGroceryItem,
-    deleteGroceryItem,
-    clearCompletedGroceries,
-    groups,
-    isPremiumUser,
-    themeColors,
-  } = useApp();
-  const styles = useMemo(() => createStyles(), [themeColors]);
+      deleteChore,
+      addReminder,
+      deleteReminder,
+      addGroceryItem,
+      toggleGroceryItem,
+      deleteGroceryItem,
+      clearCompletedGroceries,
+      groups,
+      isPremiumUser,
+      themeColors,
+      ensureRoutinesLoaded,
+      ensureChoresLoaded,
+      ensureRemindersLoaded,
+      ensureGroceriesLoaded,
+    } = useApp();
+    const styles = useMemo(() => createStyles(), [themeColors]);
 
-  const [showRoutineModal, setShowRoutineModal] = useState(false);
+    useEffect(() => {
+      ensureRoutinesLoaded();
+      ensureChoresLoaded();
+      ensureRemindersLoaded();
+      ensureGroceriesLoaded();
+    }, [ensureChoresLoaded, ensureGroceriesLoaded, ensureRemindersLoaded, ensureRoutinesLoaded]);
+
+    const [showRoutineModal, setShowRoutineModal] = useState(false);
   const [showChoreModal, setShowChoreModal] = useState(false);
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);

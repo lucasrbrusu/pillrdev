@@ -39,6 +39,8 @@ const GroupDetailScreen = () => {
     friends,
     sendGroupInvites,
     isPremiumUser,
+    ensureGroupDataLoaded,
+    ensureFriendDataLoaded,
   } = useApp();
 
   const [members, setMembers] = useState([]);
@@ -63,6 +65,11 @@ const GroupDetailScreen = () => {
   const groupHabitsForGroup = (groupHabits || []).filter((h) => h.groupId === groupId);
   const groupRoutinesForGroup = (groupRoutines || []).filter((r) => r.groupId === groupId);
   const todayKey = new Date().toISOString().slice(0, 10);
+
+  useEffect(() => {
+    ensureGroupDataLoaded();
+    ensureFriendDataLoaded();
+  }, [ensureFriendDataLoaded, ensureGroupDataLoaded]);
 
   useEffect(() => {
     if (groupId) {

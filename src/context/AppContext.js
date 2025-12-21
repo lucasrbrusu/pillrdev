@@ -103,7 +103,9 @@ const DEFAULT_EVENT_TIME = { hour: 9, minute: 0 };
 const HABIT_REMINDER_TIME = { hour: 8, minute: 0 };
 const ROUTINE_REMINDER_TIME = { hour: 7, minute: 30 };
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
-const STATUS_POLL_INTERVAL_MS = 45 * 1000;
+const STATUS_POLL_INTERVAL_MS = 2 * 60 * 1000;
+const PRESENCE_WRITE_INTERVAL_MS = 2 * 60 * 1000;
+const DATA_REFRESH_TTL_MS = 5 * 60 * 1000;
 
 const computeIsPremium = (plan, premiumExpiresAt, explicitFlag) => {
   if (explicitFlag === true) return true;
@@ -290,6 +292,8 @@ export const AppProvider = ({ children }) => {
   const [groupRoutines, setGroupRoutines] = useState([]);
   const [userStatuses, setUserStatuses] = useState({});
   const userStatusesRef = useRef({});
+  const lastPresenceUpdateRef = useRef(0);
+  const dataLoadTimestampsRef = useRef({});
   const [blockedUsers, setBlockedUsers] = useState({ blocked: [], blockedBy: [] });
   const friendResponseSignatureRef = useRef('');
   const taskInviteResponseSignatureRef = useRef('');
@@ -412,37 +416,10 @@ export const AppProvider = ({ children }) => {
 
 const loadUserDataFromSupabase = async (userId) => {
   try {
-    const groupList = await fetchGroups(userId);
     await Promise.all([
       fetchProfileFromSupabase(userId),
       fetchUserSettings(userId),
-      refreshFriendData(userId),
-      fetchGroupInvites(userId),
-      fetchGroupHabits(userId, groupList),
-      fetchGroupRoutines(userId, groupList),
-      fetchTaskInvites(userId),
-      fetchHabitsFromSupabase(userId, groupList),
-      fetchTasksFromSupabase(userId),
-      fetchNotesFromSupabase(userId),
-      fetchHealthFromSupabase(userId),
-      fetchRoutinesFromSupabase(userId),
-      fetchChoresFromSupabase(userId),
-      fetchRemindersFromSupabase(userId),
-      fetchGroceriesFromSupabase(userId),
-      fetchFinancesFromSupabase(userId),
-      fetchBudgetGroupsFromSupabase(userId),
-      fetchBudgetAssignmentsFromSupabase(userId),
     ]);
-
-    // Load user-scoped cached food logs (offline entries) after Supabase fetch
-    const storedFoodLogs = await AsyncStorage.getItem(getFoodLogsKey(userId));
-    if (storedFoodLogs) {
-      try {
-        setFoodLogs(JSON.parse(storedFoodLogs));
-      } catch (err) {
-        console.log('Error parsing stored food logs', err);
-      }
-    }
   } catch (error) {
     console.error('Error loading user data from Supabase:', error);
   }
@@ -553,9 +530,10 @@ const loadUserDataFromSupabase = async (userId) => {
     if (!authUser?.id) return undefined;
 
     let isCancelled = false;
+    let intervalId = null;
 
     const tick = async () => {
-      if (isCancelled) return;
+      if (isCancelled || appStateRef.current !== 'active') return;
       await updateUserPresence();
       await refreshFriendStatuses();
       await fetchBlockedUsers(authUser.id);
@@ -563,18 +541,54 @@ const loadUserDataFromSupabase = async (userId) => {
       await fetchTaskInvites(authUser.id);
     };
 
-    tick();
-    const interval = setInterval(tick, STATUS_POLL_INTERVAL_MS);
+    const startPolling = () => {
+      if (intervalId) return;
+      tick();
+      intervalId = setInterval(tick, STATUS_POLL_INTERVAL_MS);
+    };
+
+    const stopPolling = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    if (AppState.currentState === 'active') {
+      startPolling();
+    }
+
+    const sub = AppState.addEventListener('change', (nextState) => {
+      appStateRef.current = nextState;
+      if (nextState === 'active') {
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    });
 
     return () => {
       isCancelled = true;
-      clearInterval(interval);
+      stopPolling();
+      sub?.remove?.();
     };
   }, [authUser?.id, fetchBlockedUsers, fetchFriendRequests, fetchTaskInvites, refreshFriendStatuses, updateUserPresence]);
 
   useEffect(() => {
     userStatusesRef.current = userStatuses;
   }, [userStatuses]);
+
+  const shouldRefreshData = useCallback(
+    (key, ttl = DATA_REFRESH_TTL_MS) => {
+      const last = dataLoadTimestampsRef.current?.[key] || 0;
+      return !last || Date.now() - last > ttl;
+    },
+    []
+  );
+
+  const markDataLoaded = useCallback((key) => {
+    dataLoadTimestampsRef.current[key] = Date.now();
+  }, []);
 
   // Save helpers
   const saveToStorage = async (key, data) => {
@@ -627,6 +641,17 @@ const loadUserDataFromSupabase = async (userId) => {
     await saveToStorage(getFoodLogsKey(userId), data);
   };
 
+  const hydrateCachedFoodLogs = useCallback(async (userId) => {
+    if (!userId) return;
+    const storedFoodLogs = await AsyncStorage.getItem(getFoodLogsKey(userId));
+    if (!storedFoodLogs) return;
+    try {
+      setFoodLogs(JSON.parse(storedFoodLogs));
+    } catch (err) {
+      console.log('Error parsing stored food logs', err);
+    }
+  }, []);
+
 const mapProfileSummary = (row) => ({
   id: row?.id || null,
   username: row?.username || '',
@@ -649,7 +674,18 @@ const mapExternalProfile = (row) => ({
 
   const updateUserPresence = useCallback(async () => {
     if (!authUser?.id) return;
-    const nowISO = new Date().toISOString();
+    if (appStateRef.current !== 'active') return;
+
+    const nowMs = Date.now();
+    if (
+      lastPresenceUpdateRef.current &&
+      nowMs - lastPresenceUpdateRef.current < PRESENCE_WRITE_INTERVAL_MS
+    ) {
+      return;
+    }
+    lastPresenceUpdateRef.current = nowMs;
+
+    const nowISO = new Date(nowMs).toISOString();
     setUserStatuses((prev) => ({ ...prev, [authUser.id]: nowISO }));
     try {
       const { error } = await supabase
@@ -695,7 +731,7 @@ const mapExternalProfile = (row) => ({
 
       const { data, error } = await supabase
         .from('friendships')
-        .select('*')
+        .select('user_id, friend_id')
         .or(`user_id.eq.${userId},friend_id.eq.${userId}`)
         .order('created_at', { ascending: false });
 
@@ -780,9 +816,10 @@ const mapExternalProfile = (row) => ({
 
       const { data, error } = await supabase
         .from('friend_requests')
-        .select('*')
+        .select('id, from_user_id, to_user_id, status, created_at')
         .or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(200);
 
       if (error) {
         console.log('Error fetching friend requests:', error);
@@ -907,9 +944,12 @@ const mapExternalProfile = (row) => ({
 
       const { data, error } = await supabase
         .from('task_invites')
-        .select('*')
+        .select(
+          'id, from_user_id, to_user_id, status, task_id, task_title, task_description, task_priority, task_date, task_time, created_at'
+        )
         .or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(200);
 
       if (error) {
         if (!isMissingRelationError(error, 'task_invites')) {
@@ -1184,9 +1224,10 @@ const mapExternalProfile = (row) => ({
 
       const { data, error } = await supabase
         .from('group_invites')
-        .select('*')
+        .select('id, group_id, from_user_id, to_user_id, status, created_at')
         .or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(200);
 
       if (error) {
         if (!isMissingRelationError(error, 'group_invites')) {
@@ -1363,7 +1404,7 @@ const mapExternalProfile = (row) => ({
 
       const { data: invite, error: inviteError } = await supabase
         .from('group_invites')
-        .select('*')
+        .select('id, group_id, to_user_id')
         .eq('id', inviteId)
         .single();
 
@@ -1539,7 +1580,7 @@ const mapExternalProfile = (row) => ({
 
       const { data, error } = await supabase
         .from('group_habits')
-        .select('*')
+        .select('id, group_id, title, category, description, repeat, days, created_at, created_by')
         .in('group_id', groupIds)
         .order('created_at', { ascending: false });
 
@@ -1696,7 +1737,7 @@ const mapExternalProfile = (row) => ({
 
       const { data, error } = await supabase
         .from('group_routines')
-        .select('*')
+        .select('id, group_id, name, created_at, created_by')
         .in('group_id', groupIds)
         .order('created_at', { ascending: true });
 
@@ -1713,7 +1754,7 @@ const mapExternalProfile = (row) => ({
       if (routineIds.length) {
         const { data: taskRows, error: taskError } = await supabase
           .from('group_routine_tasks')
-          .select('*')
+          .select('id, group_routine_id, name, position, created_at, created_by, user_id')
           .in('group_routine_id', routineIds)
           .order('position', { ascending: true });
 
@@ -1951,7 +1992,9 @@ const mapExternalProfile = (row) => ({
 
     const { data: invite, error: inviteError } = await supabase
       .from('task_invites')
-      .select('*')
+      .select(
+        'id, to_user_id, task_id, task_title, task_description, task_priority, task_date, task_time, status'
+      )
       .eq('id', inviteId)
       .single();
 
@@ -2143,6 +2186,178 @@ const mapExternalProfile = (row) => ({
     },
     [authUser?.id, fetchBlockedUsers, fetchFriendships, fetchFriendRequests, refreshFriendStatuses]
   );
+
+  const ensureFriendDataLoaded = useCallback(
+    async ({ force, ttl } = {}) => {
+      const userId = authUser?.id;
+      if (!userId) return;
+      if (!force && !shouldRefreshData('friends', ttl)) return;
+      await refreshFriendData(userId);
+      markDataLoaded('friends');
+    },
+    [authUser?.id, markDataLoaded, refreshFriendData, shouldRefreshData]
+  );
+
+  const ensureTaskInvitesLoaded = useCallback(
+    async ({ force, ttl } = {}) => {
+      const userId = authUser?.id;
+      if (!userId) return;
+      if (!force && !shouldRefreshData('taskInvites', ttl)) return;
+      await fetchTaskInvites(userId);
+      markDataLoaded('taskInvites');
+    },
+    [authUser?.id, fetchTaskInvites, markDataLoaded, shouldRefreshData]
+  );
+
+  const ensureGroupInvitesLoaded = useCallback(
+    async ({ force, ttl } = {}) => {
+      const userId = authUser?.id;
+      if (!userId) return;
+      if (!force && !shouldRefreshData('groupInvites', ttl)) return;
+      await fetchGroupInvites(userId);
+      markDataLoaded('groupInvites');
+    },
+    [authUser?.id, fetchGroupInvites, markDataLoaded, shouldRefreshData]
+  );
+
+  const ensureTasksLoaded = useCallback(
+    async ({ force, ttl } = {}) => {
+      const userId = authUser?.id;
+      if (!userId) return;
+      if (!force && !shouldRefreshData('tasks', ttl)) return;
+      await fetchTasksFromSupabase(userId);
+      markDataLoaded('tasks');
+    },
+    [authUser?.id, markDataLoaded, shouldRefreshData]
+  );
+
+  const ensureNotesLoaded = useCallback(
+    async ({ force, ttl } = {}) => {
+      const userId = authUser?.id;
+      if (!userId) return;
+      if (!force && !shouldRefreshData('notes', ttl)) return;
+      await fetchNotesFromSupabase(userId);
+      markDataLoaded('notes');
+    },
+    [authUser?.id, markDataLoaded, shouldRefreshData]
+  );
+
+  const ensureHabitsLoaded = useCallback(
+    async ({ force, ttl } = {}) => {
+      const userId = authUser?.id;
+      if (!userId) return;
+      if (!force && !shouldRefreshData('habits', ttl)) return;
+      await fetchHabitsFromSupabase(userId);
+      markDataLoaded('habits');
+    },
+    [authUser?.id, markDataLoaded, shouldRefreshData]
+  );
+
+  const ensureHealthLoaded = useCallback(
+    async ({ force, ttl } = {}) => {
+      const userId = authUser?.id;
+      if (!userId) return;
+      if (!force && !shouldRefreshData('health', ttl)) return;
+      await fetchHealthFromSupabase(userId);
+      await hydrateCachedFoodLogs(userId);
+      markDataLoaded('health');
+    },
+    [authUser?.id, hydrateCachedFoodLogs, markDataLoaded, shouldRefreshData]
+  );
+
+  const ensureRoutinesLoaded = useCallback(
+    async ({ force, ttl } = {}) => {
+      const userId = authUser?.id;
+      if (!userId) return;
+      if (!force && !shouldRefreshData('routines', ttl)) return;
+      await fetchRoutinesFromSupabase(userId);
+      markDataLoaded('routines');
+    },
+    [authUser?.id, markDataLoaded, shouldRefreshData]
+  );
+
+  const ensureChoresLoaded = useCallback(
+    async ({ force, ttl } = {}) => {
+      const userId = authUser?.id;
+      if (!userId) return;
+      if (!force && !shouldRefreshData('chores', ttl)) return;
+      await fetchChoresFromSupabase(userId);
+      markDataLoaded('chores');
+    },
+    [authUser?.id, markDataLoaded, shouldRefreshData]
+  );
+
+  const ensureRemindersLoaded = useCallback(
+    async ({ force, ttl } = {}) => {
+      const userId = authUser?.id;
+      if (!userId) return;
+      if (!force && !shouldRefreshData('reminders', ttl)) return;
+      await fetchRemindersFromSupabase(userId);
+      markDataLoaded('reminders');
+    },
+    [authUser?.id, markDataLoaded, shouldRefreshData]
+  );
+
+  const ensureGroceriesLoaded = useCallback(
+    async ({ force, ttl } = {}) => {
+      const userId = authUser?.id;
+      if (!userId) return;
+      if (!force && !shouldRefreshData('groceries', ttl)) return;
+      await fetchGroceriesFromSupabase(userId);
+      markDataLoaded('groceries');
+    },
+    [authUser?.id, markDataLoaded, shouldRefreshData]
+  );
+
+  const ensureFinancesLoaded = useCallback(
+    async ({ force, ttl } = {}) => {
+      const userId = authUser?.id;
+      if (!userId) return;
+      if (!force && !shouldRefreshData('finances', ttl)) return;
+      await Promise.all([
+        fetchFinancesFromSupabase(userId),
+        fetchBudgetGroupsFromSupabase(userId),
+        fetchBudgetAssignmentsFromSupabase(userId),
+      ]);
+      markDataLoaded('finances');
+      markDataLoaded('budgets');
+    },
+    [authUser?.id, markDataLoaded, shouldRefreshData]
+  );
+
+  const ensureGroupDataLoaded = useCallback(
+    async ({ force, ttl } = {}) => {
+      const userId = authUser?.id;
+      if (!userId) return;
+      if (!force && !shouldRefreshData('groups', ttl)) return;
+      await refreshGroupData(userId);
+      markDataLoaded('groups');
+      markDataLoaded('groupInvites');
+    },
+    [authUser?.id, markDataLoaded, refreshGroupData, shouldRefreshData]
+  );
+
+  const ensureHomeDataLoaded = useCallback(async () => {
+    await Promise.all([
+      ensureTasksLoaded(),
+      ensureHabitsLoaded(),
+      ensureNotesLoaded(),
+      ensureChoresLoaded(),
+      ensureRemindersLoaded(),
+      ensureGroceriesLoaded(),
+      ensureFriendDataLoaded(),
+      ensureTaskInvitesLoaded(),
+    ]);
+  }, [
+    ensureChoresLoaded,
+    ensureFriendDataLoaded,
+    ensureGroceriesLoaded,
+    ensureHabitsLoaded,
+    ensureNotesLoaded,
+    ensureRemindersLoaded,
+    ensureTaskInvitesLoaded,
+    ensureTasksLoaded,
+  ]);
 
   const isUserOnline = useCallback(
     (userId) => {
@@ -2473,7 +2688,9 @@ const mapExternalProfile = (row) => ({
 
       const { data, error } = await supabase
         .from('profiles')
-        .select('*')
+        .select(
+          'id, user_id, username, full_name, email, avatar_url, photo, daily_calorie_goal, daily_water_goal, daily_sleep_goal, plan, premium_expires_at, is_premium, has_onboarded, created_at, updated_at'
+        )
         .or(`id.eq.${userId},user_id.eq.${userId}`)
         .limit(1);
 
@@ -2515,7 +2732,7 @@ const fetchHabitsFromSupabase = async (userId, _groupListParam) => {
   // Get all habits
   const { data: habitRows, error: habitError } = await supabase
     .from('habits')
-    .select('*')
+    .select('id, title, category, description, repeat, days, streak, created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: true });
 
@@ -3054,7 +3271,7 @@ const fetchTasksFromSupabase = async (userId) => {
 const fetchNotesFromSupabase = async (userId) => {
   const { data, error } = await supabase
     .from('notes')
-    .select('*')
+    .select('id, title, content, password_hash, created_at, updated_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: true });
 
@@ -3204,13 +3421,17 @@ const setNotePassword = async (noteId, newPassword, currentPassword) => {
 const fetchHealthFromSupabase = async (userId) => {
   const { data, error } = await supabase
     .from('health_daily')
-    .select('*')
+    .select(
+      'id, user_id, date, mood, water_intake, sleep_time, wake_time, sleep_quality, calories, foods, created_at, updated_at'
+    )
     .eq('user_id', userId)
     .order('date', { ascending: true });
 
   const { data: foodEntries, error: foodError } = await supabase
     .from('health_food_entries')
-    .select('*')
+    .select(
+      'id, name, calories, protein_grams, carbs_grams, fat_grams, created_at, health_day_id, date'
+    )
     .eq('user_id', userId)
     .order('date', { ascending: true });
 
@@ -3553,7 +3774,7 @@ const ROUTINE_TASKS_TABLE = 'routine_tasks';
 const fetchRoutinesFromSupabase = async (userId) => {
   const { data: routineRows, error } = await supabase
     .from('routines')
-    .select('*')
+    .select('id, name, created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: true });
 
@@ -3575,7 +3796,7 @@ const fetchRoutinesFromSupabase = async (userId) => {
   if (routineIds.length > 0) {
     const { data: taskRows, error: taskError } = await supabase
       .from(ROUTINE_TASKS_TABLE)
-      .select('*')
+      .select('id, routine_id, name, position, created_at')
       .in('routine_id', routineIds)
       .order('position', { ascending: true });
 
@@ -3801,7 +4022,7 @@ const reorderRoutineTasks = async (routineId, newTaskOrder) => {
 const fetchChoresFromSupabase = async (userId) => {
   const { data, error } = await supabase
     .from('chores')
-    .select('*')
+    .select('id, title, date, completed, created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: true });
 
@@ -3914,7 +4135,7 @@ const mapReminderRow = (row) => {
 const fetchRemindersFromSupabase = async (userId) => {
   const { data, error } = await supabase
     .from('reminders')
-    .select('*')
+    .select('id, title, description, date, time, created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: true });
 
@@ -3997,7 +4218,7 @@ const deleteReminder = async (reminderId) => {
 const fetchGroceriesFromSupabase = async (userId) => {
   const { data, error } = await supabase
     .from('groceries')
-    .select('*')
+    .select('id, name, completed, created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: true });
 
@@ -4152,7 +4373,9 @@ const fetchBudgetGroupsFromSupabase = async (userId) => {
   if (!userId) return;
   const { data, error } = await supabase
     .from('budget_groups')
-    .select('*')
+    .select(
+      'id, name, type, cadence, target, categories, currency, note, recurring_payments, start_date, created_at, updated_at'
+    )
     .eq('user_id', userId)
     .order('created_at', { ascending: true });
 
@@ -4249,7 +4472,7 @@ const fetchBudgetAssignmentsFromSupabase = async (userId) => {
   if (!userId) return;
   const { data, error } = await supabase
     .from('budget_group_transactions')
-    .select('*')
+    .select('transaction_id, group_id')
     .eq('user_id', userId);
 
   if (error) {
@@ -4511,7 +4734,7 @@ const addRecurringPaymentToGroup = async (groupId, payment = {}) => {
 const fetchFinancesFromSupabase = async (userId) => {
   const { data, error } = await supabase
     .from('finance_transactions')
-    .select('*')
+    .select('id, type, amount, category, currency, date, note, created_at')
     .eq('user_id', userId)
     .order('date', { ascending: true });
 
@@ -4697,7 +4920,9 @@ const mapProfileRow = (row) => ({
     const fetchByColumn = async (column) => {
       const { data, error } = await supabase
         .from('profiles')
-        .select('*')
+        .select(
+          'id, user_id, username, full_name, email, avatar_url, photo, daily_calorie_goal, daily_water_goal, daily_sleep_goal, plan, premium_expires_at, is_premium, has_onboarded, created_at, updated_at'
+        )
         .eq(column, userId)
         .limit(1);
 
@@ -4912,7 +5137,9 @@ const mapProfileRow = (row) => ({
     if (!userId) return null;
     const { data, error } = await supabase
       .from('user_settings')
-      .select('*')
+      .select(
+        'id, user_id, theme_name, notifications_enabled, habit_reminders_enabled, task_reminders_enabled, health_reminders_enabled, default_currency_code, language'
+      )
       .eq('user_id', userId)
       .single();
 
@@ -5020,6 +5247,8 @@ const mapProfileRow = (row) => ({
   const setActiveUser = async (user) => {
     // `user` is a Supabase auth user object
     setAuthUser(user);
+    dataLoadTimestampsRef.current = {};
+    lastPresenceUpdateRef.current = 0;
 
     // Optional: keep a local copy (offline cache)
     await saveToStorage(STORAGE_KEYS.AUTH_USER, user);
@@ -5086,6 +5315,8 @@ const mapProfileRow = (row) => ({
   const signOut = async () => {
     await supabase.auth.signOut();
     await clearCachedSession();
+    dataLoadTimestampsRef.current = {};
+    lastPresenceUpdateRef.current = 0;
     setAuthUser(null);
 
     setHasOnboarded(false);
@@ -5416,6 +5647,22 @@ const mapProfileRow = (row) => ({
     isLoading,
     themeReady,
     hasNotificationPermission,
+
+    // Data loaders
+    ensureHomeDataLoaded,
+    ensureTasksLoaded,
+    ensureHabitsLoaded,
+    ensureNotesLoaded,
+    ensureHealthLoaded,
+    ensureRoutinesLoaded,
+    ensureChoresLoaded,
+    ensureRemindersLoaded,
+    ensureGroceriesLoaded,
+    ensureFinancesLoaded,
+    ensureGroupDataLoaded,
+    ensureFriendDataLoaded,
+    ensureTaskInvitesLoaded,
+    ensureGroupInvitesLoaded,
 
     // Habits
     habits,

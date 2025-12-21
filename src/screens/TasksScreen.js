@@ -63,6 +63,8 @@ const TasksScreen = () => {
     todayHealth,
     updateTodayHealth,
     themeColors,
+    ensureTasksLoaded,
+    ensureNotesLoaded,
   } = useApp();
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
 
@@ -109,6 +111,11 @@ const TasksScreen = () => {
   const tabs = ['All Tasks', 'Today', 'Upcoming'];
   const filters = ['Date', 'Priority', 'A-Z'];
   const timeOptions = TIME_OPTIONS;
+
+  useEffect(() => {
+    ensureTasksLoaded();
+    ensureNotesLoaded();
+  }, [ensureNotesLoaded, ensureTasksLoaded]);
 
   const filteredTasks = useMemo(() => {
     let filtered = [...tasks];

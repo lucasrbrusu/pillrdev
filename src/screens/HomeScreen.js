@@ -58,6 +58,9 @@ const HomeScreen = () => {
     updateNote,
     deleteNote,
     streakFrozen,
+    ensureHomeDataLoaded,
+    ensureFriendDataLoaded,
+    ensureTaskInvitesLoaded,
   } = useApp();
   const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
   const isPremium = React.useMemo(() => {
@@ -130,6 +133,12 @@ const HomeScreen = () => {
   const [noteTitleDraft, setNoteTitleDraft] = React.useState('');
   const [noteContentDraft, setNoteContentDraft] = React.useState('');
   const [showStreakFrozenModal, setShowStreakFrozenModal] = React.useState(false);
+
+  React.useEffect(() => {
+    ensureHomeDataLoaded();
+    ensureFriendDataLoaded();
+    ensureTaskInvitesLoaded();
+  }, [ensureFriendDataLoaded, ensureHomeDataLoaded, ensureTaskInvitesLoaded]);
 
   const sortedNotes = React.useMemo(() => {
     return (notes || [])

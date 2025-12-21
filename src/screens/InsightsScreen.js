@@ -65,6 +65,14 @@ export default function InsightsScreen() {
     finances,
     authUser,
     themeColors,
+    ensureTasksLoaded,
+    ensureHabitsLoaded,
+    ensureHealthLoaded,
+    ensureFinancesLoaded,
+    ensureChoresLoaded,
+    ensureNotesLoaded,
+    ensureRemindersLoaded,
+    ensureGroceriesLoaded,
   } = useApp();
   const theme = themeColors || colors;
   const textColor = theme.text || colors.text;
@@ -76,6 +84,26 @@ export default function InsightsScreen() {
   const [monthOffset, setMonthOffset] = React.useState(0);
   const [focusSessions, setFocusSessions] = React.useState([]);
   const [appUsageByDay, setAppUsageByDay] = React.useState({});
+
+  React.useEffect(() => {
+    ensureTasksLoaded();
+    ensureHabitsLoaded();
+    ensureHealthLoaded();
+    ensureFinancesLoaded();
+    ensureChoresLoaded();
+    ensureNotesLoaded();
+    ensureRemindersLoaded();
+    ensureGroceriesLoaded();
+  }, [
+    ensureChoresLoaded,
+    ensureFinancesLoaded,
+    ensureGroceriesLoaded,
+    ensureHabitsLoaded,
+    ensureHealthLoaded,
+    ensureNotesLoaded,
+    ensureRemindersLoaded,
+    ensureTasksLoaded,
+  ]);
 
   const userId = authUser?.id || null;
 
