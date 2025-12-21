@@ -53,7 +53,7 @@ const ProfileScreen = () => {
       id: 'privacy',
       label: 'Privacy & Security',
       icon: 'shield-checkmark-outline',
-      onPress: () => {},
+      onPress: () => navigation.navigate('PrivacySecurity'),
     },
     {
       id: 'help',

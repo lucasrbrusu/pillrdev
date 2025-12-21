@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -23,6 +24,7 @@ const AuthScreen = ({ navigation }) => {
   const [mode, setMode] = useState('login');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
   const [form, setForm] = useState({
     fullName: '',
     username: '',
@@ -58,6 +60,10 @@ const AuthScreen = ({ navigation }) => {
         }
         if (form.password !== form.confirmPassword) {
           setError('Passwords do not match.');
+          return;
+        }
+        if (!hasAcceptedTerms) {
+          setError('Please acknowledge the terms to create an account.');
           return;
         }
         await signUp({
@@ -96,6 +102,10 @@ const AuthScreen = ({ navigation }) => {
 
   const handleSocial = (provider) => {
     Alert.alert(`${provider} Sign In`, 'Social sign-in is coming soon.');
+  };
+
+  const handleOpenLink = (url) => {
+    Linking.openURL(url);
   };
 
   return (
@@ -147,7 +157,10 @@ const AuthScreen = ({ navigation }) => {
               styles.tab,
               mode === 'login' && styles.tabActive,
             ]}
-            onPress={() => setMode('login')}
+            onPress={() => {
+              setMode('login');
+              setError('');
+            }}
             activeOpacity={0.9}
           >
             <Text
@@ -164,7 +177,11 @@ const AuthScreen = ({ navigation }) => {
               styles.tab,
               mode === 'signup' && styles.tabActive,
             ]}
-            onPress={() => setMode('signup')}
+            onPress={() => {
+              setMode('signup');
+              setHasAcceptedTerms(false);
+              setError('');
+            }}
             activeOpacity={0.9}
           >
             <Text
@@ -244,12 +261,45 @@ const AuthScreen = ({ navigation }) => {
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
+        {mode === 'signup' && (
+          <TouchableOpacity
+            style={styles.termsRow}
+            activeOpacity={0.8}
+            onPress={() => setHasAcceptedTerms((prev) => !prev)}
+          >
+            <Feather
+              name={hasAcceptedTerms ? 'check-square' : 'square'}
+              size={20}
+              color={hasAcceptedTerms ? colors.primary : colors.textSecondary}
+              style={styles.checkboxIcon}
+            />
+            <Text style={styles.termsText}>
+              By creating an account, you agree to the{' '}
+              <Text
+                style={styles.termsLink}
+                onPress={() => handleOpenLink('https://pillr.xyz/terms-of-service.html')}
+              >
+                Terms of Service
+              </Text>{' '}
+              and acknowledge the{' '}
+              <Text
+                style={styles.termsLink}
+                onPress={() => handleOpenLink('https://pillr.xyz/privacy-policy.html')}
+              >
+                Privacy Policy
+              </Text>
+              .
+            </Text>
+          </TouchableOpacity>
+        )}
+
         <Button
           title={mode === 'login' ? 'Login' : 'Create Account'}
           icon="arrow-forward"
           onPress={handleSubmit}
           loading={isSubmitting}
           size="large"
+          disabled={mode === 'signup' && !hasAcceptedTerms}
         />
 
         <View style={styles.dividerRow}>
@@ -388,6 +438,26 @@ const createStyles = () => StyleSheet.create({
   errorText: {
     color: colors.danger,
     marginBottom: spacing.md,
+  },
+  termsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: spacing.md,
+  },
+  checkboxIcon: {
+    marginTop: 2,
+    marginRight: spacing.sm,
+  },
+  termsText: {
+    ...typography.bodySmall,
+    color: colors.textSecondary,
+    flex: 1,
+    lineHeight: 18,
+  },
+  termsLink: {
+    color: colors.primary,
+    textDecorationLine: 'underline',
+    fontWeight: '600',
   },
   dividerRow: {
     flexDirection: 'row',

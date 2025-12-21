@@ -25,6 +25,7 @@ import AuthScreen from '../screens/AuthScreen';
 import AppearanceScreen from '../screens/AppearanceScreen';
 import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';
 import NotificationCenterScreen from '../screens/NotificationCenterScreen';
+import PrivacySecurityScreen from '../screens/PrivacySecurityScreen';
 import FriendsScreen from '../screens/FriendsScreen';
 import GroupsScreen from '../screens/GroupsScreen';
 import GroupDetailScreen from '../screens/GroupDetailScreen';
@@ -224,6 +225,7 @@ const Navigation = () => {
           <Stack.Screen name="EditProfile" component={EditProfileScreen} />
           <Stack.Screen name="GeneralSettings" component={GeneralSettingsScreen} />
           <Stack.Screen name="Finance" component={FinanceScreen} />
+          <Stack.Screen name="PrivacySecurity" component={PrivacySecurityScreen} />
           <Stack.Screen
             name="BudgetGroupInsight"
             component={BudgetGroupInsightScreen}

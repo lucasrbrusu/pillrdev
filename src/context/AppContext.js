@@ -2331,15 +2331,64 @@ const isHabitCompletedToday = (habitId) => {
 
 const TASK_SELECT_FIELDS =
   'id,title,description,priority,date,time,completed,created_at,shared_task_id';
+const TASK_SELECT_FIELDS_NO_DESC =
+  'id,title,priority,date,time,completed,created_at,shared_task_id';
+const TASK_SELECT_FIELDS_MINIMAL = 'id,title,date,time,completed,created_at,shared_task_id';
 
 const fetchTasksFromSupabase = async (userId) => {
-  const { data, error } = await supabase
-    .from('tasks_list')
-    .select(TASK_SELECT_FIELDS)
-    .eq('user_id', userId)
-    .order('date', { ascending: true })
-    .order('created_at', { ascending: true })
-    .limit(50);
+  const buildQuery = (table, selectFields) =>
+    supabase
+      .from(table)
+      .select(selectFields)
+      .eq('user_id', userId)
+      .order('date', { ascending: true })
+      .order('created_at', { ascending: true })
+      .limit(50);
+
+  const attempts = [
+    { table: 'tasks_list', fields: TASK_SELECT_FIELDS, reason: null },
+    {
+      table: 'tasks_list',
+      fields: TASK_SELECT_FIELDS_NO_DESC,
+      reason: 'tasks_list.description missing; retrying without description column',
+    },
+    {
+      table: 'tasks_list',
+      fields: TASK_SELECT_FIELDS_MINIMAL,
+      reason: 'tasks_list.priority missing; retrying without priority column',
+    },
+    {
+      table: 'tasks',
+      fields: TASK_SELECT_FIELDS,
+      reason: 'Falling back to tasks table with full fields',
+    },
+    {
+      table: 'tasks',
+      fields: TASK_SELECT_FIELDS_NO_DESC,
+      reason: 'tasks table description missing; retrying without description column',
+    },
+    {
+      table: 'tasks',
+      fields: TASK_SELECT_FIELDS_MINIMAL,
+      reason: 'tasks table priority missing; retrying without priority column',
+    },
+  ];
+
+  let data = null;
+  let error = null;
+  for (const attempt of attempts) {
+    if (attempt.reason) {
+      console.log(attempt.reason);
+    }
+    ({ data, error } = await buildQuery(attempt.table, attempt.fields));
+    if (error) {
+      if (error.code === '42703' || isMissingColumnError(error)) {
+        continue;
+      }
+      break;
+    }
+    break;
+  }
 
   if (error) {
     console.log('Error fetching tasks:', error);
@@ -2349,7 +2398,7 @@ const fetchTasksFromSupabase = async (userId) => {
   let mappedTasks = (data || []).map((t) => ({
     id: t.id,
     title: t.title,
-    description: t.description,
+    description: t.description ?? t.task_description ?? '',
     priority: t.priority || 'medium',
     date: t.date, // stored as date string YYYY-MM-DD
     time: t.time,

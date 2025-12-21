@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Linking } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import Button from '../components/Button';
@@ -50,6 +50,24 @@ const pillars = [
   },
 ];
 
+const legalLinks = [
+  {
+    id: 'terms',
+    label: 'Terms of Service',
+    url: 'https://pillr.xyz/terms-of-service.html',
+  },
+  {
+    id: 'privacy',
+    label: 'Privacy Policy',
+    url: 'https://pillr.xyz/privacy-policy.html',
+  },
+  {
+    id: 'community',
+    label: 'Community Guidelines',
+    url: 'https://pillr.xyz/community-guidelines.html',
+  },
+];
+
 const OnboardingScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const { themeColors } = useApp();
@@ -57,6 +75,10 @@ const OnboardingScreen = ({ navigation }) => {
 
   const handleGetStarted = () => {
     navigation.navigate('Auth');
+  };
+
+  const handleOpenLink = (url) => {
+    Linking.openURL(url);
   };
 
   return (
@@ -117,6 +139,18 @@ const OnboardingScreen = ({ navigation }) => {
               </View>
             </TouchableOpacity>
           ))}
+          <View style={styles.legalLinksContainer}>
+            {legalLinks.map((link) => (
+              <TouchableOpacity
+                key={link.id}
+                activeOpacity={0.7}
+                onPress={() => handleOpenLink(link.url)}
+                style={styles.legalLink}
+              >
+                <Text style={styles.legalLinkText}>{link.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
       </ScrollView>
 
@@ -225,6 +259,22 @@ const createStyles = () => StyleSheet.create({
   pillarDescription: {
     ...typography.bodySmall,
     color: colors.textSecondary,
+  },
+  legalLinksContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    marginTop: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  legalLink: {
+    marginHorizontal: spacing.xs,
+    marginVertical: spacing.xs / 2,
+  },
+  legalLinkText: {
+    ...typography.bodySmall,
+    color: colors.textSecondary,
+    textDecorationLine: 'underline',
   },
   ctaContainer: {
     paddingHorizontal: spacing.xl,
