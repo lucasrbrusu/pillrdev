@@ -17,6 +17,17 @@ import { colors, spacing, borderRadius, typography, shadows } from '../utils/the
 import { Card } from '../components';
 import { useApp } from '../context/AppContext';
 
+const dedupeById = (list = []) => {
+  const seen = new Set();
+  return list.filter((item) => {
+    const id = item?.id || item?.user_id;
+    if (!id) return false;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+};
+
 const formatRelative = (value) => {
   if (!value) return '';
   const date = new Date(value);
@@ -85,7 +96,13 @@ const FriendsScreen = () => {
     return () => clearTimeout(handle);
   }, [query, searchUsersByUsername]);
 
-  const dataset = query.trim() ? results : friends;
+  const dedupedFriends = useMemo(() => dedupeById(friends), [friends]);
+  const dedupedResults = useMemo(() => dedupeById(results), [results]);
+  const dataset = useMemo(
+    () => (query.trim() ? dedupedResults : dedupedFriends),
+    [query, dedupedResults, dedupedFriends]
+  );
+  const uniqueOnlineFriends = useMemo(() => dedupeById(onlineFriends), [onlineFriends]);
   const pendingIncoming = friendRequests?.incoming?.length || 0;
   const themedStyles = useMemo(() => createStyles(themeColors || colors), [themeColors]);
 
@@ -310,13 +327,13 @@ const FriendsScreen = () => {
         <Card style={themedStyles.sectionCard}>
           <View style={themedStyles.cardHeader}>
             <Text style={themedStyles.cardTitle}>Online now</Text>
-            <Text style={themedStyles.cardMeta}>{onlineFriends.length} online</Text>
+            <Text style={themedStyles.cardMeta}>{uniqueOnlineFriends.length} online</Text>
           </View>
-          {onlineFriends.length === 0 ? (
+          {uniqueOnlineFriends.length === 0 ? (
             <Text style={themedStyles.emptyText}>No friends online right now.</Text>
           ) : (
             <View style={themedStyles.onlineRow}>
-              {onlineFriends.map((friend) => (
+              {uniqueOnlineFriends.map((friend) => (
                 <View key={friend.id} style={themedStyles.onlineChip}>
                   {renderAvatar(friend, 44)}
                   <View style={themedStyles.onlineDot} />
