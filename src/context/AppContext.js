@@ -982,6 +982,8 @@ const mapExternalProfile = (row) => ({
   const fetchGroupMembers = useCallback(
     async (groupId) => {
       if (!authUser?.id || !groupId) return [];
+
+      let memberRows = [];
       const { data, error } = await supabase
         .from('group_members')
         .select('group_id, user_id, role')
@@ -989,10 +991,36 @@ const mapExternalProfile = (row) => ({
 
       if (error) {
         console.log('Error fetching group members:', error);
-        return [];
+      } else {
+        memberRows = data || [];
       }
 
-      const ids = Array.from(new Set((data || []).map((row) => row.user_id).filter(Boolean)));
+      let acceptedInvites = [];
+      const { data: inviteRows, error: inviteError } = await supabase
+        .from('group_invites')
+        .select('group_id, to_user_id, from_user_id, status')
+        .eq('group_id', groupId)
+        .eq('status', 'accepted');
+
+      if (inviteError) {
+        console.log('Error fetching accepted group invites:', inviteError);
+      } else {
+        acceptedInvites = inviteRows || [];
+      }
+
+      const ids = Array.from(
+        new Set(
+          [
+            ...memberRows.map((row) => row.user_id).filter(Boolean),
+            ...acceptedInvites
+              .flatMap((row) => [row.to_user_id, row.from_user_id])
+              .filter(Boolean),
+          ]
+        )
+      );
+
+      if (!ids.length) return [];
+
       let profileMap = {};
       if (ids.length) {
         const { data: profileRows, error: profileError } = await supabase
@@ -1009,11 +1037,23 @@ const mapExternalProfile = (row) => ({
         }
       }
 
-      return (data || []).map((row) => ({
-        id: row.user_id,
-        role: row.role || 'member',
-        ...(profileMap[row.user_id] || mapProfileSummary({ id: row.user_id })),
-      }));
+      const memberMap = {};
+      const addMember = (userId, role = 'member') => {
+        if (!userId || memberMap[userId]) return;
+        memberMap[userId] = {
+          id: userId,
+          role,
+          ...(profileMap[userId] || mapProfileSummary({ id: userId })),
+        };
+      };
+
+      memberRows.forEach((row) => addMember(row.user_id, row.role || 'member'));
+      acceptedInvites.forEach((row) => {
+        addMember(row.from_user_id, row.role || 'member');
+        addMember(row.to_user_id, 'member');
+      });
+
+      return Object.values(memberMap);
     },
     [authUser?.id]
   );
@@ -1040,44 +1080,78 @@ const mapExternalProfile = (row) => ({
       );
 
       let membersByGroup = {};
+      let memberRows = [];
+      let acceptedInvites = [];
       if (groupIds.length) {
-        const { data: memberRows, error: memberError } = await supabase
-          .from('group_members')
-          .select('group_id, user_id, role')
-          .in('group_id', groupIds);
+        const [memberResult, inviteResult] = await Promise.all([
+          supabase
+            .from('group_members')
+            .select('group_id, user_id, role')
+            .in('group_id', groupIds),
+          supabase
+            .from('group_invites')
+            .select('group_id, to_user_id, from_user_id, status')
+            .in('group_id', groupIds)
+            .eq('status', 'accepted'),
+        ]);
 
-        if (memberError) {
-          console.log('Error fetching group member roster:', memberError);
+        if (memberResult.error) {
+          console.log('Error fetching group member roster:', memberResult.error);
         } else {
-          const ids = Array.from(
-            new Set((memberRows || []).map((row) => row.user_id).filter(Boolean))
-          );
-          let profileMap = {};
-          if (ids.length) {
-            const { data: profileRows, error: profileError } = await supabase
-              .from('profiles')
-              .select('id, username, full_name, avatar_url, photo')
-              .in('id', ids);
-
-            if (profileError) {
-              console.log('Error fetching roster profiles:', profileError);
-            } else {
-              profileRows.forEach((row) => {
-                profileMap[row.id] = mapProfileSummary(row);
-              });
-            }
-          }
-
-          memberRows.forEach((row) => {
-            const list = membersByGroup[row.group_id] || [];
-            list.push({
-              id: row.user_id,
-              role: row.role || 'member',
-              ...(profileMap[row.user_id] || mapProfileSummary({ id: row.user_id })),
-            });
-            membersByGroup[row.group_id] = list;
-          });
+          memberRows = memberResult.data || [];
         }
+
+        if (inviteResult.error) {
+          console.log('Error fetching accepted group invites:', inviteResult.error);
+        } else {
+          acceptedInvites = inviteResult.data || [];
+        }
+
+        const ids = Array.from(
+          new Set(
+            [
+              ...memberRows.map((row) => row.user_id).filter(Boolean),
+              ...acceptedInvites
+                .flatMap((row) => [row.to_user_id, row.from_user_id])
+                .filter(Boolean),
+            ]
+          )
+        );
+        let profileMap = {};
+        if (ids.length) {
+          const { data: profileRows, error: profileError } = await supabase
+            .from('profiles')
+            .select('id, username, full_name, avatar_url, photo')
+            .in('id', ids);
+
+          if (profileError) {
+            console.log('Error fetching roster profiles:', profileError);
+          } else {
+            profileRows.forEach((row) => {
+              profileMap[row.id] = mapProfileSummary(row);
+            });
+          }
+        }
+
+        const addMemberToGroup = (groupId, userId, role = 'member') => {
+          if (!groupId || !userId) return;
+          const list = membersByGroup[groupId] || [];
+          if (list.some((m) => m.id === userId)) return;
+          list.push({
+            id: userId,
+            role,
+            ...(profileMap[userId] || mapProfileSummary({ id: userId })),
+          });
+          membersByGroup[groupId] = list;
+        };
+
+        memberRows.forEach((row) =>
+          addMemberToGroup(row.group_id, row.user_id, row.role || 'member')
+        );
+        acceptedInvites.forEach((row) => {
+          addMemberToGroup(row.group_id, row.from_user_id, row.role || 'member');
+          addMemberToGroup(row.group_id, row.to_user_id, 'member');
+        });
       }
 
       const mapped = (data || []).map((row) => {
@@ -1321,6 +1395,130 @@ const mapExternalProfile = (row) => ({
       return true;
     },
     [authUser?.id, refreshGroupData]
+  );
+
+  const deleteGroup = useCallback(
+    async (groupId) => {
+      if (!authUser?.id) throw new Error('You must be logged in to delete a group.');
+      if (!groupId) throw new Error('Missing group.');
+
+      const { data: groupRow, error: groupError } = await supabase
+        .from('groups')
+        .select('id, owner_id')
+        .eq('id', groupId)
+        .single();
+
+      if (groupError) {
+        console.log('Error loading group before delete:', groupError);
+        throw new Error('Unable to delete this group right now.');
+      }
+
+      if (!groupRow || groupRow.owner_id !== authUser.id) {
+        throw new Error('Only the group owner can delete this group.');
+      }
+
+      let habitIds = [];
+      const { data: habitRows, error: habitError } = await supabase
+        .from('group_habits')
+        .select('id')
+        .eq('group_id', groupId);
+
+      if (habitError && !isMissingRelationError(habitError, 'group_habits')) {
+        console.log('Error loading group habits before delete:', habitError);
+      } else {
+        habitIds = (habitRows || []).map((h) => h.id).filter(Boolean);
+      }
+
+      let routineIds = [];
+      const { data: routineRows, error: routineError } = await supabase
+        .from('group_routines')
+        .select('id')
+        .eq('group_id', groupId);
+
+      if (routineError && !isMissingRelationError(routineError, 'group_routines')) {
+        console.log('Error loading group routines before delete:', routineError);
+      } else {
+        routineIds = (routineRows || []).map((r) => r.id).filter(Boolean);
+      }
+
+      if (habitIds.length) {
+        const { error: completionDeleteError } = await supabase
+          .from('group_habit_completions')
+          .delete()
+          .in('group_habit_id', habitIds);
+        if (
+          completionDeleteError &&
+          !isMissingRelationError(completionDeleteError, 'group_habit_completions')
+        ) {
+          console.log('Error deleting group habit completions:', completionDeleteError);
+        }
+      }
+
+      if (routineIds.length) {
+        const { error: taskDeleteError } = await supabase
+          .from('group_routine_tasks')
+          .delete()
+          .in('group_routine_id', routineIds);
+        if (taskDeleteError && !isMissingRelationError(taskDeleteError, 'group_routine_tasks')) {
+          console.log('Error deleting group routine tasks:', taskDeleteError);
+        }
+      }
+
+      const { error: habitDeleteError } = await supabase
+        .from('group_habits')
+        .delete()
+        .eq('group_id', groupId);
+      if (habitDeleteError && !isMissingRelationError(habitDeleteError, 'group_habits')) {
+        console.log('Error deleting group habits:', habitDeleteError);
+      }
+
+      const { error: routineDeleteError } = await supabase
+        .from('group_routines')
+        .delete()
+        .eq('group_id', groupId);
+      if (routineDeleteError && !isMissingRelationError(routineDeleteError, 'group_routines')) {
+        console.log('Error deleting group routines:', routineDeleteError);
+      }
+
+      const { error: inviteDeleteError } = await supabase
+        .from('group_invites')
+        .delete()
+        .eq('group_id', groupId);
+      if (inviteDeleteError && !isMissingRelationError(inviteDeleteError, 'group_invites')) {
+        console.log('Error deleting group invites:', inviteDeleteError);
+      }
+
+      const { error: memberDeleteError } = await supabase
+        .from('group_members')
+        .delete()
+        .eq('group_id', groupId);
+      if (memberDeleteError) {
+        console.log('Error deleting group members:', memberDeleteError);
+      }
+
+      const { error: groupDeleteError } = await supabase.from('groups').delete().eq('id', groupId);
+      if (groupDeleteError) {
+        console.log('Error deleting group:', groupDeleteError);
+        throw new Error('Unable to delete this group.');
+      }
+
+      setGroups((prev) => prev.filter((g) => g.id !== groupId));
+      setGroupHabits((prev) => prev.filter((h) => h.groupId !== groupId));
+      setGroupHabitCompletions((prev) => {
+        if (!habitIds.length) return prev;
+        const next = { ...prev };
+        habitIds.forEach((id) => {
+          if (next[id]) {
+            delete next[id];
+          }
+        });
+        return next;
+      });
+      setGroupRoutines((prev) => prev.filter((r) => r.groupId !== groupId));
+      await refreshGroupData(authUser.id);
+      return true;
+    },
+    [authUser?.id, refreshGroupData, isMissingRelationError]
   );
 
   const fetchGroupHabits = useCallback(
@@ -5325,6 +5523,7 @@ const getFinanceSummaryForDate = (date) => {
     refreshGroupData,
     createGroup,
     sendGroupInvites,
+    deleteGroup,
     respondToGroupInvite,
     addGroupHabit,
     toggleGroupHabitCompletion,

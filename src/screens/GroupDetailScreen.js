@@ -33,6 +33,7 @@ const GroupDetailScreen = () => {
     removeTaskFromGroupRoutine,
     reorderGroupRoutineTasks,
     deleteGroupRoutine,
+    deleteGroup,
     themeColors,
     authUser,
     friends,
@@ -51,6 +52,7 @@ const GroupDetailScreen = () => {
   const [selectedRoutineId, setSelectedRoutineId] = useState(null);
   const [submittingHabit, setSubmittingHabit] = useState(false);
   const [submittingRoutine, setSubmittingRoutine] = useState(false);
+  const [deletingGroup, setDeletingGroup] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [selectedInvitees, setSelectedInvitees] = useState([]);
   const [sendingInvites, setSendingInvites] = useState(false);
@@ -107,6 +109,32 @@ const GroupDetailScreen = () => {
     setTaskName('');
     setSelectedRoutineId(null);
     setShowTaskModal(false);
+  };
+
+  const handleDeleteGroup = () => {
+    if (!groupId) return;
+    Alert.alert(
+      'Delete group?',
+      'This will remove the group for all members.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setDeletingGroup(true);
+            try {
+              await deleteGroup(groupId);
+              navigation.goBack();
+            } catch (err) {
+              Alert.alert('Unable to delete group', err?.message || 'Please try again.');
+            } finally {
+              setDeletingGroup(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleToggleInvitee = (userId) => {
@@ -275,9 +303,24 @@ const GroupDetailScreen = () => {
           <Ionicons name="chevron-back" size={22} color={themedStyles.iconColor} />
         </TouchableOpacity>
         <Text style={themedStyles.title}>{group.name}</Text>
-        <TouchableOpacity style={themedStyles.backButton} onPress={() => setShowHabitModal(true)}>
-          <Ionicons name="add" size={22} color={themedStyles.iconColor} />
-        </TouchableOpacity>
+        <View style={themedStyles.headerActions}>
+          {group?.ownerId === authUser?.id ? (
+            <TouchableOpacity
+              style={themedStyles.backButton}
+              onPress={handleDeleteGroup}
+              disabled={deletingGroup}
+            >
+              <Ionicons
+                name="trash-outline"
+                size={20}
+                color={deletingGroup ? colors.border : colors.danger}
+              />
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity style={themedStyles.backButton} onPress={() => setShowHabitModal(true)}>
+            <Ionicons name="add" size={22} color={themedStyles.iconColor} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -540,6 +583,11 @@ const createStyles = (themeColorsParam = colors) => {
       justifyContent: 'space-between',
       paddingHorizontal: spacing.lg,
       paddingBottom: spacing.md,
+    },
+    headerActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
     },
     backButton: {
       width: 44,

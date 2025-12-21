@@ -23,6 +23,11 @@ const legalLinks = [
     label: 'Community Guidelines',
     url: 'https://pillr.xyz/community-guidelines.html',
   },
+  {
+    id: 'subscription-terms',
+    label: 'Subscription Terms',
+    url: 'https://pillr.xyz/premium-subscription-terms.html',
+  },
 ];
 
 const PrivacySecurityScreen = () => {

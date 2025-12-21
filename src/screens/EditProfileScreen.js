@@ -8,6 +8,7 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -204,6 +205,14 @@ const EditProfileScreen = () => {
           >
             <Ionicons name="download-outline" size={20} color={colors.text} />
             <Text style={styles.actionText}>Export My Data</Text>
+            <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.actionItem}
+            onPress={() => Linking.openURL('https://pillr.xyz/account-deletion.html')}
+          >
+            <Ionicons name="document-text-outline" size={20} color={colors.text} />
+            <Text style={styles.actionText}>Account & Data Deletion Terms</Text>
             <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
           </TouchableOpacity>
           <TouchableOpacity
