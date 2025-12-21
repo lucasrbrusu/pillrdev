@@ -19,13 +19,16 @@ import { useApp } from '../context/AppContext';
 
 const dedupeById = (list = []) => {
   const seen = new Set();
-  return list.filter((item) => {
-    const id = item?.id || item?.user_id;
-    if (!id) return false;
-    if (seen.has(id)) return false;
+  const deduped = [];
+  list.forEach((item) => {
+    const rawId = item?.id ?? item?.user_id;
+    if (!rawId) return;
+    const id = String(rawId).trim();
+    if (!id || seen.has(id)) return;
     seen.add(id);
-    return true;
+    deduped.push({ ...item, id });
   });
+  return deduped;
 };
 
 const formatRelative = (value) => {

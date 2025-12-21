@@ -105,9 +105,14 @@ const ROUTINE_REMINDER_TIME = { hour: 7, minute: 30 };
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
 const STATUS_POLL_INTERVAL_MS = 45 * 1000;
 
-const computeIsPremium = (plan, premiumExpiresAt) => {
+const computeIsPremium = (plan, premiumExpiresAt, explicitFlag) => {
+  if (explicitFlag === true) return true;
+
   const normalizedPlan = (plan || '').toLowerCase();
-  const isPremiumPlan = normalizedPlan === 'premium' || normalizedPlan === 'pro';
+  const isPremiumPlan =
+    normalizedPlan === 'premium' ||
+    normalizedPlan === 'pro' ||
+    normalizedPlan === 'paid';
   if (!isPremiumPlan) return false;
 
   if (!premiumExpiresAt) return true;
@@ -4642,25 +4647,29 @@ const getFinanceSummaryForDate = (date) => {
     );
   };
 
-  const mapProfileRow = (row) => ({
-    profileId: row?.id || null,
-    name:
-      row?.full_name ||
-      authUser?.user_metadata?.full_name ||
-      authUser?.user_metadata?.name ||
+const mapProfileRow = (row) => ({
+  profileId: row?.id || null,
+  name:
+    row?.full_name ||
+    authUser?.user_metadata?.full_name ||
+    authUser?.user_metadata?.name ||
       authUser?.email ||
       defaultProfile.name,
     username: row?.username || authUser?.user_metadata?.username || '',
     email: row?.email || authUser?.email || profile.email || defaultProfile.email,
     photo: getAvatarPublicUrl(row?.photo || row?.avatar_url || row?.avatar) || null,
-    dailyCalorieGoal: row?.daily_calorie_goal ?? defaultProfile.dailyCalorieGoal,
-    dailyWaterGoal: row?.daily_water_goal ?? defaultProfile.dailyWaterGoal,
-    dailySleepGoal: row?.daily_sleep_goal ?? defaultProfile.dailySleepGoal,
-    plan: row?.plan || defaultProfile.plan,
-    premiumExpiresAt: row?.premium_expires_at || row?.premiumExpiresAt || defaultProfile.premiumExpiresAt,
-    premium_expires_at: row?.premium_expires_at || row?.premiumExpiresAt || defaultProfile.premiumExpiresAt,
-    isPremium: computeIsPremium(row?.plan || defaultProfile.plan, row?.premium_expires_at || row?.premiumExpiresAt),
-  });
+  dailyCalorieGoal: row?.daily_calorie_goal ?? defaultProfile.dailyCalorieGoal,
+  dailyWaterGoal: row?.daily_water_goal ?? defaultProfile.dailyWaterGoal,
+  dailySleepGoal: row?.daily_sleep_goal ?? defaultProfile.dailySleepGoal,
+  plan: row?.plan || defaultProfile.plan,
+  premiumExpiresAt: row?.premium_expires_at || row?.premiumExpiresAt || defaultProfile.premiumExpiresAt,
+  premium_expires_at: row?.premium_expires_at || row?.premiumExpiresAt || defaultProfile.premiumExpiresAt,
+  isPremium: computeIsPremium(
+    row?.plan || defaultProfile.plan,
+    row?.premium_expires_at || row?.premiumExpiresAt,
+    row?.is_premium ?? row?.isPremium
+  ),
+});
 
   // Ensure profile state has at least auth-derived values when we gain an auth user
   useEffect(() => {
