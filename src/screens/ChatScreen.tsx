@@ -4,12 +4,12 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useApp } from "../context/AppContext";
 import { useNavigation } from "@react-navigation/native";
 
@@ -57,6 +57,7 @@ function prettyActionTitle(actionType: string) {
 export default function ChatScreen() {
   const { profile, themeColors } = useApp();
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const isPremium = !!profile?.isPremium;
   const backgroundColor = themeColors?.background ?? "#0f0f0f";
   const surfaceColor = themeColors?.card ?? "#1a1a1a";
@@ -82,6 +83,8 @@ export default function ChatScreen() {
   ]);
 
   const [pendingProposals, setPendingProposals] = useState<ProposalRow[]>([]);
+  const horizontalPadding = 12;
+  const bottomInset = Math.max(insets.bottom, 12);
 
   async function onSend() {
     if (!isPremium) return;
@@ -169,11 +172,12 @@ export default function ChatScreen() {
 
   if (!isPremium) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor }}>
+      <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor }}>
         <View
           style={{
             flex: 1,
             padding: 20,
+            paddingBottom: bottomInset + 8,
             alignItems: "center",
             justifyContent: "center",
           }}
@@ -217,15 +221,23 @@ export default function ChatScreen() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 0}
     >
-      <SafeAreaView style={{ flex: 1, backgroundColor }}>
-        <View style={{ flex: 1, padding: 12 }}>
+      <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor }}>
+        <View
+          style={{
+            flex: 1,
+            paddingTop: 12,
+            paddingHorizontal: horizontalPadding,
+            paddingBottom: bottomInset,
+          }}
+        >
           <FlatList
             data={messages}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={{ paddingBottom: 12 }}
+            contentContainerStyle={{ paddingBottom: bottomInset + 12 }}
+            keyboardShouldPersistTaps="handled"
             renderItem={({ item }) => (
               <View
                 style={{
@@ -303,7 +315,7 @@ export default function ChatScreen() {
           )}
 
           {/* Input */}
-          <View style={{ flexDirection: "row", gap: 10, marginTop: 10, marginBottom: 8 }}>
+          <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
             <TextInput
               value={input}
               onChangeText={setInput}
