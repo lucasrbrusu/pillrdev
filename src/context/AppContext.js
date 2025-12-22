@@ -107,6 +107,7 @@ const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
 const STATUS_POLL_INTERVAL_MS = 5 * 60 * 1000;
 const PRESENCE_WRITE_INTERVAL_MS = 2 * 60 * 1000;
 const DATA_REFRESH_TTL_MS = 5 * 60 * 1000;
+const PROFILE_CACHE_TTL_MS = 30 * 60 * 1000;
 
 const computeIsPremium = (plan, premiumExpiresAt, explicitFlag) => {
   if (explicitFlag === true) return true;
@@ -309,7 +310,10 @@ const dataLoadTimestampsRef = useRef({});
 const lastStatusPollRef = useRef(0);
 const realtimePresenceChannelRef = useRef(null);
 const realtimeFriendRequestChannelRef = useRef(null);
+const realtimeFriendshipChannelRef = useRef(null);
+const friendDataPromiseRef = useRef(null);
 const realtimeEnabledRef = useRef(false);
+const profileCacheRef = useRef({});
   const [blockedUsers, setBlockedUsers] = useState({ blocked: [], blockedBy: [] });
   const friendResponseSignatureRef = useRef('');
   const taskInviteResponseSignatureRef = useRef('');
@@ -554,10 +558,6 @@ const loadUserDataFromSupabase = async (userId) => {
       if (now - lastStatusPollRef.current < STATUS_POLL_INTERVAL_MS) return;
       lastStatusPollRef.current = now;
       await updateUserPresence();
-      if (!realtimeEnabledRef.current) {
-        await fetchBlockedUsers(authUser.id);
-        await fetchFriendRequests(authUser.id);
-      }
       await fetchTaskInvites(authUser.id);
     };
 
@@ -592,7 +592,7 @@ const loadUserDataFromSupabase = async (userId) => {
       stopPolling();
       sub?.remove?.();
     };
-  }, [authUser?.id, fetchBlockedUsers, fetchFriendRequests, fetchTaskInvites, refreshFriendStatuses, updateUserPresence]);
+  }, [authUser?.id, fetchTaskInvites, refreshFriendStatuses, updateUserPresence]);
 
   useEffect(() => {
     userStatusesRef.current = userStatuses;
@@ -606,6 +606,8 @@ const loadUserDataFromSupabase = async (userId) => {
       realtimePresenceChannelRef.current = null;
       realtimeFriendRequestChannelRef.current?.unsubscribe?.();
       realtimeFriendRequestChannelRef.current = null;
+      realtimeFriendshipChannelRef.current?.unsubscribe?.();
+      realtimeFriendshipChannelRef.current = null;
       return undefined;
     }
 
@@ -644,15 +646,30 @@ const loadUserDataFromSupabase = async (userId) => {
         if (status === 'SUBSCRIBED') realtimeEnabledRef.current = true;
       });
 
+    const friendshipChannel = supabase
+      .channel(`user:${authUser.id}:friendships`, { config: { broadcast: { self: true } }, type: 'private' })
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'friendships' },
+        async () => {
+          await refreshFriendData(authUser.id, { force: true });
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') realtimeEnabledRef.current = true;
+      });
+
     realtimePresenceChannelRef.current = presenceChannel;
     realtimeFriendRequestChannelRef.current = friendRequestChannel;
+    realtimeFriendshipChannelRef.current = friendshipChannel;
 
     return () => {
       realtimeEnabledRef.current = false;
       presenceChannel?.unsubscribe?.();
       friendRequestChannel?.unsubscribe?.();
+      friendshipChannel?.unsubscribe?.();
     };
-  }, [authUser?.id, fetchFriendRequests, refreshFriendStatuses]);
+  }, [authUser?.id, fetchFriendRequests, refreshFriendData, refreshFriendStatuses]);
 
   const shouldRefreshData = useCallback(
     (key, ttl = DATA_REFRESH_TTL_MS) => {
@@ -662,8 +679,29 @@ const loadUserDataFromSupabase = async (userId) => {
     []
   );
 
-  const markDataLoaded = useCallback((key) => {
-    dataLoadTimestampsRef.current[key] = Date.now();
+const markDataLoaded = useCallback((key) => {
+  dataLoadTimestampsRef.current[key] = Date.now();
+}, []);
+
+  const getCachedProfile = useCallback(
+    (id) => {
+      if (!id) return null;
+      const entry = profileCacheRef.current?.[id];
+      if (!entry) return null;
+      const { data, ts } = entry;
+      if (!data) return null;
+      if (ts && Date.now() - ts > PROFILE_CACHE_TTL_MS) return null;
+      return data;
+    },
+    []
+  );
+
+  const setCachedProfile = useCallback((id, data) => {
+    if (!id || !data) return;
+    profileCacheRef.current = {
+      ...(profileCacheRef.current || {}),
+      [id]: { data, ts: Date.now() },
+    };
   }, []);
 
   // Save helpers
@@ -829,35 +867,47 @@ const mapExternalProfile = (row) => ({
         return [];
       }
 
-      let profileRows = [];
-      if (friendIds.length) {
+      const profileMap = {};
+      const missingIds = [];
+      friendIds.forEach((id) => {
+        const cached = getCachedProfile(id);
+        if (cached) {
+          profileMap[id] = cached;
+        } else {
+          missingIds.push(id);
+        }
+      });
+
+      if (missingIds.length) {
         const { data: profilesData, error: profileError } = await supabase
           .from('profiles')
           .select('id, username, full_name, avatar_url')
-          .in('id', friendIds);
+          .in('id', missingIds);
 
         if (profileError) {
           console.log('Error fetching friend profiles:', profileError);
         } else {
-          profileRows = profilesData || [];
+          (profilesData || []).forEach((row) => {
+            const mapped = mapProfileSummary(row);
+            profileMap[row.id] = mapped;
+            setCachedProfile(row.id, mapped);
+          });
         }
       }
 
-      const statusMap = { ...(userStatusesRef.current || {}) };
-
       const mapped = friendIds.map((id) => {
-        const profileRow = profileRows.find((p) => p.id === id) || {};
+        const profileRow = profileMap[id] || {};
         return {
           id,
           ...mapProfileSummary(profileRow),
-          lastSeen: statusMap[id] || null,
+          lastSeen: (userStatusesRef.current || {})[id] || null,
         };
       });
 
       setFriends(mapped);
       return mapped;
     },
-    [authUser?.id, blockedUsers.blocked, blockedUsers.blockedBy]
+    [authUser?.id, blockedUsers.blocked, blockedUsers.blockedBy, getCachedProfile, setCachedProfile]
   );
 
   const fetchFriendRequests = useCallback(
@@ -891,24 +941,33 @@ const mapExternalProfile = (row) => ({
         )
       );
 
-      let profileRows = [];
-      if (involvedIds.length) {
+      const profileLookup = {};
+      const missingIds = [];
+      involvedIds.forEach((id) => {
+        const cached = getCachedProfile(id);
+        if (cached) {
+          profileLookup[id] = cached;
+        } else {
+          missingIds.push(id);
+        }
+      });
+
+      if (missingIds.length) {
         const { data: profilesData, error: profileError } = await supabase
           .from('profiles')
           .select('id, username, full_name, avatar_url')
-          .in('id', involvedIds);
+          .in('id', missingIds);
 
         if (profileError) {
           console.log('Error fetching friend request profiles:', profileError);
         } else {
-          profileRows = profilesData || [];
+          (profilesData || []).forEach((row) => {
+            const mapped = mapProfileSummary(row);
+            profileLookup[row.id] = mapped;
+            setCachedProfile(row.id, mapped);
+          });
         }
       }
-
-      const profileLookup = {};
-      profileRows.forEach((row) => {
-        profileLookup[row.id] = mapProfileSummary(row);
-      });
 
       const mapped = (data || []).map((row) => ({
         ...row,
@@ -2208,12 +2267,26 @@ const mapExternalProfile = (row) => ({
   );
 
   const refreshFriendData = useCallback(
-    async (userIdParam) => {
+    async (userIdParam, { force } = {}) => {
       const userId = userIdParam || authUser?.id;
       if (!userId) return;
-      const blockState = await fetchBlockedUsers(userId);
-      const friendList = await fetchFriendships(userId, blockState);
-      await fetchFriendRequests(userId, blockState);
+      if (!force && friendDataPromiseRef.current) return friendDataPromiseRef.current;
+
+      const run = (async () => {
+        const blockState = await fetchBlockedUsers(userId);
+        const friendList = await fetchFriendships(userId, blockState);
+        await fetchFriendRequests(userId, blockState);
+        return { blockState, friendList };
+      })();
+
+      friendDataPromiseRef.current = run;
+      try {
+        return await run;
+      } finally {
+        if (friendDataPromiseRef.current === run) {
+          friendDataPromiseRef.current = null;
+        }
+      }
       // User status updates now come only via Realtime, so skip REST status fetches.
     },
     [authUser?.id, fetchBlockedUsers, fetchFriendships, fetchFriendRequests, refreshFriendStatuses]
@@ -2224,7 +2297,7 @@ const mapExternalProfile = (row) => ({
       const userId = authUser?.id;
       if (!userId) return;
       if (!force && !shouldRefreshData('friends', ttl)) return;
-      await refreshFriendData(userId);
+      await refreshFriendData(userId, { force });
       markDataLoaded('friends');
     },
     [authUser?.id, markDataLoaded, refreshFriendData, shouldRefreshData]
