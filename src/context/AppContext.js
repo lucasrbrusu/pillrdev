@@ -256,6 +256,17 @@ const pruneUndefined = (obj = {}) => {
   return clean;
 };
 
+const dedupeById = (items = []) => {
+  const seen = new Set();
+  return (items || []).filter((item) => {
+    const key = item?.id || item?.sharedTaskId;
+    if (!key) return false;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 
 export const AppProvider = ({ children }) => {
   // Habits State
@@ -2094,10 +2105,7 @@ const mapExternalProfile = (row) => ({
         sharedTaskId: invite.task_id,
       };
 
-      setTasks((prev) => {
-        if (prev.some((t) => t.id === newTask.id)) return prev;
-        return [...prev, newTask];
-      });
+      setTasks((prev) => dedupeById([...prev, newTask]));
     }
 
     const { error: updateError } = await supabase
@@ -3137,7 +3145,7 @@ const fetchTasksFromSupabase = async (userId) => {
     }
   }
 
-  setTasks(mappedTasks);
+  setTasks(dedupeById(mappedTasks));
 };
 
 
@@ -3185,7 +3193,7 @@ const fetchTasksFromSupabase = async (userId) => {
     sharedTaskId: data.shared_task_id || data.id,
   };
 
-  setTasks((prev) => [...prev, newTask]);
+  setTasks((prev) => dedupeById([...prev, newTask]));
   return newTask;
 };
 
