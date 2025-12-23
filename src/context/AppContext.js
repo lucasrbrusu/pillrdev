@@ -5122,27 +5122,43 @@ const mapProfileRow = (row) => ({
     if (!userId) return null;
     const nowISO = new Date().toISOString();
 
+    const resolveFullName = () => {
+      const candidates = [
+        fields.full_name,
+        fields.name,
+        authUser?.user_metadata?.full_name,
+        authUser?.user_metadata?.name,
+        profile?.name,
+      ];
+
+      for (const value of candidates) {
+        if (!value) continue;
+        const trimmed = String(value).trim();
+        if (!trimmed) continue;
+        if (trimmed.toLowerCase() === defaultProfile.name.toLowerCase()) continue;
+        return trimmed;
+      }
+
+      return undefined;
+    };
+
+    const fullName = resolveFullName();
+
     const basePayload = {
       id: userId,
-      full_name:
-        fields.full_name ??
-        fields.name ??
-        authUser?.user_metadata?.full_name ??
-        authUser?.user_metadata?.name ??
-        authUser?.email ??
-        profile.name,
+      full_name: fullName,
       username:
         fields.username ??
         authUser?.user_metadata?.username ??
-      profile.username ??
-      null,
-    email: fields.email ?? authUser?.email ?? profile.email ?? defaultProfile.email,
-    avatar_url: fields.avatar_url ?? fields.photo ?? profile.photo ?? undefined,
-    photo: fields.photo ?? profile.photo ?? undefined,
-    has_onboarded: fields.has_onboarded ?? hasOnboarded,
-    daily_calorie_goal: fields.daily_calorie_goal ?? fields.dailyCalorieGoal ?? profile.dailyCalorieGoal,
-    daily_water_goal: fields.daily_water_goal ?? fields.dailyWaterGoal ?? profile.dailyWaterGoal,
-    daily_sleep_goal: fields.daily_sleep_goal ?? fields.dailySleepGoal ?? profile.dailySleepGoal,
+        profile.username ??
+        null,
+      email: fields.email ?? authUser?.email ?? profile.email ?? defaultProfile.email,
+      avatar_url: fields.avatar_url ?? fields.photo ?? profile.photo ?? undefined,
+      photo: fields.photo ?? profile.photo ?? undefined,
+      has_onboarded: fields.has_onboarded ?? hasOnboarded,
+      daily_calorie_goal: fields.daily_calorie_goal ?? fields.dailyCalorieGoal ?? profile.dailyCalorieGoal,
+      daily_water_goal: fields.daily_water_goal ?? fields.dailyWaterGoal ?? profile.dailyWaterGoal,
+      daily_sleep_goal: fields.daily_sleep_goal ?? fields.dailySleepGoal ?? profile.dailySleepGoal,
       updated_at: nowISO,
     };
 
