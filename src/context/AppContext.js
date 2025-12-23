@@ -8,6 +8,8 @@ import React, {
   useMemo,
 } from 'react';
 import { AppState } from 'react-native';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, typography } from '../utils/theme';
 import themePresets from '../utils/themePresets';
@@ -23,6 +25,8 @@ import {
   formatTimeFromDate,
 } from '../utils/notifications';
 import uuid from 'react-native-uuid';
+
+WebBrowser.maybeCompleteAuthSession();
 
 const AppContext = createContext();
 
@@ -60,6 +64,15 @@ const SUPABASE_STORAGE_KEYS = [
   'supabase.auth.token',
   'sb-ueiptamivkuwhswotwpn-auth-token',
 ];
+
+const getOAuthRedirectUrl = () => {
+  try {
+    return Linking.createURL('/auth/callback');
+  } catch (err) {
+    console.log('Error building OAuth redirect URL:', err);
+    return 'pillr://auth-callback';
+  }
+};
 
 const defaultProfile = {
   name: 'User',
@@ -5359,6 +5372,59 @@ const mapProfileRow = (row) => ({
     }));
   };
 
+  const signInWithProvider = async (providerName) => {
+    const provider = providerName?.toLowerCase();
+    if (!provider) {
+      throw new Error('Missing provider.');
+    }
+
+    const redirectTo = getOAuthRedirectUrl();
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo,
+        skipBrowserRedirect: true,
+      },
+    });
+
+    if (error) {
+      throw new Error(error.message || `Unable to start ${provider} sign-in.`);
+    }
+
+    if (!data?.url) {
+      throw new Error('No authorization URL returned. Please try again.');
+    }
+
+    const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+    if (result.type !== 'success' || !result.url) {
+      return null;
+    }
+
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSessionFromUrl({
+      storeSession: true,
+      url: result.url,
+    });
+
+    if (sessionError) {
+      throw new Error(sessionError.message || 'Unable to complete sign-in.');
+    }
+
+    const sessionUser = sessionData?.session?.user || null;
+    if (sessionUser) {
+      await setActiveUser(sessionUser);
+      return sessionUser;
+    }
+
+    const { data: currentSession } = await supabase.auth.getSession();
+    const fallbackUser = currentSession?.session?.user;
+    if (fallbackUser) {
+      await setActiveUser(fallbackUser);
+    }
+
+    return fallbackUser || null;
+  };
+
   const signIn = async ({ identifier, password }) => {
     // We now sign in with EMAIL (identifier is email)
     const email = identifier?.trim().toLowerCase();
@@ -5894,6 +5960,7 @@ const mapProfileRow = (row) => ({
     authUser,
     hasOnboarded,
     signIn,
+    signInWithProvider,
     signUp,
     signOut,
     deleteAccount,

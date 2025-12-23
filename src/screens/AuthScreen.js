@@ -18,7 +18,7 @@ import { supabase } from '../utils/supabaseClient';
 
 const AuthScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
-  const { signIn, signUp, hasOnboarded, themeColors } = useApp();
+  const { signIn, signUp, signInWithProvider, hasOnboarded, themeColors } = useApp();
   const styles = useMemo(() => createStyles(), [themeColors]);
 
   const [mode, setMode] = useState('login');
@@ -100,8 +100,21 @@ const AuthScreen = ({ navigation }) => {
     });
   };
 
-  const handleSocial = (provider) => {
-    Alert.alert(`${provider} Sign In`, 'Social sign-in is coming soon.');
+  const handleSocial = async (provider) => {
+    try {
+      setIsSubmitting(true);
+      setError('');
+      await signInWithProvider(provider);
+    } catch (socialError) {
+      const message =
+        socialError?.message || `Unable to sign in with ${provider}. Please try again.`;
+      if (typeof message === 'string' && message.toLowerCase().includes('canceled')) {
+        return;
+      }
+      setError(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleOpenLink = (url) => {
@@ -299,7 +312,7 @@ const AuthScreen = ({ navigation }) => {
           onPress={handleSubmit}
           loading={isSubmitting}
           size="large"
-          disabled={mode === 'signup' && !hasAcceptedTerms}
+          disabled={isSubmitting || (mode === 'signup' && !hasAcceptedTerms)}
         />
 
         <View style={styles.dividerRow}>
@@ -312,6 +325,7 @@ const AuthScreen = ({ navigation }) => {
           <TouchableOpacity
             style={[styles.socialButton, styles.socialButtonLeft]}
             onPress={() => handleSocial('Google')}
+            disabled={isSubmitting}
             activeOpacity={0.8}
           >
             <Ionicons name="logo-google" size={20} color={colors.text} />
@@ -320,6 +334,7 @@ const AuthScreen = ({ navigation }) => {
           <TouchableOpacity
             style={styles.socialButton}
             onPress={() => handleSocial('Apple')}
+            disabled={isSubmitting}
             activeOpacity={0.8}
           >
             <Ionicons name="logo-apple" size={22} color={colors.text} />
