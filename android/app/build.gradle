@@ -1,4 +1,4 @@
-apply plugin: "com.android.application"
+﻿apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.pillr"
+    namespace "com.pillr.app"
     defaultConfig {
-        applicationId "com.pillr"
+        applicationId "com.pillr.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
@@ -180,3 +180,4 @@ dependencies {
         implementation jscFlavor
     }
 }
+
