@@ -1,54 +1,37 @@
 import { supabase } from "./supabaseClient";
 
-export type AgentResponse = {
-  assistantText: string;
-  proposals: string[]; // proposal IDs
-};
-
-export type ProposalRow = {
-  id: string;
-  action_type: string;
-  action_payload: any;
-  status: "pending" | "applied" | "cancelled" | "failed";
-  created_at: string;
-};
-
+/**
+ * Calls https://<project>.supabase.co/functions/v1/agent
+ */
 export async function sendToAgent(message: string, conversationId?: string) {
   const { data, error } = await supabase.functions.invoke("agent", {
-    body: { message, conversationId },
+    body: { message, conversation_id: conversationId ?? null },
   });
-  if (error) throw error;
 
-  return data as AgentResponse;
+  if (error) {
+    console.log("AGENT invoke error:", JSON.stringify(error, null, 2));
+    throw new Error(
+      `${error.message}${error.context?.status ? ` (status ${error.context.status})` : ""}`
+    );
+  }
+
+  return data as { assistantText: string; proposals?: any[] };
 }
 
-// Fetch proposal details so you can show cards in the UI
-export async function fetchProposalsByIds(ids: string[]) {
-  if (!ids.length) return [];
-
-  const { data, error } = await supabase
-    .from("ai_action_proposals")
-    .select("id, action_type, action_payload, status, created_at")
-    .in("id", ids);
-
-  if (error) throw error;
-  return (data ?? []) as ProposalRow[];
-}
-
+/**
+ * Calls https://<project>.supabase.co/functions/v1/apply_action
+ */
 export async function applyProposal(proposalId: string) {
   const { data, error } = await supabase.functions.invoke("apply_action", {
     body: { proposal_id: proposalId },
   });
-  if (error) throw error;
-  return data as { ok: boolean; appliedResult: any };
-}
 
-export async function cancelProposal(proposalId: string) {
-  // Optional but useful: lets user decline a suggestion
-  const { error } = await supabase
-    .from("ai_action_proposals")
-    .update({ status: "cancelled" })
-    .eq("id", proposalId);
+  if (error) {
+    console.log("APPLY_ACTION invoke error:", JSON.stringify(error, null, 2));
+    throw new Error(
+      `${error.message}${error.context?.status ? ` (status ${error.context.status})` : ""}`
+    );
+  }
 
-  if (error) throw error;
+  return data as { ok: boolean; appliedResult?: any };
 }
