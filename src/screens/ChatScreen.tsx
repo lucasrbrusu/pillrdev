@@ -17,11 +17,20 @@ import {
   applyProposal,
   cancelProposal,
   fetchProposalsByIds,
-  ProposalRow,
+  type ProposalRow,
   sendToAgent,
 } from "../utils/agent";
 
-type ChatMsg = { id: string; role: "user" | "assistant"; text: string };
+
+type ChatMsg = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  proposals?: ProposalRow[];
+};
+
+
+
 
 function prettyActionTitle(actionType: string) {
   switch (actionType) {
@@ -108,12 +117,11 @@ export default function ChatScreen() {
       setMessages((prev) => [...prev, botMsg]);
 
       if (res.proposals?.length) {
-        const proposalRows = await fetchProposalsByIds(res.proposals);
-
+        // proposals are already full rows
         setPendingProposals((prev) => {
           const seen = new Set(prev.map((p) => p.id));
           const merged = [...prev];
-          for (const p of proposalRows) {
+          for (const p of res.proposals) {
             if (!seen.has(p.id)) merged.push(p);
           }
           return merged;
@@ -161,12 +169,12 @@ export default function ChatScreen() {
 
   async function onCancel(proposalId: string) {
     setPendingProposals((prev) =>
-      prev.map((p) => (p.id === proposalId ? { ...p, status: "cancelled" } : p))
+      prev.map((p) => (p.id === proposalId ? { ...p, status: "declined" } : p))
     );
     try {
       await cancelProposal(proposalId);
     } catch {
-      // If policy disallows update, this might fail; UI still hides it.
+      // ignore
     }
   }
 
