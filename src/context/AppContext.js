@@ -65,14 +65,9 @@ const SUPABASE_STORAGE_KEYS = [
   'sb-ueiptamivkuwhswotwpn-auth-token',
 ];
 
-const getOAuthRedirectUrl = () => {
-  try {
-    return Linking.createURL('/auth/callback');
-  } catch (err) {
-    console.log('Error building OAuth redirect URL:', err);
-    return 'pillr://auth-callback';
-  }
-};
+const getOAuthRedirectUrl = () =>
+  // Use the Expo proxy URL (HTTPS) so Supabase accepts it in redirect settings.
+  'https://auth.expo.io/@lucasrbrusu/pillr';
 
 const defaultProfile = {
   name: 'User',
