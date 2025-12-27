@@ -5441,6 +5441,22 @@ const mapProfileRow = (row) => ({
     return fallbackUser || null;
   };
 
+  const validatePasswordRequirements = (password) => {
+    if (!password || password.length < 6) {
+      return 'Password must be at least 6 characters and include at least one uppercase letter and one symbol.';
+    }
+
+    if (!/[A-Z]/.test(password)) {
+      return 'Password must include at least one uppercase letter.';
+    }
+
+    if (!/[^A-Za-z0-9]/.test(password)) {
+      return 'Password must include at least one symbol.';
+    }
+
+    return null;
+  };
+
   const signIn = async ({ identifier, password }) => {
     // We now sign in with EMAIL (identifier is email)
     const email = identifier?.trim().toLowerCase();
@@ -5461,6 +5477,10 @@ const mapProfileRow = (row) => ({
 
   const signUp = async ({ fullName, username, email, password }) => {
     const trimmedEmail = email?.trim().toLowerCase();
+    const passwordError = validatePasswordRequirements(password);
+    if (passwordError) {
+      throw new Error(passwordError);
+    }
 
     const { data, error } = await supabase.auth.signUp({
       email: trimmedEmail,

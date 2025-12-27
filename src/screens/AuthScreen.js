@@ -16,6 +16,22 @@ import { useApp } from '../context/AppContext';
 import { colors, borderRadius, spacing, typography, shadows } from '../utils/theme';
 import { supabase } from '../utils/supabaseClient';
 
+const getPasswordError = (password) => {
+  if (!password || password.length < 6) {
+    return 'Password must be at least 6 characters and include at least one uppercase letter and one symbol.';
+  }
+
+  if (!/[A-Z]/.test(password)) {
+    return 'Password must include at least one uppercase letter.';
+  }
+
+  if (!/[^A-Za-z0-9]/.test(password)) {
+    return 'Password must include at least one symbol.';
+  }
+
+  return '';
+};
+
 const AuthScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const { signIn, signUp, signInWithProvider, hasOnboarded, themeColors } = useApp();
@@ -52,10 +68,14 @@ const AuthScreen = ({ navigation }) => {
           identifier: form.identifier,
           password: form.password,
         });
-      }
-       else {
+      } else {
         if (!form.fullName || !form.username || !form.email || !form.password) {
           setError('Please fill in all fields to create your account.');
+          return;
+        }
+        const passwordError = getPasswordError(form.password);
+        if (passwordError) {
+          setError(passwordError);
           return;
         }
         if (form.password !== form.confirmPassword) {
