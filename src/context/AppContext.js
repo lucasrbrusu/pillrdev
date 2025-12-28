@@ -5389,6 +5389,8 @@ const mapProfileRow = (row) => ({
       },
     });
 
+    console.log("data.url:", data?.url);
+
     if (error) {
       throw new Error(error.message || `Unable to start ${provider} sign-in.`);
     }
