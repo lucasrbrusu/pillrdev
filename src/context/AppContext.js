@@ -14,7 +14,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, typography } from '../utils/theme';
 import themePresets from '../utils/themePresets';
 import { supabase } from '../utils/supabaseClient';
-import { translate } from '../utils/i18n';
 import { addAppUsageMs, splitDurationByLocalDay } from '../utils/insightsTracking';
 import {
   requestNotificationPermissionAsync,
@@ -65,9 +64,7 @@ const SUPABASE_STORAGE_KEYS = [
   'sb-ueiptamivkuwhswotwpn-auth-token',
 ];
 
-const getOAuthRedirectUrl = () =>
-  // Use the Expo proxy URL (HTTPS) so Supabase accepts it in redirect settings.
-  'https://auth.expo.io/@lucasrbrusu/pillr';
+const getOAuthRedirectUrl = () => Linking.createURL('auth/callback');
 
 const defaultProfile = {
   name: 'User',
@@ -104,7 +101,6 @@ const defaultUserSettings = {
   taskRemindersEnabled: true,
   healthRemindersEnabled: true,
   defaultCurrencyCode: 'USD',
-  language: 'en',
 };
 
 const DEFAULT_EVENT_TIME = { hour: 9, minute: 0 };
@@ -331,7 +327,6 @@ const profileCacheRef = useRef({});
   const [profile, setProfile] = useState(defaultProfile);
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [userSettings, setUserSettings] = useState(defaultUserSettings);
-  const [language, setLanguage] = useState(defaultUserSettings.language);
   const isPremiumUser = useMemo(
     () =>
       profile?.isPremium ||
@@ -5247,7 +5242,6 @@ const mapProfileRow = (row) => ({
     taskRemindersEnabled: row?.task_reminders_enabled ?? defaultUserSettings.taskRemindersEnabled,
     healthRemindersEnabled: row?.health_reminders_enabled ?? defaultUserSettings.healthRemindersEnabled,
     defaultCurrencyCode: row?.default_currency_code || defaultUserSettings.defaultCurrencyCode,
-    language: row?.language || defaultUserSettings.language,
   });
 
   const fetchUserSettings = async (userId) => {
@@ -5255,7 +5249,7 @@ const mapProfileRow = (row) => ({
     const { data, error } = await supabase
       .from('user_settings')
       .select(
-        'id, user_id, theme_name, notifications_enabled, habit_reminders_enabled, task_reminders_enabled, health_reminders_enabled, default_currency_code, language'
+        'id, user_id, theme_name, notifications_enabled, habit_reminders_enabled, task_reminders_enabled, health_reminders_enabled, default_currency_code'
       )
       .eq('user_id', userId)
       .single();
@@ -5278,7 +5272,6 @@ const mapProfileRow = (row) => ({
       setThemeName(themeToApply);
       applyTheme(themeToApply);
       cacheThemeLocally(themeToApply);
-      setLanguage(mapped.language || defaultUserSettings.language);
     }
 
     return row;
@@ -5297,7 +5290,6 @@ const mapProfileRow = (row) => ({
       task_reminders_enabled: overrides.taskRemindersEnabled ?? userSettings.taskRemindersEnabled ?? defaultUserSettings.taskRemindersEnabled,
       health_reminders_enabled: overrides.healthRemindersEnabled ?? userSettings.healthRemindersEnabled ?? defaultUserSettings.healthRemindersEnabled,
       default_currency_code: overrides.defaultCurrencyCode ?? userSettings.defaultCurrencyCode ?? defaultUserSettings.defaultCurrencyCode,
-      language: overrides.language ?? userSettings.language ?? defaultUserSettings.language,
       updated_at: nowISO,
     };
 
@@ -5324,13 +5316,10 @@ const mapProfileRow = (row) => ({
   const updateUserSettings = async (updates) => {
     const merged = { ...userSettings, ...updates };
     setUserSettings(merged);
-    if (updates.language) {
-      setLanguage(updates.language);
-    }
     return upsertUserSettings(merged);
   };
 
-  const t = (text) => translate(text, language || defaultUserSettings.language);
+  const t = (text) => text;
 
   const uploadProfilePhoto = async (uri) => {
     if (!uri) return { url: null };
@@ -5391,6 +5380,7 @@ const mapProfileRow = (row) => ({
 
     const redirectTo = getOAuthRedirectUrl();
 
+    console.log("redirectTo:", redirectTo);
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
@@ -5977,8 +5967,6 @@ const mapProfileRow = (row) => ({
     updateProfile,
     userSettings,
     updateUserSettings,
-    language,
-    setLanguage,
     t,
 
     // Auth
