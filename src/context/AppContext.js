@@ -5408,32 +5408,26 @@ const mapProfileRow = (row) => ({
     }
 
     const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+
     if (result.type !== 'success' || !result.url) {
       return null;
     }
 
-    const { data: sessionData, error: sessionError } = await supabase.auth.getSessionFromUrl({
-      storeSession: true,
-      url: result.url,
-    });
+    // ✅ PKCE flow: exchange the returned code for a session
+    const { data: exchangeData, error: exchangeError } =
+      await supabase.auth.exchangeCodeForSession(result.url);
 
-    if (sessionError) {
-      throw new Error(sessionError.message || 'Unable to complete sign-in.');
+    if (exchangeError) {
+      throw new Error(exchangeError.message || 'Unable to complete sign-in.');
     }
 
-    const sessionUser = sessionData?.session?.user || null;
+    const sessionUser = exchangeData?.session?.user ?? null;
     if (sessionUser) {
       await setActiveUser(sessionUser);
       return sessionUser;
     }
 
-    const { data: currentSession } = await supabase.auth.getSession();
-    const fallbackUser = currentSession?.session?.user;
-    if (fallbackUser) {
-      await setActiveUser(fallbackUser);
-    }
-
-    return fallbackUser || null;
+    return null;
   };
 
   const validatePasswordRequirements = (password) => {
