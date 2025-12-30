@@ -184,7 +184,7 @@ const ProfileScreen = () => {
         </TouchableOpacity>
 
         {/* Version */}
-        <Text style={styles.versionText}>Pillr v1.0.0</Text>
+        <Text style={styles.versionText}>PillarUp v1.0.0</Text>
       </ScrollView>
     </View>
   );

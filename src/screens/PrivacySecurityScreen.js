@@ -11,22 +11,22 @@ const legalLinks = [
   {
     id: 'terms',
     label: 'Terms of Service',
-    url: 'https://pillr.xyz/terms-of-service.html',
+    url: 'https://pillarup.net/terms-of-service.html',
   },
   {
     id: 'privacy',
     label: 'Privacy Policy',
-    url: 'https://pillr.xyz/privacy-policy.html',
+    url: 'https://pillarup.net/privacy-policy.html',
   },
   {
     id: 'community',
     label: 'Community Guidelines',
-    url: 'https://pillr.xyz/community-guidelines.html',
+    url: 'https://pillarup.net/community-guidelines.html',
   },
   {
     id: 'subscription-terms',
     label: 'Subscription Terms',
-    url: 'https://pillr.xyz/premium-subscription-terms.html',
+    url: 'https://pillarup.net/premium-subscription-terms.html',
   },
 ];
 

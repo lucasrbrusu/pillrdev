@@ -1,4 +1,4 @@
-package com.pillr.app
+package com.pillarup.app
 
 import android.app.Application
 import android.content.res.Configuration
@@ -12,7 +12,7 @@ import com.facebook.react.ReactHost
 import com.facebook.react.common.ReleaseLevel
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint
 import com.facebook.react.defaults.DefaultReactNativeHost
-import com.pillr.app.BuildConfig
+import com.pillarup.app.BuildConfig
 
 import expo.modules.ApplicationLifecycleDispatcher
 import expo.modules.ReactNativeHostWrapper

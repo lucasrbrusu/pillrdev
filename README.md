@@ -1,4 +1,4 @@
-# Pillr - Life Management App
+# PillarUp - Life Management App
 
 A comprehensive mobile life management application built with React Native and Expo for iOS and Android platforms.
 

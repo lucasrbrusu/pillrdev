@@ -54,17 +54,17 @@ const legalLinks = [
   {
     id: 'terms',
     label: 'Terms of Service',
-    url: 'https://pillr.xyz/terms-of-service.html',
+    url: 'https://pillarup.net/terms-of-service.html',
   },
   {
     id: 'privacy',
     label: 'Privacy Policy',
-    url: 'https://pillr.xyz/privacy-policy.html',
+    url: 'https://pillarup.net/privacy-policy.html',
   },
   {
     id: 'community',
     label: 'Community Guidelines',
-    url: 'https://pillr.xyz/community-guidelines.html',
+    url: 'https://pillarup.net/community-guidelines.html',
   },
 ];
 
@@ -115,7 +115,7 @@ const OnboardingScreen = ({ navigation }) => {
             <View style={[styles.logoDot, { backgroundColor: colors.health }]} />
             <View style={[styles.logoDot, { backgroundColor: colors.routine }]} />
           </View>
-          <Text style={styles.logoTitle}>Pillr</Text>
+          <Text style={styles.logoTitle}>PillarUp</Text>
         </View>
         <Text style={styles.subtitle}>Four pillars for a balanced life</Text>
 

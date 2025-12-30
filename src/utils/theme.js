@@ -1,4 +1,4 @@
-// Pillr App Theme Configuration
+// PillarUp App Theme Configuration
 
 export const colors = {
   // Base colors

@@ -1,8 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { toLocalDateKey } from './insights';
 
-const FOCUS_SESSIONS_PREFIX = '@pillr_focus_sessions_';
-const APP_USAGE_PREFIX = '@pillr_app_usage_';
+const FOCUS_SESSIONS_PREFIX = '@pillarup_focus_sessions_';
+const APP_USAGE_PREFIX = '@pillarup_app_usage_';
 
 const getUserKey = (prefix, userId) => `${prefix}${userId || 'anon'}`;
 

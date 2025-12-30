@@ -163,7 +163,7 @@ const AuthScreen = ({ navigation }) => {
             <View style={[styles.logoDot, { backgroundColor: colors.health }]} />
             <View style={[styles.logoDot, { backgroundColor: colors.routine }]} />
           </View>
-          <Text style={styles.logoTitle}>Pillr</Text>
+          <Text style={styles.logoTitle}>PillarUp</Text>
         </View>
         <Text style={styles.subtitle}>Welcome back. Let&apos;s get you signed in.</Text>
 
@@ -293,14 +293,14 @@ const AuthScreen = ({ navigation }) => {
               By creating an account, you agree to the{' '}
               <Text
                 style={styles.termsLink}
-                onPress={() => handleOpenLink('https://pillr.xyz/terms-of-service.html')}
+                onPress={() => handleOpenLink('https://pillarup.net/terms-of-service.html')}
               >
                 Terms of Service
               </Text>{' '}
               and acknowledge the{' '}
               <Text
                 style={styles.termsLink}
-                onPress={() => handleOpenLink('https://pillr.xyz/privacy-policy.html')}
+                onPress={() => handleOpenLink('https://pillarup.net/privacy-policy.html')}
               >
                 Privacy Policy
               </Text>

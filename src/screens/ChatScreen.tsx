@@ -205,7 +205,7 @@ export default function ChatScreen() {
               Premium required
             </Text>
             <Text style={{ color: mutedTextColor, fontSize: 15, lineHeight: 22 }}>
-              Upgrade to a premium plan to unlock the Pillr AI agent and start chatting.
+              Upgrade to a premium plan to unlock the PillarUp AI agent and start chatting.
             </Text>
             <TouchableOpacity
               onPress={() => navigation.navigate("Paywall", { source: "chat" })}
@@ -218,7 +218,7 @@ export default function ChatScreen() {
                 alignItems: "center",
               }}
             >
-              <Text style={{ color: "#fff", fontWeight: "700" }}>View Pillr Premium</Text>
+              <Text style={{ color: "#fff", fontWeight: "700" }}>View PillarUp Premium</Text>
             </TouchableOpacity>
           </View>
         </View>

@@ -25,7 +25,7 @@ import {
 
 const featureList = [
   {
-    title: 'Pillr AI agent',
+    title: 'PillarUp AI agent',
     subtitle: 'Chat with your personal planner to create tasks, habits, and reminders instantly.',
   },
   {
@@ -46,7 +46,7 @@ const featureList = [
   },
   {
     title: 'Premium badge',
-    subtitle: 'Show off your premium status across Pillr.',
+    subtitle: 'Show off your premium status across PillarUp.',
   },
 ];
 
@@ -178,11 +178,11 @@ const PaywallScreen = () => {
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
             <Ionicons name="chevron-back" size={22} color="#f8f3d7" />
           </TouchableOpacity>
-          <Text style={styles.tagline}>Upgrade your Pillr experience</Text>
+          <Text style={styles.tagline}>Upgrade your PillarUp experience</Text>
           <View style={{ width: 32 }} />
         </View>
 
-        <Text style={styles.title}>Pillr Premium</Text>
+        <Text style={styles.title}>PillarUp Premium</Text>
         <Text style={styles.subtitle}>
           Unlock the AI agent, richer insights, and all the premium tools built to keep you on track.
         </Text>
@@ -191,7 +191,7 @@ const PaywallScreen = () => {
           <View style={styles.entitlementPill}>
             <Ionicons name="checkmark-circle" size={18} color="#0fcb81" />
             <Text style={styles.entitlementText}>
-              Active: {entitlementLabel || 'Pillr Premium'}
+              Active: {entitlementLabel || 'PillarUp Premium'}
             </Text>
           </View>
         )}

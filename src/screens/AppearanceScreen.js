@@ -33,7 +33,7 @@ const AppearanceScreen = () => {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={styles.sectionTitle}>Theme</Text>
-        <Text style={styles.sectionSubtitle}>Change how Pillr looks across the app.</Text>
+        <Text style={styles.sectionSubtitle}>Change how PillarUp looks across the app.</Text>
 
         {themeOptions.map((option) => {
           const selected = themeName === option.id;

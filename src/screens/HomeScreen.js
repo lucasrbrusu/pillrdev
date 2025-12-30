@@ -277,7 +277,7 @@ const HomeScreen = () => {
                 <View style={[styles.logoDot, { backgroundColor: colors.health }]} />
                 <View style={[styles.logoDot, { backgroundColor: colors.routine }]} />
               </View>
-              <Text style={styles.logoText}>Pillr</Text>
+              <Text style={styles.logoText}>PillarUp</Text>
             </View>
             <View style={styles.headerRight}>
               {isPremium && (
