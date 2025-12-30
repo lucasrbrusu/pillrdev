@@ -19,7 +19,10 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.pillr.app",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Pillr uses the camera to let you scan/attach photos within the app.",
+        "NSPhotoLibraryUsageDescription": "Pillr uses the library of the user to attach an image for profile appearance",
+        "NSPhotoLibraryAddUsageDescription": "This adds the image that the user chose to the app to set their profile picture"
       }
     },
     "android": {
