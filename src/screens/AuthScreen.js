@@ -34,7 +34,7 @@ const getPasswordError = (password) => {
 
 const AuthScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
-  const { signIn, signUp, signInWithProvider, hasOnboarded, themeColors } = useApp();
+  const { signIn, signUp, hasOnboarded, themeColors } = useApp();
   const styles = useMemo(() => createStyles(), [themeColors]);
 
   const [mode, setMode] = useState('login');
@@ -118,23 +118,6 @@ const AuthScreen = ({ navigation }) => {
       index: 0,
       routes: [{ name: 'Auth' }],
     });
-  };
-
-  const handleSocial = async (provider) => {
-    try {
-      setIsSubmitting(true);
-      setError('');
-      await signInWithProvider(provider);
-    } catch (socialError) {
-      const message =
-        socialError?.message || `Unable to sign in with ${provider}. Please try again.`;
-      if (typeof message === 'string' && message.toLowerCase().includes('canceled')) {
-        return;
-      }
-      setError(message);
-    } finally {
-      setIsSubmitting(false);
-    }
   };
 
   const handleOpenLink = (url) => {
@@ -335,32 +318,6 @@ const AuthScreen = ({ navigation }) => {
           disabled={isSubmitting || (mode === 'signup' && !hasAcceptedTerms)}
         />
 
-        <View style={styles.dividerRow}>
-          <View style={styles.divider} />
-          <Text style={styles.dividerText}>Or continue with</Text>
-          <View style={styles.divider} />
-        </View>
-
-        <View style={styles.socialRow}>
-          <TouchableOpacity
-            style={[styles.socialButton, styles.socialButtonLeft]}
-            onPress={() => handleSocial('Google')}
-            disabled={isSubmitting}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="logo-google" size={20} color={colors.text} />
-            <Text style={styles.socialText}>Google</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.socialButton}
-            onPress={() => handleSocial('Apple')}
-            disabled={isSubmitting}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="logo-apple" size={22} color={colors.text} />
-            <Text style={styles.socialText}>Apple</Text>
-          </TouchableOpacity>
-        </View>
       </ScrollView>
     </View>
   );
@@ -493,43 +450,6 @@ const createStyles = () => StyleSheet.create({
     color: colors.primary,
     textDecorationLine: 'underline',
     fontWeight: '600',
-  },
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: spacing.xl,
-  },
-  divider: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.divider,
-  },
-  dividerText: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginHorizontal: spacing.md,
-  },
-  socialRow: {
-    flexDirection: 'row',
-  },
-  socialButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.md,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: colors.divider,
-    backgroundColor: colors.card,
-    ...shadows.small,
-  },
-  socialButtonLeft: {
-    marginRight: spacing.md,
-  },
-  socialText: {
-    ...typography.body,
-    marginLeft: spacing.sm,
   },
 });
 

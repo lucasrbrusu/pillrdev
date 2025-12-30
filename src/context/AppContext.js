@@ -8,8 +8,6 @@ import React, {
   useMemo,
 } from 'react';
 import { AppState } from 'react-native';
-import * as Linking from 'expo-linking';
-import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, typography } from '../utils/theme';
 import themePresets from '../utils/themePresets';
@@ -24,8 +22,6 @@ import {
   formatTimeFromDate,
 } from '../utils/notifications';
 import uuid from 'react-native-uuid';
-
-WebBrowser.maybeCompleteAuthSession();
 
 const AppContext = createContext();
 
@@ -63,8 +59,6 @@ const SUPABASE_STORAGE_KEYS = [
   'supabase.auth.token',
   'sb-ueiptamivkuwhswotwpn-auth-token',
 ];
-
-const getOAuthRedirectUrl = () => Linking.createURL('auth/callback');
 
 const defaultProfile = {
   name: 'User',
@@ -5373,56 +5367,6 @@ const mapProfileRow = (row) => ({
     }));
   };
 
-  const signInWithProvider = async (providerName) => {
-    const provider = providerName?.toLowerCase();
-    if (!provider) {
-      throw new Error('Missing provider.');
-    }
-
-    const redirectTo = getOAuthRedirectUrl();
-
-    console.log("redirectTo:", redirectTo);
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: {
-        redirectTo,
-        skipBrowserRedirect: true,
-      },
-    });
-
-    console.log("data.url:", data?.url);
-
-    if (error) {
-      throw new Error(error.message || `Unable to start ${provider} sign-in.`);
-    }
-
-    if (!data?.url) {
-      throw new Error('No authorization URL returned. Please try again.');
-    }
-
-    const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-
-    if (result.type !== 'success' || !result.url) {
-      return null;
-    }
-
-    // ✅ PKCE flow: exchange the returned code for a session
-    const { data: exchangeData, error: exchangeError } =
-      await supabase.auth.exchangeCodeForSession(result.url);
-
-    if (exchangeError) {
-      throw new Error(exchangeError.message || 'Unable to complete sign-in.');
-    }
-
-    const sessionUser = exchangeData?.session?.user ?? null;
-    if (sessionUser) {
-      await setActiveUser(sessionUser);
-      return sessionUser;
-    }
-
-    return null;
-  };
-
   const validatePasswordRequirements = (password) => {
     if (!password || password.length < 6) {
       return 'Password must be at least 6 characters and include at least one uppercase letter and one symbol.';
@@ -5976,7 +5920,6 @@ const mapProfileRow = (row) => ({
     authUser,
     hasOnboarded,
     signIn,
-    signInWithProvider,
     signUp,
     signOut,
     deleteAccount,
