@@ -22,6 +22,7 @@ import {
   formatTimeFromDate,
 } from '../utils/notifications';
 import uuid from 'react-native-uuid';
+import { getPremiumEntitlementStatus } from '../../RevenueCat';
 
 const AppContext = createContext();
 
@@ -144,6 +145,22 @@ const computeIsPremium = (plan, premiumExpiresAt, explicitFlag) => {
   const expiryMs = coerceExpiryMs(premiumExpiresAt);
   if (!expiryMs) return true;
   return expiryMs > Date.now();
+};
+
+const normalizeRevenueCatExpiration = (entitlement, explicitExpiration) => {
+  if (explicitExpiration) return explicitExpiration;
+  if (!entitlement) return null;
+  return (
+    entitlement.expirationDate ||
+    entitlement.expiresDate ||
+    entitlement.expirationDateMillis ||
+    entitlement.expirationDateMs ||
+    entitlement.expiresDateMillis ||
+    entitlement.expiresDateMs ||
+    entitlement.expiration_date ||
+    entitlement.expires_date ||
+    null
+  );
 };
 
 const getLastActiveKey = (userId) => `${STORAGE_KEYS.LAST_ACTIVE_PREFIX}${userId}`;
@@ -321,11 +338,22 @@ const profileCacheRef = useRef({});
   const [profile, setProfile] = useState(defaultProfile);
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [userSettings, setUserSettings] = useState(defaultUserSettings);
+  const [revenueCatPremium, setRevenueCatPremium] = useState({
+    isActive: false,
+    expiration: null,
+    entitlementId: null,
+  });
   const isPremiumUser = useMemo(
-    () =>
-      profile?.isPremium ||
-      computeIsPremium(profile?.plan, profile?.premiumExpiresAt || profile?.premium_expires_at),
-    [profile]
+    () => {
+      const rcIsPremium =
+        revenueCatPremium.isActive && computeIsPremium('premium', revenueCatPremium.expiration);
+      return (
+        rcIsPremium ||
+        profile?.isPremium ||
+        computeIsPremium(profile?.plan, profile?.premiumExpiresAt || profile?.premium_expires_at)
+      );
+    },
+    [profile, revenueCatPremium]
   );
 
   // Auth State
@@ -375,10 +403,56 @@ const profileCacheRef = useRef({});
     });
   };
 
+  const refreshRevenueCatPremium = useCallback(
+    async (shouldAbort) => {
+      try {
+        const { entitlement, isActive, expiration } = await getPremiumEntitlementStatus();
+        if (shouldAbort?.()) return null;
+
+        const normalizedExpiration = normalizeRevenueCatExpiration(entitlement, expiration);
+        setRevenueCatPremium({
+          isActive: !!isActive,
+          expiration: normalizedExpiration,
+          entitlementId: entitlement?.identifier || null,
+        });
+
+        if (isActive) {
+          setProfile((prev) => {
+            if (shouldAbort?.()) return prev;
+            const premiumExpiresAt =
+              normalizedExpiration || prev.premiumExpiresAt || prev.premium_expires_at || null;
+            return {
+              ...prev,
+              plan: prev.plan === 'premium' ? prev.plan : 'premium',
+              premiumExpiresAt,
+              premium_expires_at: premiumExpiresAt,
+              isPremium: true,
+            };
+          });
+        }
+
+        return { entitlement, isActive: !!isActive, expiration: normalizedExpiration };
+      } catch (error) {
+        console.log('Error syncing RevenueCat entitlement:', error);
+        return null;
+      }
+    },
+    [setProfile, setRevenueCatPremium]
+  );
+
   // Load basic cached data and restore Supabase session on mount
   useEffect(() => {
     loadAllData();
   }, []);
+
+  // Sync RevenueCat entitlement to local premium state
+  useEffect(() => {
+    let cancelled = false;
+    refreshRevenueCatPremium(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser?.id, refreshRevenueCatPremium]);
 
   const loadAllData = async () => {
   try {
@@ -474,6 +548,7 @@ const loadUserDataFromSupabase = async (userId) => {
       setProfile(defaultProfile);
       setProfileLoaded(false);
       setUserSettings(defaultUserSettings);
+      setRevenueCatPremium({ isActive: false, expiration: null, entitlementId: null });
       setHasOnboarded(false);
       setThemeName('default');
       applyTheme('default');
@@ -5743,10 +5818,17 @@ const mapProfileRow = (row) => ({
       authUser?.user_metadata?.username ||
       '';
 
-    const plan = profile.plan || defaultProfile.plan;
+    const rcExpiration = revenueCatPremium.expiration || null;
+    const plan =
+      (revenueCatPremium.isActive ? 'premium' : profile.plan) || defaultProfile.plan;
     const premiumExpiresAt =
-      profile.premiumExpiresAt || profile.premium_expires_at || defaultProfile.premiumExpiresAt;
-    const isPremium = computeIsPremium(plan, premiumExpiresAt);
+      rcExpiration ||
+      profile.premiumExpiresAt ||
+      profile.premium_expires_at ||
+      defaultProfile.premiumExpiresAt;
+    const rcIsPremium =
+      revenueCatPremium.isActive && computeIsPremium('premium', premiumExpiresAt);
+    const isPremium = rcIsPremium || computeIsPremium(plan, premiumExpiresAt);
 
     return {
       ...profile,
@@ -5758,7 +5840,7 @@ const mapProfileRow = (row) => ({
       premium_expires_at: premiumExpiresAt,
       isPremium,
     };
-  }, [profile, authUser]);
+  }, [profile, authUser, revenueCatPremium]);
 
   const value = {
     profile: computedProfile,
@@ -5911,6 +5993,8 @@ const mapProfileRow = (row) => ({
     reorderGroupRoutineTasks,
 
     // Profile
+    revenueCatPremium,
+    refreshRevenueCatPremium,
     updateProfile,
     userSettings,
     updateUserSettings,

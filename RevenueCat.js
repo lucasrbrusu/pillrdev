@@ -13,9 +13,10 @@ if (typeof globalThis.location === 'undefined') {
 // These test keys are safe to keep in source control. Replace with your
 // production keys from the RevenueCat dashboard when you are ready.
 const iosApiKey = 'test_dEcIQQiQGIjraecHQzdfXMFYOrU';
-const androidApiKey = 'test_dEcIQQiQGIjraecHQzdfXMFYOrU';
+// Production Android API key (Google Play)
+const androidApiKey = 'goog_pwyWISJSXbUBoSRppNHtySWkYwU';
 
-const ENTITLEMENT_ID = 'Pillr Premium';
+const ENTITLEMENT_ID = 'premium';
 const DEFAULT_OFFERING_ID = 'default';
 
 const globalKey = '__PILLR_REVENUECAT__';
@@ -123,7 +124,7 @@ export const restoreRevenueCatPurchases = async () => {
 
 export const getPremiumEntitlementStatus = async () => {
   const ok = await configureRevenueCat();
-  if (!ok) return { entitlement: null, isActive: false, info: null };
+  if (!ok) return { entitlement: null, isActive: false, info: null, expiration: null };
   const info = await Purchases.getCustomerInfo();
   const activeEntitlements = info?.entitlements?.active || {};
 
@@ -134,10 +135,21 @@ export const getPremiumEntitlementStatus = async () => {
   });
 
   const entitlement = direct || fallback || null;
+  const expiration =
+    entitlement?.expirationDate ||
+    entitlement?.expiresDate ||
+    entitlement?.expirationDateMillis ||
+    entitlement?.expirationDateMs ||
+    entitlement?.expiresDateMillis ||
+    entitlement?.expiresDateMs ||
+    entitlement?.expiration_date ||
+    entitlement?.expires_date ||
+    null;
   return {
     entitlement,
     isActive: !!entitlement,
     info,
+    expiration,
   };
 };
 

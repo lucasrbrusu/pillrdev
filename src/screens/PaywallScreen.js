@@ -54,7 +54,7 @@ const PaywallScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const route = useRoute();
-  const { themeColors, isPremium } = useApp();
+  const { themeColors, isPremium, refreshRevenueCatPremium } = useApp();
   const [loading, setLoading] = useState(true);
   const [loadingError, setLoadingError] = useState('');
   const [monthlyPackage, setMonthlyPackage] = useState(null);
@@ -96,7 +96,8 @@ const PaywallScreen = () => {
     let active = true;
     const syncEntitlement = async () => {
       try {
-        const { isActive, entitlement } = await getPremiumEntitlementStatus();
+        const { isActive, entitlement } =
+          (await refreshRevenueCatPremium()) || (await getPremiumEntitlementStatus());
         if (!active) return;
         setEntitled(!!isActive || !!isPremium);
         setEntitlementLabel(entitlement?.productIdentifier || '');
@@ -108,7 +109,7 @@ const PaywallScreen = () => {
     return () => {
       active = false;
     };
-  }, [isPremium]);
+  }, [isPremium, refreshRevenueCatPremium]);
 
   const formatPrice = (pkg, cadence) => {
     const suffix = cadence === 'yearly' ? '/year' : '/month';
@@ -136,8 +137,9 @@ const PaywallScreen = () => {
     setLoadingError('');
     try {
       await purchaseRevenueCatPackage(pkg);
-      const { isActive } = await getPremiumEntitlementStatus();
-      setEntitled(!!isActive || !!isPremium);
+      const status =
+        (await refreshRevenueCatPremium()) || (await getPremiumEntitlementStatus());
+      setEntitled(!!status?.isActive || !!isPremium);
       navigation.goBack();
     } catch (err) {
       if (!err?.userCancelled) {
@@ -153,8 +155,9 @@ const PaywallScreen = () => {
     setLoadingError('');
     try {
       await restoreRevenueCatPurchases();
-      const { isActive } = await getPremiumEntitlementStatus();
-      setEntitled(!!isActive || !!isPremium);
+      const status =
+        (await refreshRevenueCatPremium()) || (await getPremiumEntitlementStatus());
+      setEntitled(!!status?.isActive || !!isPremium);
       navigation.goBack();
     } catch (err) {
       setLoadingError(err?.message || 'Could not restore purchases.');
