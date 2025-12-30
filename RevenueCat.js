@@ -10,10 +10,8 @@ if (typeof globalThis.location === 'undefined') {
   globalThis.location.search = '';
 }
 
-// These test keys are safe to keep in source control. Replace with your
-// production keys from the RevenueCat dashboard when you are ready.
-const iosApiKey = 'test_dEcIQQiQGIjraecHQzdfXMFYOrU';
-// Production Android API key (Google Play)
+// Production RevenueCat API keys (iOS and Android)
+const iosApiKey = 'appl_VnKzbJTYiUgHyeQtpuoHZgyrAjj';
 const androidApiKey = 'goog_pwyWISJSXbUBoSRppNHtySWkYwU';
 
 const ENTITLEMENT_ID = 'premium';
