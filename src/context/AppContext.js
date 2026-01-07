@@ -5527,38 +5527,12 @@ const mapProfileRow = (row) => ({
     if (!authUser?.id) {
       throw new Error('You must be signed in to delete your account.');
     }
-    const userId = authUser.id;
-
-    const safeDelete = async (table, column = 'user_id') => {
-      const { error } = await supabase.from(table).delete().eq(column, userId);
-      if (error && error.code !== 'PGRST116') {
-        throw error;
-      }
-    };
 
     try {
-      // Child rows first
-      await safeDelete('habit_completions');
-      await safeDelete('health_food_entries');
-      await safeDelete('health_daily');
+      const { error: deleteError } = await supabase.rpc('delete_account');
 
-      // Primary entities
-      await safeDelete('habits');
-      await safeDelete('tasks');
-      await safeDelete('notes');
-      await safeDelete('routines');
-      await safeDelete('chores');
-      await safeDelete('reminders');
-      await safeDelete('groceries');
-      await safeDelete('finance_transactions');
-
-      // Settings/profile
-      await safeDelete('user_settings');
-      await safeDelete('profiles', 'id');
-
-      const { error: deleteUserError } = await supabase.functions.invoke('delete_user');
-      if (deleteUserError) {
-        throw deleteUserError;
+      if (deleteError) {
+        throw deleteError;
       }
 
       await signOut();
