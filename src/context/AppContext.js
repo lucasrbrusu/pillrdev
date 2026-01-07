@@ -5555,13 +5555,16 @@ const mapProfileRow = (row) => ({
       // Settings/profile
       await safeDelete('user_settings');
       await safeDelete('profiles', 'id');
-      await safeDelete('profiles');
+
+      const { error: deleteUserError } = await supabase.functions.invoke('delete_user');
+      if (deleteUserError) {
+        throw deleteUserError;
+      }
+
+      await signOut();
     } catch (error) {
       const message = error?.message || 'Unable to delete account.';
       throw new Error(message);
-    } finally {
-      // Always sign out and clear local state
-      await signOut();
     }
   };
 
@@ -6024,3 +6027,6 @@ const mapProfileRow = (row) => ({
 };
 
 export default AppContext;
+
+
+
