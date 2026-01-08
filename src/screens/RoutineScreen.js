@@ -6,9 +6,8 @@ import {
   TouchableOpacity,
   TextInput,
 } from 'react-native';
-import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
 import {
   Card,
@@ -22,7 +21,6 @@ import {
 } from '../components';
 import { formatTimeFromDate } from '../utils/notifications';
 import {
-  colors,
   borderRadius,
   spacing,
   typography,
@@ -65,13 +63,149 @@ const RoutineScreen = () => {
       clearCompletedGroceries,
       groups,
       isPremiumUser,
+      themeName,
       themeColors,
       ensureRoutinesLoaded,
       ensureChoresLoaded,
       ensureRemindersLoaded,
       ensureGroceriesLoaded,
     } = useApp();
-    const styles = useMemo(() => createStyles(), [themeColors]);
+    const isDark = themeName === 'dark';
+    const sectionThemes = useMemo(
+      () => ({
+        routine: isDark
+          ? {
+              card: '#2E2538',
+              header: '#3C2E4A',
+              border: '#4B3A5E',
+              accent: themeColors.routine,
+              iconBg: '#F59E0B',
+              iconColor: '#1F1305',
+              actionBg: '#4A3560',
+              actionText: '#F4E5FF',
+              sectionBg: '#372B44',
+              itemBg: '#3C304A',
+              itemBorder: 'rgba(245, 158, 11, 0.45)',
+              muted: '#E2C48C',
+            }
+          : {
+              card: '#FFF4E3',
+              header: '#FFE8C6',
+              border: '#F6D7A7',
+              accent: themeColors.routine,
+              iconBg: '#FF9F1C',
+              iconColor: '#FFFFFF',
+              actionBg: '#EFE5FF',
+              actionText: themeColors.primary,
+              sectionBg: '#FFF8ED',
+              itemBg: '#FFFDF7',
+              itemBorder: '#F3D5A2',
+              muted: '#8B6F45',
+            },
+        group: isDark
+          ? {
+              card: '#232447',
+              header: '#2E2B56',
+              border: '#3C3B69',
+              accent: themeColors.tasks,
+              iconBg: themeColors.tasks,
+              iconColor: '#FFFFFF',
+              actionBg: '#2E2B56',
+              actionText: '#DDE1FF',
+              sectionBg: '#292A4D',
+              itemBg: '#303158',
+              itemBorder: 'rgba(99, 102, 241, 0.45)',
+              muted: '#C8CEFF',
+            }
+          : {
+              card: '#EEF0FF',
+              header: '#DDE2FF',
+              border: '#C9D1FF',
+              accent: themeColors.tasks,
+              iconBg: themeColors.tasks,
+              iconColor: '#FFFFFF',
+              actionBg: '#E4E8FF',
+              actionText: themeColors.tasks,
+              sectionBg: '#F6F7FF',
+              itemBg: '#FFFFFF',
+              itemBorder: '#D5DBFF',
+              muted: '#5157B7',
+            },
+        chores: isDark
+          ? {
+              card: '#1F2E49',
+              header: '#2A3A5A',
+              border: '#3B4F75',
+              accent: themeColors.info,
+              iconBg: themeColors.info,
+              iconColor: '#FFFFFF',
+              actionBg: '#2A3A5A',
+              actionText: '#D6E4FF',
+              itemBg: '#283A58',
+              itemBorder: 'rgba(59, 130, 246, 0.45)',
+            }
+          : {
+              card: '#EAF6FF',
+              header: '#D9ECFF',
+              border: '#C6E2FF',
+              accent: themeColors.info,
+              iconBg: themeColors.info,
+              iconColor: '#FFFFFF',
+              actionBg: '#DDEBFF',
+              actionText: '#1D4ED8',
+              itemBg: '#F4FAFF',
+              itemBorder: '#CFE7FF',
+            },
+        reminders: isDark
+          ? {
+              card: '#352137',
+              header: '#43253E',
+              border: '#56304F',
+              accent: themeColors.health,
+              iconBg: themeColors.health,
+              iconColor: '#FFFFFF',
+              actionBg: '#43253E',
+              actionText: '#FFD7ED',
+              itemBg: '#3E2843',
+              itemBorder: 'rgba(236, 72, 153, 0.45)',
+            }
+          : {
+              card: '#FFF0F7',
+              header: '#FFE0EF',
+              border: '#F7C9DF',
+              accent: themeColors.health,
+              iconBg: themeColors.health,
+              iconColor: '#FFFFFF',
+              actionBg: '#FFD6E8',
+              actionText: '#C02672',
+              itemBg: '#FFF7FB',
+              itemBorder: '#F4C5DD',
+            },
+        groceries: isDark
+          ? {
+              card: '#1F3530',
+              header: '#25443A',
+              border: '#345B4A',
+              accent: themeColors.finance,
+              iconBg: themeColors.finance,
+              iconColor: '#FFFFFF',
+              itemBg: '#263D36',
+              itemBorder: 'rgba(16, 185, 129, 0.45)',
+            }
+          : {
+              card: '#EAFBF2',
+              header: '#D9F5E7',
+              border: '#BFEBD5',
+              accent: themeColors.finance,
+              iconBg: themeColors.finance,
+              iconColor: '#FFFFFF',
+              itemBg: '#F3FFF8',
+              itemBorder: '#CDEEDD',
+            },
+      }),
+      [isDark, themeColors]
+    );
+    const styles = useMemo(() => createStyles(themeColors), [themeColors]);
 
     useEffect(() => {
       ensureRoutinesLoaded();
@@ -267,13 +401,24 @@ const RoutineScreen = () => {
           {activeGroceries.map((item) => (
             <TouchableOpacity
               key={item.id}
-              style={styles.groceryItem}
+              style={[
+                styles.groceryItem,
+                {
+                  backgroundColor: groceriesTheme.itemBg,
+                  borderColor: groceriesTheme.itemBorder,
+                },
+              ]}
               onPress={() => toggleGroceryItem(item.id)}
             >
-              <View style={styles.groceryCheckbox} />
+              <View
+                style={[
+                  styles.groceryCheckbox,
+                  { borderColor: groceriesTheme.itemBorder },
+                ]}
+              />
               <Text style={styles.groceryText}>{item.name}</Text>
               <TouchableOpacity onPress={() => deleteGroceryItem(item.id)}>
-                <Ionicons name="close" size={16} color={colors.textLight} />
+                <Ionicons name="close" size={16} color={themeColors.textLight} />
               </TouchableOpacity>
             </TouchableOpacity>
           ))}
@@ -289,10 +434,22 @@ const RoutineScreen = () => {
               {completedGroceries.map((item) => (
                 <TouchableOpacity
                   key={item.id}
-                  style={styles.groceryItem}
+                  style={[
+                    styles.groceryItem,
+                    {
+                      backgroundColor: groceriesTheme.itemBg,
+                      borderColor: groceriesTheme.itemBorder,
+                    },
+                  ]}
                   onPress={() => toggleGroceryItem(item.id)}
                 >
-                  <View style={[styles.groceryCheckbox, styles.groceryCheckboxChecked]}>
+                  <View
+                    style={[
+                      styles.groceryCheckbox,
+                      styles.groceryCheckboxChecked,
+                      { borderColor: groceriesTheme.itemBorder },
+                    ]}
+                  >
                     <Ionicons name="checkmark" size={12} color="#FFFFFF" />
                   </View>
                   <Text style={[styles.groceryText, styles.groceryTextCompleted]}>
@@ -307,6 +464,12 @@ const RoutineScreen = () => {
     </>
   );
 
+  const routineTheme = sectionThemes.routine;
+  const groupTheme = sectionThemes.group;
+  const choresTheme = sectionThemes.chores;
+  const remindersTheme = sectionThemes.reminders;
+  const groceriesTheme = sectionThemes.groceries;
+
   return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <PlatformScrollView
@@ -318,131 +481,115 @@ const RoutineScreen = () => {
           bounces
         >
         {/* Routine Manager Section */}
-        <Card style={styles.sectionCard}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Routine Manager</Text>
+        <Card
+          style={[
+            styles.sectionCard,
+            { backgroundColor: routineTheme.card, borderColor: routineTheme.border },
+          ]}
+        >
+          <View
+            style={[
+              styles.sectionHeader,
+              {
+                backgroundColor: routineTheme.header,
+                borderBottomColor: routineTheme.border,
+              },
+            ]}
+          >
+            <View style={styles.sectionTitleRow}>
+              <View
+                style={[
+                  styles.sectionIcon,
+                  { backgroundColor: routineTheme.iconBg },
+                ]}
+              >
+                <Ionicons name="sunny" size={18} color={routineTheme.iconColor} />
+              </View>
+              <Text style={[styles.sectionTitle, { color: themeColors.text }]}>
+                Routine Manager
+              </Text>
+            </View>
             <TouchableOpacity
-              style={styles.createButton}
+              style={[
+                styles.sectionAction,
+                { backgroundColor: routineTheme.actionBg },
+              ]}
               onPress={() => setShowRoutineModal(true)}
             >
-              <Ionicons name="add" size={18} color={colors.primary} />
-              <Text style={styles.createButtonText}>Create</Text>
+              <Ionicons name="add" size={16} color={routineTheme.actionText} />
+              <Text style={[styles.sectionActionText, { color: routineTheme.actionText }]}>
+                Create
+              </Text>
             </TouchableOpacity>
           </View>
 
-          {routines.length === 0 ? (
-            <View style={styles.emptyState}>
-              <MaterialCommunityIcons
-                name="clipboard-list-outline"
-                size={40}
-                color={colors.primaryLight}
-              />
-              <Text style={styles.emptyText}>No routines yet</Text>
-            </View>
-          ) : (
-            routines.map((routine) => (
-              <View key={routine.id} style={styles.routineSection}>
-                <View style={styles.routineHeader}>
-                  <Text style={styles.routineName}>{routine.name}</Text>
-                  <View style={styles.routineActions}>
-                    <TouchableOpacity
-                      style={styles.routineActionButton}
-                      onPress={() => openAddTaskModal(routine.id)}
-                    >
-                      <Ionicons name="add" size={18} color={colors.textSecondary} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.routineActionButton}
-                      onPress={() => deleteRoutine(routine.id)}
-                    >
-                      <Ionicons name="trash-outline" size={16} color={colors.danger} />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-                {routine.tasks && routine.tasks.length > 0 ? (
-                  routine.tasks.map((task, index) => {
-                    const atTop = index === 0;
-                    const atBottom = index === routine.tasks.length - 1;
-                    return (
-                      <View key={task.id} style={styles.routineTaskItem}>
-                        <View style={styles.taskOrderControls}>
-                          <TouchableOpacity
-                            style={styles.orderButton}
-                            onPress={() => handleMoveRoutineTask(routine.id, index, -1)}
-                            disabled={atTop}
-                          >
-                            <Ionicons
-                              name="chevron-up"
-                              size={16}
-                              color={atTop ? colors.border : colors.textSecondary}
-                            />
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={styles.orderButton}
-                            onPress={() => handleMoveRoutineTask(routine.id, index, 1)}
-                            disabled={atBottom}
-                          >
-                            <Ionicons
-                              name="chevron-down"
-                              size={16}
-                              color={atBottom ? colors.border : colors.textSecondary}
-                            />
-                          </TouchableOpacity>
-                        </View>
-                        <Text style={styles.routineTaskText}>{task.name}</Text>
-                        <TouchableOpacity
-                          onPress={() => removeTaskFromRoutine(routine.id, task.id)}
-                        >
-                          <Ionicons name="close" size={18} color={colors.textLight} />
-                        </TouchableOpacity>
-                      </View>
-                    );
-                  })
-                ) : (
-                  <Text style={styles.noTasksText}>No tasks added</Text>
-                )}
+          <View style={styles.sectionBody}>
+            {routines.length === 0 ? (
+              <View style={styles.emptyState}>
+                <MaterialCommunityIcons
+                  name="clipboard-list-outline"
+                  size={40}
+                  color={routineTheme.accent}
+                />
+                <Text style={styles.emptyText}>No routines yet</Text>
               </View>
-            ))
-          )}
-        </Card>
-
-        {(groupRoutines.length > 0 || groups.length > 0) ? (
-          <Card style={styles.sectionCard}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Group Routines</Text>
-              <TouchableOpacity
-                style={styles.createButton}
-                onPress={() => setShowRoutineModal(true)}
-              >
-                <Ionicons name="add" size={18} color={colors.primary} />
-                <Text style={styles.createButtonText}>Create</Text>
-              </TouchableOpacity>
-            </View>
-
-            {groupRoutines.length === 0 ? (
-              <Text style={styles.emptyText}>No group routines yet</Text>
             ) : (
-              groupRoutines.map((routine) => (
-                <View key={routine.id} style={styles.routineSection}>
+              routines.map((routine) => (
+                <View
+                  key={routine.id}
+                  style={[
+                    styles.routineSection,
+                    {
+                      backgroundColor: routineTheme.sectionBg,
+                      borderColor: routineTheme.itemBorder,
+                    },
+                  ]}
+                >
                   <View style={styles.routineHeader}>
-                    <View>
-                      <Text style={styles.routineName}>{routine.name}</Text>
-                      <Text style={styles.routineMeta}>
-                        {(groups.find((g) => g.id === routine.groupId)?.name) || 'Group'}
+                    <View style={styles.routineTitleRow}>
+                      <View
+                        style={[
+                          styles.routineBadge,
+                          {
+                            borderColor: routineTheme.itemBorder,
+                            backgroundColor: routineTheme.itemBg,
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name="sparkles"
+                          size={12}
+                          color={routineTheme.accent}
+                        />
+                      </View>
+                      <Text style={[styles.routineName, { color: routineTheme.accent }]}>
+                        {routine.name}
                       </Text>
                     </View>
                     <View style={styles.routineActions}>
                       <TouchableOpacity
-                        style={styles.routineActionButton}
+                        style={[
+                          styles.routineActionButton,
+                          {
+                            backgroundColor: routineTheme.itemBg,
+                            borderColor: routineTheme.itemBorder,
+                          },
+                        ]}
                         onPress={() => openAddTaskModal(routine.id)}
                       >
-                        <Ionicons name="add" size={18} color={colors.textSecondary} />
+                        <Ionicons name="add" size={18} color={routineTheme.accent} />
                       </TouchableOpacity>
                       <TouchableOpacity
-                        style={styles.routineActionButton}
-                        onPress={() => deleteGroupRoutine(routine.id)}
+                        style={[
+                          styles.routineActionButton,
+                          {
+                            backgroundColor: routineTheme.itemBg,
+                            borderColor: routineTheme.itemBorder,
+                          },
+                        ]}
+                        onPress={() => deleteRoutine(routine.id)}
                       >
-                        <Ionicons name="trash-outline" size={16} color={colors.danger} />
+                        <Ionicons name="close" size={18} color={themeColors.textLight} />
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -451,36 +598,59 @@ const RoutineScreen = () => {
                       const atTop = index === 0;
                       const atBottom = index === routine.tasks.length - 1;
                       return (
-                        <View key={task.id} style={styles.routineTaskItem}>
+                        <View
+                          key={task.id}
+                          style={[
+                            styles.routineTaskItem,
+                            {
+                              backgroundColor: routineTheme.itemBg,
+                              borderColor: routineTheme.itemBorder,
+                            },
+                          ]}
+                        >
                           <View style={styles.taskOrderControls}>
                             <TouchableOpacity
-                              style={styles.orderButton}
+                              style={[
+                                styles.orderButton,
+                                {
+                                  borderColor: routineTheme.itemBorder,
+                                  backgroundColor: routineTheme.card,
+                                  opacity: atTop ? 0.4 : 1,
+                                },
+                              ]}
                               onPress={() => handleMoveRoutineTask(routine.id, index, -1)}
                               disabled={atTop}
                             >
                               <Ionicons
                                 name="chevron-up"
                                 size={16}
-                                color={atTop ? colors.border : colors.textSecondary}
+                                color={routineTheme.muted}
                               />
                             </TouchableOpacity>
                             <TouchableOpacity
-                              style={styles.orderButton}
+                              style={[
+                                styles.orderButton,
+                                {
+                                  borderColor: routineTheme.itemBorder,
+                                  backgroundColor: routineTheme.card,
+                                  opacity: atBottom ? 0.4 : 1,
+                                },
+                              ]}
                               onPress={() => handleMoveRoutineTask(routine.id, index, 1)}
                               disabled={atBottom}
                             >
                               <Ionicons
                                 name="chevron-down"
                                 size={16}
-                                color={atBottom ? colors.border : colors.textSecondary}
+                                color={routineTheme.muted}
                               />
                             </TouchableOpacity>
                           </View>
                           <Text style={styles.routineTaskText}>{task.name}</Text>
                           <TouchableOpacity
-                            onPress={() => removeTaskFromGroupRoutine(routine.id, task.id)}
+                            onPress={() => removeTaskFromRoutine(routine.id, task.id)}
                           >
-                            <Ionicons name="close" size={18} color={colors.textLight} />
+                            <Ionicons name="close" size={18} color={themeColors.textLight} />
                           </TouchableOpacity>
                         </View>
                       );
@@ -491,129 +661,383 @@ const RoutineScreen = () => {
                 </View>
               ))
             )}
+          </View>
+        </Card>
+
+        {(groupRoutines.length > 0 || groups.length > 0) ? (
+          <Card
+            style={[
+              styles.sectionCard,
+              { backgroundColor: groupTheme.card, borderColor: groupTheme.border },
+            ]}
+          >
+            <View
+              style={[
+                styles.sectionHeader,
+                { backgroundColor: groupTheme.header, borderBottomColor: groupTheme.border },
+              ]}
+            >
+              <View style={styles.sectionTitleRow}>
+                <View style={[styles.sectionIcon, { backgroundColor: groupTheme.iconBg }]}>
+                  <Ionicons name="people" size={18} color={groupTheme.iconColor} />
+                </View>
+                <Text style={[styles.sectionTitle, { color: themeColors.text }]}>
+                  Group Routines
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.sectionAction, { backgroundColor: groupTheme.actionBg }]}
+                onPress={() => setShowRoutineModal(true)}
+              >
+                <Ionicons name="add" size={16} color={groupTheme.actionText} />
+                <Text style={[styles.sectionActionText, { color: groupTheme.actionText }]}>
+                  Create
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.sectionBody}>
+              {groupRoutines.length === 0 ? (
+                <Text style={styles.emptyText}>No group routines yet</Text>
+              ) : (
+                groupRoutines.map((routine) => (
+                  <View
+                    key={routine.id}
+                    style={[
+                      styles.routineSection,
+                      {
+                        backgroundColor: groupTheme.sectionBg,
+                        borderColor: groupTheme.itemBorder,
+                      },
+                    ]}
+                  >
+                    <View style={styles.routineHeader}>
+                      <View>
+                        <Text style={[styles.routineName, { color: groupTheme.accent }]}>
+                          {routine.name}
+                        </Text>
+                        <Text style={styles.routineMeta}>
+                          {(groups.find((g) => g.id === routine.groupId)?.name) || 'Group'}
+                        </Text>
+                      </View>
+                      <View style={styles.routineActions}>
+                        <TouchableOpacity
+                          style={[
+                            styles.routineActionButton,
+                            {
+                              backgroundColor: groupTheme.itemBg,
+                              borderColor: groupTheme.itemBorder,
+                            },
+                          ]}
+                          onPress={() => openAddTaskModal(routine.id)}
+                        >
+                          <Ionicons name="add" size={18} color={groupTheme.accent} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.routineActionButton,
+                            {
+                              backgroundColor: groupTheme.itemBg,
+                              borderColor: groupTheme.itemBorder,
+                            },
+                          ]}
+                          onPress={() => deleteGroupRoutine(routine.id)}
+                        >
+                          <Ionicons name="close" size={18} color={themeColors.textLight} />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                    {routine.tasks && routine.tasks.length > 0 ? (
+                      routine.tasks.map((task, index) => {
+                        const atTop = index === 0;
+                        const atBottom = index === routine.tasks.length - 1;
+                        return (
+                          <View
+                            key={task.id}
+                            style={[
+                              styles.routineTaskItem,
+                              {
+                                backgroundColor: groupTheme.itemBg,
+                                borderColor: groupTheme.itemBorder,
+                              },
+                            ]}
+                          >
+                            <View style={styles.taskOrderControls}>
+                              <TouchableOpacity
+                                style={[
+                                  styles.orderButton,
+                                  {
+                                    borderColor: groupTheme.itemBorder,
+                                    backgroundColor: groupTheme.card,
+                                    opacity: atTop ? 0.4 : 1,
+                                  },
+                                ]}
+                                onPress={() => handleMoveRoutineTask(routine.id, index, -1)}
+                                disabled={atTop}
+                              >
+                                <Ionicons
+                                  name="chevron-up"
+                                  size={16}
+                                  color={groupTheme.muted}
+                                />
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={[
+                                  styles.orderButton,
+                                  {
+                                    borderColor: groupTheme.itemBorder,
+                                    backgroundColor: groupTheme.card,
+                                    opacity: atBottom ? 0.4 : 1,
+                                  },
+                                ]}
+                                onPress={() => handleMoveRoutineTask(routine.id, index, 1)}
+                                disabled={atBottom}
+                              >
+                                <Ionicons
+                                  name="chevron-down"
+                                  size={16}
+                                  color={groupTheme.muted}
+                                />
+                              </TouchableOpacity>
+                            </View>
+                            <Text style={styles.routineTaskText}>{task.name}</Text>
+                            <TouchableOpacity
+                              onPress={() => removeTaskFromGroupRoutine(routine.id, task.id)}
+                            >
+                              <Ionicons name="close" size={18} color={themeColors.textLight} />
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })
+                    ) : (
+                      <Text style={styles.noTasksText}>No tasks added</Text>
+                    )}
+                  </View>
+                ))
+              )}
+            </View>
           </Card>
         ) : null}
 
         {/* Chores Section */}
-        <Card style={styles.sectionCard}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Chores</Text>
+        <Card
+          style={[
+            styles.sectionCard,
+            { backgroundColor: choresTheme.card, borderColor: choresTheme.border },
+          ]}
+        >
+          <View
+            style={[
+              styles.sectionHeader,
+              { backgroundColor: choresTheme.header, borderBottomColor: choresTheme.border },
+            ]}
+          >
+            <View style={styles.sectionTitleRow}>
+              <View style={[styles.sectionIcon, { backgroundColor: choresTheme.iconBg }]}>
+                <Ionicons name="home" size={18} color={choresTheme.iconColor} />
+              </View>
+              <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Chores</Text>
+            </View>
             <TouchableOpacity
-              style={styles.createButton}
+              style={[styles.sectionAction, { backgroundColor: choresTheme.actionBg }]}
               onPress={() => setShowChoreModal(true)}
             >
-              <Ionicons name="add" size={18} color={colors.primary} />
-              <Text style={styles.createButtonText}>Add</Text>
+              <Ionicons name="add" size={16} color={choresTheme.actionText} />
+              <Text style={[styles.sectionActionText, { color: choresTheme.actionText }]}>
+                Add
+              </Text>
             </TouchableOpacity>
           </View>
 
-          {chores.length === 0 ? (
-            <Text style={styles.emptyText}>No chores scheduled</Text>
-          ) : (
-            choreGroups.map((group) => (
-              <View key={group.key} style={styles.choreGroup}>
-                <Text style={styles.choreGroupLabel}>{group.label}</Text>
-                {group.items.map((chore) => (
-                  <TouchableOpacity
-                    key={chore.id}
-                    style={styles.choreItem}
-                    onPress={() => updateChore(chore.id, { completed: !chore.completed })}
-                  >
-                    <View
+          <View style={styles.sectionBody}>
+            {chores.length === 0 ? (
+              <Text style={styles.emptyText}>No chores scheduled</Text>
+            ) : (
+              choreGroups.map((group) => (
+                <View key={group.key} style={styles.choreGroup}>
+                  <Text style={styles.choreGroupLabel}>{group.label}</Text>
+                  {group.items.map((chore) => (
+                    <TouchableOpacity
+                      key={chore.id}
                       style={[
-                        styles.checkbox,
-                        chore.completed && styles.checkboxChecked,
+                        styles.choreItem,
+                        {
+                          backgroundColor: choresTheme.itemBg,
+                          borderColor: choresTheme.itemBorder,
+                        },
                       ]}
+                      onPress={() => updateChore(chore.id, { completed: !chore.completed })}
                     >
-                      {chore.completed && (
-                        <Ionicons name="checkmark" size={14} color="#FFFFFF" />
-                      )}
-                    </View>
-                    <View style={styles.choreContent}>
-                      <Text
+                      <View
                         style={[
-                          styles.choreTitle,
-                          chore.completed && styles.choreTitleCompleted,
+                          styles.checkbox,
+                          { borderColor: choresTheme.itemBorder },
+                          chore.completed && styles.checkboxChecked,
                         ]}
                       >
-                        {chore.title}
-                      </Text>
-                      <Text style={styles.choreDate}>{formatDate(chore.date)}</Text>
-                    </View>
-                    <TouchableOpacity onPress={() => deleteChore(chore.id)}>
-                      <Ionicons name="close" size={18} color={colors.textLight} />
+                        {chore.completed && (
+                          <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                        )}
+                      </View>
+                      <View style={styles.choreContent}>
+                        <Text
+                          style={[
+                            styles.choreTitle,
+                            chore.completed && styles.choreTitleCompleted,
+                          ]}
+                        >
+                          {chore.title}
+                        </Text>
+                        <Text style={styles.choreDate}>{formatDate(chore.date)}</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => deleteChore(chore.id)}>
+                        <Ionicons name="close" size={18} color={themeColors.textLight} />
+                      </TouchableOpacity>
                     </TouchableOpacity>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            ))
-          )}
+                  ))}
+                </View>
+              ))
+            )}
+          </View>
         </Card>
 
         {/* Reminders Section */}
-        <Card style={styles.sectionCard}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Reminders</Text>
+        <Card
+          style={[
+            styles.sectionCard,
+            { backgroundColor: remindersTheme.card, borderColor: remindersTheme.border },
+          ]}
+        >
+          <View
+            style={[
+              styles.sectionHeader,
+              {
+                backgroundColor: remindersTheme.header,
+                borderBottomColor: remindersTheme.border,
+              },
+            ]}
+          >
+            <View style={styles.sectionTitleRow}>
+              <View style={[styles.sectionIcon, { backgroundColor: remindersTheme.iconBg }]}>
+                <Ionicons name="notifications" size={18} color={remindersTheme.iconColor} />
+              </View>
+              <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Reminders</Text>
+            </View>
             <TouchableOpacity
-              style={styles.createButton}
+              style={[styles.sectionAction, { backgroundColor: remindersTheme.actionBg }]}
               onPress={() => setShowReminderModal(true)}
             >
-              <Ionicons name="add" size={18} color={colors.primary} />
-              <Text style={styles.createButtonText}>Add</Text>
+              <Ionicons name="add" size={16} color={remindersTheme.actionText} />
+              <Text style={[styles.sectionActionText, { color: remindersTheme.actionText }]}>
+                Add
+              </Text>
             </TouchableOpacity>
           </View>
 
-          {reminders.length === 0 ? (
-            <Text style={styles.emptyText}>No reminders set</Text>
-          ) : (
-            reminders.map((reminder) => (
-              <View key={reminder.id} style={styles.reminderItem}>
-                <Ionicons name="notifications-outline" size={20} color={colors.routine} />
-                <View style={styles.reminderContent}>
-                  <Text style={styles.reminderTitle}>{reminder.title}</Text>
-                  {reminder.description && (
-                    <Text style={styles.reminderDescription} numberOfLines={1}>
-                      {reminder.description}
+          <View style={styles.sectionBody}>
+            {reminders.length === 0 ? (
+              <Text style={styles.emptyText}>No reminders set</Text>
+            ) : (
+              reminders.map((reminder) => (
+                <View
+                  key={reminder.id}
+                  style={[
+                    styles.reminderItem,
+                    {
+                      backgroundColor: remindersTheme.itemBg,
+                      borderColor: remindersTheme.itemBorder,
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.reminderIconBadge,
+                      { backgroundColor: remindersTheme.iconBg },
+                    ]}
+                  >
+                    <Ionicons
+                      name="notifications"
+                      size={16}
+                      color={remindersTheme.iconColor}
+                    />
+                  </View>
+                  <View style={styles.reminderContent}>
+                    <Text style={styles.reminderTitle}>{reminder.title}</Text>
+                    {reminder.description && (
+                      <Text style={styles.reminderDescription} numberOfLines={1}>
+                        {reminder.description}
+                      </Text>
+                    )}
+                    <Text style={styles.reminderDate}>
+                      {formatDate(reminder.date)}
+                      {reminder.time && ` at ${reminder.time}`}
                     </Text>
-                  )}
-                  <Text style={styles.reminderDate}>
-                    {formatDate(reminder.date)}
-                    {reminder.time && ` at ${reminder.time}`}
-                  </Text>
+                  </View>
+                  <TouchableOpacity onPress={() => deleteReminder(reminder.id)}>
+                    <Ionicons name="close" size={18} color={themeColors.textLight} />
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity onPress={() => deleteReminder(reminder.id)}>
-                  <Ionicons name="close" size={18} color={colors.textLight} />
-                </TouchableOpacity>
-              </View>
-            ))
-          )}
+              ))
+            )}
+          </View>
         </Card>
 
         {/* Grocery List Section */}
         <Card
-          style={[styles.sectionCard, styles.lastCard]}
+          style={[
+            styles.sectionCard,
+            styles.lastCard,
+            { backgroundColor: groceriesTheme.card, borderColor: groceriesTheme.border },
+          ]}
           onPress={() => setShowGroceryModal(true)}
         >
-          <Text style={styles.sectionTitle}>Grocery List</Text>
-
-          <View style={styles.groceryInputContainer}>
-            <TextInput
-              style={styles.groceryInput}
-              value={groceryInput}
-              placeholder="Tap to add item..."
-              placeholderTextColor={colors.placeholder}
-              editable={false}
-              onPressIn={() => setShowGroceryModal(true)}
-            />
-            <TouchableOpacity
-              style={styles.groceryAddButton}
-              onPress={() => setShowGroceryModal(true)}
-            >
-              <Ionicons name="add" size={20} color={colors.primary} />
-            </TouchableOpacity>
+          <View
+            style={[
+              styles.sectionHeader,
+              {
+                backgroundColor: groceriesTheme.header,
+                borderBottomColor: groceriesTheme.border,
+              },
+            ]}
+          >
+            <View style={styles.sectionTitleRow}>
+              <View style={[styles.sectionIcon, { backgroundColor: groceriesTheme.iconBg }]}>
+                <Ionicons name="cart" size={18} color={groceriesTheme.iconColor} />
+              </View>
+              <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Grocery List</Text>
+            </View>
           </View>
 
-          {renderGroceryList()}
+          <View style={styles.sectionBody}>
+            <View style={styles.groceryInputContainer}>
+              <TextInput
+                style={[
+                  styles.groceryInput,
+                  {
+                    backgroundColor: groceriesTheme.itemBg,
+                    borderColor: groceriesTheme.itemBorder,
+                    color: themeColors.text,
+                  },
+                ]}
+                value={groceryInput}
+                placeholder="Tap to add item..."
+                placeholderTextColor={themeColors.placeholder}
+                editable={false}
+                onPressIn={() => setShowGroceryModal(true)}
+              />
+              <TouchableOpacity
+                style={[
+                  styles.groceryAddButton,
+                  { backgroundColor: groceriesTheme.itemBg, borderColor: groceriesTheme.itemBorder },
+                ]}
+                onPress={() => setShowGroceryModal(true)}
+              >
+                <Ionicons name="add" size={20} color={groceriesTheme.accent} />
+              </TouchableOpacity>
+            </View>
+
+            {renderGroceryList()}
+          </View>
         </Card>
         </PlatformScrollView>
 
@@ -686,7 +1110,7 @@ const RoutineScreen = () => {
           <Text style={styles.inputLabel}>Date</Text>
           <TouchableOpacity style={styles.dateButton} onPress={openChoreDatePicker}>
             <Text style={styles.dateButtonText}>{formatDate(choreDate)}</Text>
-            <Ionicons name="calendar-outline" size={18} color={colors.textLight} />
+            <Ionicons name="calendar-outline" size={18} color={themeColors.textLight} />
           </TouchableOpacity>
           <View style={styles.modalButtons}>
             <Button
@@ -712,7 +1136,7 @@ const RoutineScreen = () => {
         value={choreDate}
         onChange={handleSelectChoreDate}
         onClose={() => setShowChoreDatePicker(false)}
-        accentColor={colors.routine}
+        accentColor={themeColors.routine}
       />
     </Modal>
 
@@ -726,20 +1150,30 @@ const RoutineScreen = () => {
         <View style={{ marginTop: spacing.md }}>
           <View style={styles.groceryInputContainer}>
             <TextInput
-              style={styles.groceryInput}
+              style={[
+                styles.groceryInput,
+                {
+                  backgroundColor: groceriesTheme.itemBg,
+                  borderColor: groceriesTheme.itemBorder,
+                  color: themeColors.text,
+                },
+              ]}
               value={groceryInput}
               onChangeText={setGroceryInput}
               placeholder="Add item..."
-              placeholderTextColor={colors.placeholder}
+              placeholderTextColor={themeColors.placeholder}
               onSubmitEditing={handleAddGroceryItem}
               returnKeyType="done"
               autoFocus
             />
             <TouchableOpacity
-              style={styles.groceryAddButton}
+              style={[
+                styles.groceryAddButton,
+                { backgroundColor: groceriesTheme.itemBg, borderColor: groceriesTheme.itemBorder },
+              ]}
               onPress={handleAddGroceryItem}
             >
-              <Ionicons name="add" size={20} color={colors.primary} />
+              <Ionicons name="add" size={20} color={groceriesTheme.accent} />
             </TouchableOpacity>
           </View>
 
@@ -779,7 +1213,7 @@ const RoutineScreen = () => {
               <Text style={styles.inputLabel}>Date</Text>
               <TouchableOpacity style={styles.dateButton} onPress={openReminderDatePicker}>
                 <Text style={styles.dateButtonText}>{formatDate(reminderDate)}</Text>
-                <Ionicons name="calendar-outline" size={18} color={colors.textLight} />
+                <Ionicons name="calendar-outline" size={18} color={themeColors.textLight} />
               </TouchableOpacity>
             </View>
             <View style={styles.timeInput}>
@@ -788,7 +1222,7 @@ const RoutineScreen = () => {
                 <Text style={[styles.dateButtonText, !reminderTime && styles.placeholderText]}>
                   {reminderTime || '--:--'}
                 </Text>
-                <Ionicons name="time-outline" size={18} color={colors.textLight} />
+                <Ionicons name="time-outline" size={18} color={themeColors.textLight} />
               </TouchableOpacity>
             </View>
           </View>
@@ -818,7 +1252,7 @@ const RoutineScreen = () => {
           value={reminderDate}
           onChange={handleSelectReminderDate}
           onClose={() => setShowReminderDatePicker(false)}
-          accentColor={colors.routine}
+          accentColor={themeColors.routine}
         />
 
         <PlatformTimePicker
@@ -827,7 +1261,7 @@ const RoutineScreen = () => {
           onChange={handleSelectReminderTime}
           onClose={() => setShowReminderTimePicker(false)}
           options={reminderTimeOptions}
-          accentColor={colors.routine}
+          accentColor={themeColors.routine}
         />
       </Modal>
 
@@ -870,10 +1304,10 @@ const RoutineScreen = () => {
   );
 };
 
-const createStyles = () => StyleSheet.create({
+const createStyles = (themeColors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: themeColors.background,
   },
   scrollView: {
     flex: 1,
@@ -886,30 +1320,53 @@ const createStyles = () => StyleSheet.create({
   },
   sectionCard: {
     marginBottom: spacing.lg,
+    borderRadius: borderRadius.xl,
+    overflow: 'hidden',
   },
   lastCard: {
     marginBottom: spacing.xxxl,
   },
   sectionHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    marginHorizontal: -spacing.lg,
+    marginTop: -spacing.lg,
     marginBottom: spacing.md,
+    borderTopLeftRadius: borderRadius.xl,
+    borderTopRightRadius: borderRadius.xl,
+    borderBottomWidth: 1,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sectionIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+  },
+  sectionBody: {
+    paddingTop: spacing.xs,
   },
   sectionTitle: {
     ...typography.h3,
+    color: themeColors.text,
   },
-  createButton: {
+  sectionAction: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.md,
     borderRadius: borderRadius.full,
-    backgroundColor: colors.primaryLight,
   },
-  createButtonText: {
+  sectionActionText: {
     ...typography.bodySmall,
-    color: colors.primary,
     fontWeight: '600',
     marginLeft: spacing.xs,
   },
@@ -919,15 +1376,15 @@ const createStyles = () => StyleSheet.create({
   },
   emptyText: {
     ...typography.bodySmall,
-    color: colors.textLight,
+    color: themeColors.textLight,
     textAlign: 'center',
     paddingVertical: spacing.md,
   },
   routineSection: {
-    marginBottom: spacing.lg,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
+    marginBottom: spacing.md,
+    padding: spacing.md,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
   },
   routineHeader: {
     flexDirection: 'row',
@@ -935,46 +1392,69 @@ const createStyles = () => StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.sm,
   },
+  routineTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  routineBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    marginRight: spacing.sm,
+  },
   routineName: {
     ...typography.label,
-    color: colors.primary,
+    color: themeColors.text,
   },
   routineMeta: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
   },
   routineActions: {
     flexDirection: 'row',
   },
   routineActionButton: {
-    padding: spacing.xs,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginLeft: spacing.sm,
+    borderWidth: 1,
   },
   routineTaskItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.sm,
-    paddingLeft: spacing.sm,
-    paddingRight: spacing.sm,
+    paddingHorizontal: spacing.sm,
     borderWidth: 1,
-    borderColor: colors.divider,
     borderRadius: borderRadius.md,
     marginBottom: spacing.sm,
-    backgroundColor: colors.card,
   },
   taskOrderControls: {
     marginRight: spacing.sm,
+    alignItems: 'center',
   },
   orderButton: {
-    padding: 2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    marginVertical: 2,
   },
   routineTaskText: {
     flex: 1,
     ...typography.body,
+    color: themeColors.text,
   },
   noTasksText: {
     ...typography.bodySmall,
-    color: colors.textLight,
+    color: themeColors.textLight,
     fontStyle: 'italic',
     paddingLeft: spacing.xl,
   },
@@ -982,8 +1462,10 @@ const createStyles = () => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.sm,
   },
   choreGroup: {
     marginTop: spacing.sm,
@@ -991,7 +1473,7 @@ const createStyles = () => StyleSheet.create({
   },
   choreGroupLabel: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
     marginBottom: spacing.xs,
   },
   checkbox: {
@@ -999,35 +1481,44 @@ const createStyles = () => StyleSheet.create({
     height: 22,
     borderRadius: 6,
     borderWidth: 2,
-    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: spacing.md,
   },
   checkboxChecked: {
-    backgroundColor: colors.success,
-    borderColor: colors.success,
+    backgroundColor: themeColors.success,
+    borderColor: themeColors.success,
   },
   choreContent: {
     flex: 1,
   },
   choreTitle: {
     ...typography.body,
+    color: themeColors.text,
   },
   choreTitleCompleted: {
     textDecorationLine: 'line-through',
-    color: colors.textLight,
+    color: themeColors.textLight,
   },
   choreDate: {
     ...typography.caption,
-    color: colors.textLight,
+    color: themeColors.textLight,
   },
   reminderItem: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.sm,
+  },
+  reminderIconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   reminderContent: {
     flex: 1,
@@ -1036,67 +1527,76 @@ const createStyles = () => StyleSheet.create({
   reminderTitle: {
     ...typography.body,
     fontWeight: '500',
+    color: themeColors.text,
   },
   reminderDescription: {
     ...typography.bodySmall,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
     marginTop: 2,
   },
   reminderDate: {
     ...typography.caption,
-    color: colors.textLight,
+    color: themeColors.textLight,
     marginTop: spacing.xs,
   },
   groceryInputContainer: {
     flexDirection: 'row',
     marginBottom: spacing.md,
+    alignItems: 'center',
   },
   groceryInput: {
     flex: 1,
     height: 44,
-    backgroundColor: colors.inputBackground,
+    backgroundColor: themeColors.inputBackground,
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
     fontSize: 16,
-    color: colors.text,
+    color: themeColors.text,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: themeColors.border,
   },
   groceryAddButton: {
     width: 44,
     height: 44,
     marginLeft: spacing.sm,
     borderRadius: borderRadius.md,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: themeColors.primaryLight,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: themeColors.border,
   },
   groceryItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.sm,
   },
   groceryCheckbox: {
     width: 20,
     height: 20,
     borderRadius: 4,
     borderWidth: 2,
-    borderColor: colors.border,
+    borderColor: themeColors.border,
     marginRight: spacing.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
   groceryCheckboxChecked: {
-    backgroundColor: colors.success,
-    borderColor: colors.success,
+    backgroundColor: themeColors.success,
+    borderColor: themeColors.success,
   },
   groceryText: {
     flex: 1,
     ...typography.body,
+    color: themeColors.text,
   },
   groceryTextCompleted: {
     textDecorationLine: 'line-through',
-    color: colors.textLight,
+    color: themeColors.textLight,
   },
   completedHeader: {
     flexDirection: 'row',
@@ -1105,15 +1605,15 @@ const createStyles = () => StyleSheet.create({
     marginTop: spacing.md,
     paddingTop: spacing.md,
     borderTopWidth: 1,
-    borderTopColor: colors.divider,
+    borderTopColor: themeColors.divider,
   },
   completedLabel: {
     ...typography.caption,
-    color: colors.textLight,
+    color: themeColors.textLight,
   },
   clearText: {
     ...typography.bodySmall,
-    color: colors.danger,
+    color: themeColors.danger,
   },
   modalButtons: {
     flexDirection: 'row',
@@ -1126,6 +1626,7 @@ const createStyles = () => StyleSheet.create({
   },
   inputLabel: {
     ...typography.label,
+    color: themeColors.text,
     marginBottom: spacing.sm,
   },
   chipGroup: {
@@ -1139,15 +1640,16 @@ const createStyles = () => StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderRadius: borderRadius.md,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.inputBackground,
+    borderColor: themeColors.border,
+    backgroundColor: themeColors.inputBackground,
     marginBottom: spacing.lg,
   },
   dateButtonText: {
     ...typography.body,
+    color: themeColors.text,
   },
   placeholderText: {
-    color: colors.placeholder,
+    color: themeColors.placeholder,
   },
   dateTimeRow: {
     flexDirection: 'row',
