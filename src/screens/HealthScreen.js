@@ -1,5 +1,6 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Animated } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Camera, CameraView, useCameraPermissions } from 'expo-camera';
@@ -28,6 +29,81 @@ const MOOD_OPTIONS = [
   { label: 'Very Happy', emoji: '😄' },
   { label: 'Extremely Happy', emoji: '😁' },
   { label: 'Overjoyed', emoji: '🤩' },
+];
+
+const MOOD_THEMES = [
+  {
+    accent: '#5B66E8',
+    background: '#A9B3FF',
+    gradient: ['#7C85FF', '#5B66E8'],
+    backgroundGradient: ['#A9B3FF', '#E3E6FF'],
+  },
+  {
+    accent: '#6B74F0',
+    background: '#B3B9FF',
+    gradient: ['#8B93FF', '#6B74F0'],
+    backgroundGradient: ['#B3B9FF', '#E5E7FF'],
+  },
+  {
+    accent: '#7A71F0',
+    background: '#BFB4FF',
+    gradient: ['#9A8CFF', '#7A71F0'],
+    backgroundGradient: ['#BFB4FF', '#EDE7FF'],
+  },
+  {
+    accent: '#8A70F0',
+    background: '#C9B4FF',
+    gradient: ['#A98DFF', '#8A70F0'],
+    backgroundGradient: ['#C9B4FF', '#EEE6FF'],
+  },
+  {
+    accent: '#6F7FEF',
+    background: '#AEC2FF',
+    gradient: ['#88A0FF', '#6F7FEF'],
+    backgroundGradient: ['#AEC2FF', '#E4ECFF'],
+  },
+  {
+    accent: '#7C8DEB',
+    background: '#B6C3FF',
+    gradient: ['#9FB1FF', '#7C8DEB'],
+    backgroundGradient: ['#B6C3FF', '#E6ECFF'],
+  },
+  {
+    accent: '#8E96A8',
+    background: '#C9CFDA',
+    gradient: ['#B5BCCB', '#8E96A8'],
+    backgroundGradient: ['#C9CFDA', '#ECEFF5'],
+  },
+  {
+    accent: '#52C6A8',
+    background: '#AEEFD4',
+    gradient: ['#7DE6C8', '#52C6A8'],
+    backgroundGradient: ['#AEEFD4', '#E5FFF4'],
+  },
+  {
+    accent: '#38C985',
+    background: '#A5F0CB',
+    gradient: ['#63E3A4', '#38C985'],
+    backgroundGradient: ['#A5F0CB', '#E1FFF1'],
+  },
+  {
+    accent: '#FFB24A',
+    background: '#FFD19B',
+    gradient: ['#FFC76F', '#FFB24A'],
+    backgroundGradient: ['#FFD19B', '#FFEFDA'],
+  },
+  {
+    accent: '#FF8A3D',
+    background: '#FFC2A0',
+    gradient: ['#FFA358', '#FF8A3D'],
+    backgroundGradient: ['#FFC2A0', '#FFE5D7'],
+  },
+  {
+    accent: '#FF4FA0',
+    background: '#FFADD6',
+    gradient: ['#FF6BC0', '#FF4FA0'],
+    backgroundGradient: ['#FFADD6', '#FFE1F0'],
+  },
 ];
 
 // Basic offline mapping so scans can populate fields without a network call.
@@ -72,6 +148,11 @@ const HealthScreen = () => {
   const [scannerMessage, setScannerMessage] = useState('');
   const [showMoodModal, setShowMoodModal] = useState(false);
   const [selectedMoodIndex, setSelectedMoodIndex] = useState(null);
+  const heroScale = useRef(new Animated.Value(1)).current;
+  const moodButtonScalesRef = useRef(
+    MOOD_OPTIONS.map(() => new Animated.Value(1))
+  );
+  const lastMoodIndexRef = useRef(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [waterInput, setWaterInput] = useState('');
   const [sleepForm, setSleepForm] = useState({
@@ -103,7 +184,14 @@ const HealthScreen = () => {
     setSleepForm((prev) => ({ ...prev, sleepQuality: quality }));
   };
 
-  const moodOptions = MOOD_OPTIONS;
+  const moodOptions = MOOD_OPTIONS.map((option, idx) => ({
+    ...option,
+    ...(MOOD_THEMES[idx] || {
+      accent: colors.primary,
+      background: colors.primaryLight,
+      gradient: [colors.primaryLight, colors.primary],
+    }),
+  }));
 
   const [showSleepTimePicker, setShowSleepTimePicker] = useState(false);
   const [sleepTimeTarget, setSleepTimeTarget] = useState(null);
@@ -368,9 +456,73 @@ const HealthScreen = () => {
     return 6;
   };
 
+  const activeMoodIndex = selectedMoodIndex ?? currentMoodIndex();
+  const activeMood =
+    moodOptions[activeMoodIndex] || moodOptions[6] || moodOptions[0];
+  const moodAccent = activeMood.accent;
+  const moodGradient = activeMood.gradient;
+  const moodBackgroundGradient =
+    activeMood.backgroundGradient || [activeMood.background, '#FFFFFF'];
+  const moodBackground = moodBackgroundGradient[0];
+
+  useEffect(() => {
+    heroScale.setValue(1);
+    Animated.sequence([
+      Animated.timing(heroScale, {
+        toValue: 1.06,
+        duration: 160,
+        useNativeDriver: true,
+      }),
+      Animated.spring(heroScale, {
+        toValue: 1,
+        friction: 4,
+        tension: 140,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [activeMoodIndex, heroScale]);
+
   const openMoodPicker = () => {
-    setSelectedMoodIndex(currentMoodIndex());
+    const initialIndex = currentMoodIndex();
+    setSelectedMoodIndex(initialIndex);
+    lastMoodIndexRef.current = initialIndex;
     setShowMoodModal(true);
+  };
+
+  const handleMoodSelect = (idx) => {
+    setSelectedMoodIndex(idx);
+    const scale = moodButtonScalesRef.current[idx];
+    if (scale) {
+      scale.setValue(1);
+      Animated.sequence([
+        Animated.timing(scale, {
+          toValue: 1.08,
+          duration: 120,
+          useNativeDriver: true,
+        }),
+        Animated.spring(scale, {
+          toValue: 1,
+          friction: 4,
+          tension: 160,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+    if (
+      lastMoodIndexRef.current !== null &&
+      lastMoodIndexRef.current !== idx
+    ) {
+      const previousScale =
+        moodButtonScalesRef.current[lastMoodIndexRef.current];
+      if (previousScale) {
+        Animated.timing(previousScale, {
+          toValue: 1,
+          duration: 120,
+          useNativeDriver: true,
+        }).start();
+      }
+    }
+    lastMoodIndexRef.current = idx;
   };
 
   useEffect(() => {
@@ -855,36 +1007,79 @@ const HealthScreen = () => {
       <Modal
         visible={showMoodModal}
         onClose={() => setShowMoodModal(false)}
-        title="Select Your Mood"
+        title="How are you feeling?"
         fullScreen
+        containerStyle={{ backgroundColor: moodBackground }}
       >
         <View style={styles.moodModalContent} pointerEvents="box-none">
-          <Text style={styles.moodPreviewEmoji}>
-            {moodOptions[selectedMoodIndex ?? currentMoodIndex()].emoji}
-          </Text>
-          <Text style={styles.moodPreviewLabel}>
-            {moodOptions[selectedMoodIndex ?? currentMoodIndex()].label}
-          </Text>
+          <LinearGradient
+            colors={moodBackgroundGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.moodBackground}
+            pointerEvents="none"
+          />
+          <View style={styles.moodHero}>
+            <Animated.View
+              style={[
+                styles.moodPreviewHalo,
+                { transform: [{ scale: heroScale }] },
+              ]}
+            >
+              <LinearGradient
+                colors={moodGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.moodPreviewHaloGradient}
+              >
+                <Text style={styles.moodPreviewEmoji}>{activeMood.emoji}</Text>
+              </LinearGradient>
+            </Animated.View>
+            <Text style={[styles.moodPreviewLabel, { color: moodAccent }]}>
+              {activeMood.label}
+            </Text>
+          </View>
 
           <View style={styles.moodGrid}>
             {moodOptions.map((option, idx) => {
-              const isActive = (selectedMoodIndex ?? currentMoodIndex()) === idx;
+              const isActive = activeMoodIndex === idx;
               return (
                 <TouchableOpacity
                   key={option.label}
-                  style={[styles.moodEmojiButton, isActive && styles.moodEmojiButtonActive]}
-                  onPress={() => setSelectedMoodIndex(idx)}
-                  activeOpacity={0.8}
+                  style={[
+                    styles.moodEmojiButton,
+                    isActive && styles.moodEmojiButtonActive,
+                    isActive && { borderColor: option.accent, shadowColor: option.accent },
+                  ]}
+                  onPress={() => handleMoodSelect(idx)}
+                  activeOpacity={0.85}
                 >
-                  <Text style={styles.moodEmoji}>{option.emoji}</Text>
-                  <Text
+                  <Animated.View
                     style={[
-                      styles.moodEmojiLabel,
-                      isActive && styles.moodEmojiLabelActive,
+                      styles.moodEmojiButtonFill,
+                      {
+                        transform: [
+                          { scale: moodButtonScalesRef.current[idx] || 1 },
+                        ],
+                      },
                     ]}
                   >
-                    {option.label}
-                  </Text>
+                    <LinearGradient
+                      colors={isActive ? option.gradient : [colors.card, colors.card]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.moodEmojiButtonGradient}
+                    >
+                      <Text
+                        style={[
+                          styles.moodEmoji,
+                          isActive && styles.moodEmojiActive,
+                        ]}
+                      >
+                        {option.emoji}
+                      </Text>
+                    </LinearGradient>
+                  </Animated.View>
                 </TouchableOpacity>
               );
             })}
@@ -1243,47 +1438,83 @@ const createStyles = () => StyleSheet.create({
   },
   moodModalContent: {
     alignItems: 'center',
-    paddingVertical: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xl,
+    flex: 1,
+    position: 'relative',
+    marginHorizontal: -spacing.xl,
+    paddingHorizontal: spacing.xl,
+  },
+  moodBackground: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  moodHero: {
+    alignItems: 'center',
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+  },
+  moodPreviewHalo: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    ...shadows.large,
+  },
+  moodPreviewHaloGradient: {
+    flex: 1,
+    borderRadius: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   moodPreviewEmoji: {
-    fontSize: 64,
+    fontSize: 52,
   },
   moodPreviewLabel: {
     ...typography.h3,
-    marginTop: spacing.sm,
-    marginBottom: spacing.lg,
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
     textAlign: 'center',
+    letterSpacing: 0.3,
   },
   moodGrid: {
     width: '100%',
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    marginVertical: spacing.md,
+    marginTop: spacing.md,
+    marginBottom: spacing.lg,
   },
   moodEmojiButton: {
     width: '22%',
     aspectRatio: 1,
-    borderRadius: borderRadius.full,
+    borderRadius: borderRadius.lg,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.inputBackground,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderColor: 'rgba(0, 0, 0, 0.08)',
+    backgroundColor: 'transparent',
+    overflow: 'hidden',
     marginBottom: spacing.md,
   },
   moodEmojiButtonActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primaryLight,
+    borderWidth: 2,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  moodEmojiButtonFill: {
+    flex: 1,
+    borderRadius: borderRadius.lg,
+  },
+  moodEmojiButtonGradient: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: borderRadius.lg,
   },
   moodEmoji: {
-    fontSize: 36,
+    fontSize: 30,
   },
-  moodEmojiLabel: {
-    display: 'none',
-  },
-  moodEmojiLabelActive: {
-    display: 'none',
+  moodEmojiActive: {
+    fontSize: 32,
   },
   modalButtons: {
     flexDirection: 'row',

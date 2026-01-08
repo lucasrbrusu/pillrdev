@@ -26,6 +26,7 @@ const Modal = ({
   showCloseButton = true,
   fullScreen = false,
   swipeToCloseEnabled = true,
+  containerStyle,
 }) => {
   const { themeColors } = useApp();
   const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
@@ -81,6 +82,7 @@ const Modal = ({
               paddingBottom: bottomInset,
               backgroundColor: themeColors.background,
             },
+            containerStyle,
           ]}
           {...(panResponder ? panResponder.panHandlers : {})}
         >
