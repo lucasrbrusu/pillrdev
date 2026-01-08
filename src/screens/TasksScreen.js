@@ -7,6 +7,7 @@ import {
   Alert,
   TextInput,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -62,10 +63,59 @@ const TasksScreen = () => {
     setNotePassword,
     todayHealth,
     updateTodayHealth,
+    themeName,
     themeColors,
     ensureTasksLoaded,
     ensureNotesLoaded,
   } = useApp();
+  const isDark = themeName === 'dark';
+  const tasksTheme = useMemo(
+    () => ({
+      background: isDark ? themeColors.background : '#FBF5FF',
+      actionGradient: ['#A855F7', '#EC4899'],
+      actionText: '#FFFFFF',
+      actionSecondaryBg: isDark ? '#2F3147' : '#FFFFFF',
+      actionSecondaryBorder: isDark ? '#3E415A' : '#E9E1F5',
+      actionSecondaryText: isDark ? '#F0E9FF' : '#1F2937',
+      calendarBg: isDark ? '#2F3147' : '#FFFFFF',
+      calendarBorder: isDark ? '#3E415A' : '#E5E7EB',
+      calendarIcon: isDark ? '#E5E7EB' : themeColors.textSecondary,
+      tabsBorder: isDark ? '#4B4760' : '#E7E1F5',
+      tabActive: isDark ? '#C084FC' : themeColors.primary,
+      tabText: isDark ? '#C9C4D8' : themeColors.textSecondary,
+      tabTextActive: isDark ? '#E9D5FF' : themeColors.primary,
+      filterIconBg: isDark ? '#2F2B3F' : '#FFFFFF',
+      filterIconBorder: isDark ? '#3F3A53' : '#E5E7EB',
+      filterIconColor: isDark ? '#C9C4D8' : themeColors.textSecondary,
+      filterChipBg: isDark ? '#2F2B3F' : '#FFFFFF',
+      filterChipBorder: isDark ? '#3F3A53' : '#E5E7EB',
+      filterChipActiveBg: isDark ? '#5B3B76' : '#F0E7FF',
+      filterChipActiveBorder: isDark ? '#7A56A0' : '#D9C7FF',
+      filterChipText: isDark ? '#C9C4D8' : themeColors.textSecondary,
+      filterChipTextActive: isDark ? '#F1E8FF' : themeColors.primary,
+      tasksCardBg: isDark ? '#3E4158' : '#FFFFFF',
+      tasksCardBorder: isDark ? '#4B4E67' : '#EFE4FF',
+      tasksTitle: isDark ? '#D8B4FE' : themeColors.primary,
+      taskItemBg: isDark ? '#4B3E5E' : '#F8F1FF',
+      taskItemBorder: isDark ? 'rgba(192,132,252,0.4)' : '#E7D7FF',
+      checkboxBg: isDark ? '#3B3452' : '#FFFFFF',
+      taskDate: isDark ? '#C9C4D8' : themeColors.textSecondary,
+      notesCardBg: isDark ? '#34445E' : '#FFFFFF',
+      notesCardBorder: isDark ? '#435678' : '#DCEBFF',
+      notesTitle: isDark ? '#7DD3FC' : themeColors.tasks,
+      noteItemBg: isDark ? '#2C3E54' : '#F2F8FF',
+      noteItemBorder: isDark ? 'rgba(96,165,250,0.35)' : '#D8E7FF',
+      noteIconBg: '#0EA5E9',
+      noteIconColor: '#FFFFFF',
+      noteLockBg: isDark ? '#3C2E57' : '#EFE7FF',
+      noteLockColor: isDark ? '#D8B4FE' : themeColors.primary,
+      noteChevron: isDark ? '#AFAAC2' : themeColors.textLight,
+      addNewBg: isDark ? '#2C3E54' : '#EEF4FF',
+      addNewBorder: isDark ? '#3B4F6C' : '#DDEBFF',
+      addNewText: isDark ? '#7DD3FC' : themeColors.tasks,
+    }),
+    [isDark, themeColors]
+  );
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
 
   const [activeTab, setActiveTab] = useState('All Tasks');
@@ -441,14 +491,23 @@ const TasksScreen = () => {
   const getPriorityColor = (priority) => {
     switch (priority) {
       case 'high':
-        return colors.danger;
+        return themeColors.danger;
       case 'medium':
-        return colors.warning;
+        return themeColors.warning;
       case 'low':
-        return colors.textLight;
+        return themeColors.textLight;
       default:
-        return colors.textLight;
+        return themeColors.textLight;
     }
+  };
+
+  const getPriorityBadgeStyles = (priority) => {
+    const color = getPriorityColor(priority);
+    const isLow = priority === 'low';
+    return {
+      backgroundColor: isLow ? (isDark ? '#3B3F52' : '#EEF1F5') : color,
+      textColor: isLow ? themeColors.textSecondary : '#FFFFFF',
+    };
   };
 
   const formatDate = (dateString) => {
@@ -496,7 +555,7 @@ const TasksScreen = () => {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: themeColors.background }]}>
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: tasksTheme.background }]}>
       <PlatformScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -507,39 +566,85 @@ const TasksScreen = () => {
       >
         {/* Action Buttons */}
         <View style={styles.actionRow}>
-          <Button
-            title="Add Task"
-            icon="add"
-            onPress={() => setShowTaskModal(true)}
-            style={styles.addTaskButton}
-          />
-          <Button
-            title="Create Note"
-            variant="secondary"
-            icon="document-text-outline"
-            onPress={() => setShowNoteModal(true)}
-            style={styles.addNoteButton}
-          />
           <TouchableOpacity
-            style={styles.calendarButton}
-            onPress={() => navigation.navigate('Calendar')}
+            style={styles.actionPrimary}
+            onPress={() => setShowTaskModal(true)}
+            activeOpacity={0.85}
           >
-            <Ionicons name="calendar-outline" size={20} color={colors.textSecondary} />
+            <LinearGradient
+              colors={tasksTheme.actionGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.actionPrimaryGradient}
+            >
+              <Ionicons name="add" size={18} color={tasksTheme.actionText} />
+              <Text style={[styles.actionPrimaryText, { color: tasksTheme.actionText }]}>
+                Add Task
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.actionSecondary,
+              {
+                backgroundColor: tasksTheme.actionSecondaryBg,
+                borderColor: tasksTheme.actionSecondaryBorder,
+              },
+            ]}
+            onPress={() => setShowNoteModal(true)}
+            activeOpacity={0.85}
+          >
+            <Ionicons
+              name="document-text-outline"
+              size={18}
+              color={tasksTheme.actionSecondaryText}
+            />
+            <Text
+              style={[
+                styles.actionSecondaryText,
+                { color: tasksTheme.actionSecondaryText },
+              ]}
+            >
+              Create Note
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.calendarButton,
+              {
+                backgroundColor: tasksTheme.calendarBg,
+                borderColor: tasksTheme.calendarBorder,
+              },
+            ]}
+            onPress={() => navigation.navigate('Calendar')}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="calendar-outline" size={20} color={tasksTheme.calendarIcon} />
           </TouchableOpacity>
         </View>
 
         {/* Tabs */}
-        <View style={styles.tabsRow}>
+        <View style={[styles.tabsRow, { borderBottomColor: tasksTheme.tabsBorder }]}>
           {tabs.map((tab) => (
             <TouchableOpacity
               key={tab}
-              style={[styles.tab, activeTab === tab && styles.tabActive]}
+              style={[
+                styles.tab,
+                activeTab === tab && [
+                  styles.tabActive,
+                  { borderBottomColor: tasksTheme.tabActive },
+                ],
+              ]}
               onPress={() => setActiveTab(tab)}
             >
               <Text
                 style={[
                   styles.tabText,
-                  activeTab === tab && styles.tabTextActive,
+                  { color: tasksTheme.tabText },
+                  activeTab === tab && [
+                    styles.tabTextActive,
+                    { color: tasksTheme.tabTextActive },
+                  ],
                 ]}
               >
                 {tab}
@@ -550,20 +655,44 @@ const TasksScreen = () => {
 
         {/* Filters */}
         <View style={styles.filterRow}>
-          <Ionicons name="filter-outline" size={18} color={colors.textLight} />
+          <View
+            style={[
+              styles.filterIcon,
+              {
+                backgroundColor: tasksTheme.filterIconBg,
+                borderColor: tasksTheme.filterIconBorder,
+              },
+            ]}
+          >
+            <Ionicons name="filter-outline" size={18} color={tasksTheme.filterIconColor} />
+          </View>
           {filters.map((filter) => (
             <TouchableOpacity
               key={filter}
               style={[
                 styles.filterChip,
-                filterType === filter && styles.filterChipActive,
+                {
+                  backgroundColor: tasksTheme.filterChipBg,
+                  borderColor: tasksTheme.filterChipBorder,
+                },
+                filterType === filter && [
+                  styles.filterChipActive,
+                  {
+                    backgroundColor: tasksTheme.filterChipActiveBg,
+                    borderColor: tasksTheme.filterChipActiveBorder,
+                  },
+                ],
               ]}
               onPress={() => setFilterType(filter)}
             >
               <Text
                 style={[
                   styles.filterText,
-                  filterType === filter && styles.filterTextActive,
+                  { color: tasksTheme.filterChipText },
+                  filterType === filter && [
+                    styles.filterTextActive,
+                    { color: tasksTheme.filterChipTextActive },
+                  ],
                 ]}
               >
                 {filter}
@@ -573,14 +702,23 @@ const TasksScreen = () => {
         </View>
 
         {/* Tasks List */}
-        <Card style={styles.tasksCard}>
-          <Text style={styles.sectionTitle}>Tasks</Text>
+        <Card
+          style={[
+            styles.sectionCard,
+            styles.tasksCard,
+            {
+              backgroundColor: tasksTheme.tasksCardBg,
+              borderColor: tasksTheme.tasksCardBorder,
+            },
+          ]}
+        >
+          <Text style={[styles.sectionTitle, { color: tasksTheme.tasksTitle }]}>Tasks</Text>
           {filteredTasks.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons
                 name="calendar-outline"
                 size={48}
-                color={colors.primaryLight}
+                color={tasksTheme.tasksTitle}
               />
               <Text style={styles.emptyTitle}>No tasks yet</Text>
               <Text style={styles.emptySubtitle}>
@@ -591,13 +729,23 @@ const TasksScreen = () => {
             filteredTasks.map((task) => (
               <TouchableOpacity
                 key={task.id}
-                style={styles.taskItem}
+                style={[
+                  styles.taskItem,
+                  {
+                    backgroundColor: tasksTheme.taskItemBg,
+                    borderColor: tasksTheme.taskItemBorder,
+                  },
+                ]}
                 onPress={() => handleTaskPress(task)}
                 activeOpacity={0.7}
               >
                 <TouchableOpacity
                   style={[
                     styles.checkbox,
+                    {
+                      borderColor: tasksTheme.taskItemBorder,
+                      backgroundColor: tasksTheme.checkboxBg,
+                    },
                     task.completed && styles.checkboxChecked,
                   ]}
                   onPress={() => toggleTaskCompletion(task.id)}
@@ -617,22 +765,29 @@ const TasksScreen = () => {
                     {task.title}
                   </Text>
                   <View style={styles.taskMeta}>
-                    <View
-                      style={[
-                        styles.priorityBadge,
-                        { backgroundColor: `${getPriorityColor(task.priority)}20` },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.priorityText,
-                          { color: getPriorityColor(task.priority) },
-                        ]}
-                      >
-                        {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
-                      </Text>
-                    </View>
-                    <Text style={styles.taskDate}>{formatDate(task.date)}</Text>
+                    {(() => {
+                      const badge = getPriorityBadgeStyles(task.priority);
+                      return (
+                        <View
+                          style={[
+                            styles.priorityBadge,
+                            { backgroundColor: badge.backgroundColor },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.priorityText,
+                              { color: badge.textColor },
+                            ]}
+                          >
+                            {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
+                          </Text>
+                        </View>
+                      );
+                    })()}
+                    <Text style={[styles.taskDate, { color: tasksTheme.taskDate }]}>
+                      {formatDate(task.date)}
+                    </Text>
                   </View>
                 </View>
               </TouchableOpacity>
@@ -641,21 +796,36 @@ const TasksScreen = () => {
         </Card>
 
         {/* Notes Section */}
-        <Card style={styles.notesCard}>
+        <Card
+          style={[
+            styles.sectionCard,
+            styles.notesCard,
+            {
+              backgroundColor: tasksTheme.notesCardBg,
+              borderColor: tasksTheme.notesCardBorder,
+            },
+          ]}
+        >
           <View style={styles.notesHeader}>
-            <Text style={styles.sectionTitle}>Notes</Text>
+            <Text style={[styles.sectionTitle, { color: tasksTheme.notesTitle }]}>Notes</Text>
             <TouchableOpacity
-              style={styles.addNewButton}
+              style={[
+                styles.addNewButton,
+                {
+                  backgroundColor: tasksTheme.addNewBg,
+                  borderColor: tasksTheme.addNewBorder,
+                },
+              ]}
             onPress={() => setShowNoteModal(true)}
             activeOpacity={0.8}
           >
-            <Text style={styles.addNewText}>Add new</Text>
+            <Text style={[styles.addNewText, { color: tasksTheme.addNewText }]}>Add new</Text>
           </TouchableOpacity>
         </View>
 
           {notes.length === 0 ? (
             <View style={styles.emptyState}>
-              <Ionicons name="document-text-outline" size={48} color={colors.primaryLight} />
+              <Ionicons name="document-text-outline" size={48} color={tasksTheme.notesTitle} />
               <Text style={styles.emptyTitle}>No notes yet</Text>
               <Text style={styles.emptySubtitle}>Create a note to get started</Text>
               <Button
@@ -670,37 +840,55 @@ const TasksScreen = () => {
             notes.map((note) => (
               <View key={note.id} style={styles.noteRow}>
                 <TouchableOpacity
-                  style={styles.noteItem}
+                  style={[
+                    styles.noteItem,
+                    {
+                      backgroundColor: tasksTheme.noteItemBg,
+                      borderColor: tasksTheme.noteItemBorder,
+                    },
+                  ]}
                   onPress={() => handleNotePress(note)}
                   activeOpacity={0.7}
                 >
-                  <Feather name="file-text" size={18} color={colors.tasks} />
+                  <View
+                    style={[
+                      styles.noteIcon,
+                      { backgroundColor: tasksTheme.noteIconBg },
+                    ]}
+                  >
+                    <Feather name="file-text" size={18} color={tasksTheme.noteIconColor} />
+                  </View>
                   <View style={styles.noteInfo}>
                     <Text style={styles.noteTitle} numberOfLines={1}>
                       {note.title}
                     </Text>
                     {note.password && (
                       <View style={styles.lockBadge}>
-                        <Ionicons name="lock-closed" size={12} color={colors.primary} />
-                        <Text style={styles.lockBadgeText}>Locked</Text>
+                        <Ionicons name="lock-closed" size={12} color={tasksTheme.noteLockColor} />
+                        <Text style={[styles.lockBadgeText, { color: tasksTheme.noteLockColor }]}>
+                          Locked
+                        </Text>
                       </View>
                     )}
                   </View>
                   <Ionicons
                     name="chevron-forward"
                     size={18}
-                    color={colors.textLight}
+                    color={tasksTheme.noteChevron}
                   />
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={styles.lockButton}
+                  style={[
+                    styles.lockButton,
+                    { backgroundColor: tasksTheme.noteLockBg, borderColor: tasksTheme.noteItemBorder },
+                  ]}
                   onPress={() => handleManageSecurity(note)}
                   activeOpacity={0.8}
                 >
                   <Ionicons
                     name={note.password ? 'lock-closed' : 'lock-open'}
                     size={18}
-                    color={note.password ? colors.primary : colors.textSecondary}
+                    color={note.password ? tasksTheme.noteLockColor : themeColors.textSecondary}
                   />
                 </TouchableOpacity>
               </View>
@@ -727,7 +915,7 @@ const TasksScreen = () => {
 
             {friends.length === 0 ? (
               <View style={styles.peopleEmpty}>
-                <Ionicons name="people-outline" size={22} color={colors.textSecondary} />
+                <Ionicons name="people-outline" size={22} color={themeColors.textSecondary} />
                 <Text style={styles.peopleEmptyText}>No friends yet.</Text>
               </View>
             ) : (
@@ -846,7 +1034,7 @@ const TasksScreen = () => {
                   <Ionicons
                     name="calendar-outline"
                     size={18}
-                    color={colors.textLight}
+                    color={themeColors.textLight}
                   />
                 </TouchableOpacity>
               </View>
@@ -865,7 +1053,7 @@ const TasksScreen = () => {
                   >
                     {taskTime || 'Select time'}
                   </Text>
-                  <Ionicons name="time-outline" size={18} color={colors.textLight} />
+                  <Ionicons name="time-outline" size={18} color={themeColors.textLight} />
                 </TouchableOpacity>
               </View>
             </View>
@@ -875,7 +1063,7 @@ const TasksScreen = () => {
               value={taskDate}
               onChange={handleSelectDate}
               onClose={() => setShowDatePicker(false)}
-              accentColor={colors.tasks}
+              accentColor={themeColors.tasks}
             />
 
             <PlatformTimePicker
@@ -895,7 +1083,7 @@ const TasksScreen = () => {
                 setTimePickerTarget(null);
               }}
               options={timeOptions}
-              accentColor={colors.tasks}
+              accentColor={themeColors.tasks}
             />
 
             <View style={styles.modalButtons}>
@@ -984,25 +1172,28 @@ const TasksScreen = () => {
         {selectedTask && (
           <>
             <Text style={styles.detailTitle}>{selectedTask.title}</Text>
-            <View
-              style={[
-                styles.priorityBadgeLarge,
-                {
-                  backgroundColor: `${getPriorityColor(selectedTask.priority)}20`,
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.priorityTextLarge,
-                  { color: getPriorityColor(selectedTask.priority) },
-                ]}
-              >
+            {(() => {
+              const badge = getPriorityBadgeStyles(selectedTask.priority);
+              return (
+                <View
+                  style={[
+                    styles.priorityBadgeLarge,
+                    { backgroundColor: badge.backgroundColor },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.priorityTextLarge,
+                      { color: badge.textColor },
+                    ]}
+                  >
                 {selectedTask.priority.charAt(0).toUpperCase() +
                   selectedTask.priority.slice(1)}{' '}
                 Priority
-              </Text>
-            </View>
+                  </Text>
+                </View>
+              );
+            })()}
 
             {selectedTask.description && (
               <>
@@ -1031,7 +1222,7 @@ const TasksScreen = () => {
             )}
 
             <View style={styles.scheduleBox}>
-              <Ionicons name="calendar" size={20} color={colors.info} />
+              <Ionicons name="calendar" size={20} color={themeColors.info} />
               <View style={styles.scheduleContent}>
                 <Text style={styles.scheduleLabel}>Scheduled</Text>
                 <Text style={styles.scheduleValue}>
@@ -1105,14 +1296,14 @@ const TasksScreen = () => {
                 value={noteTitleDraft}
                 onChangeText={setNoteTitleDraft}
                 placeholder="Title"
-                placeholderTextColor={colors.textSecondary}
+                placeholderTextColor={themeColors.textSecondary}
                 style={styles.noteEditTitle}
               />
               <TextInput
                 value={noteContentDraft}
                 onChangeText={setNoteContentDraft}
                 placeholder="Start writing..."
-                placeholderTextColor={colors.textSecondary}
+                placeholderTextColor={themeColors.textSecondary}
                 style={styles.noteEditContent}
                 multiline
                 autoFocus
@@ -1257,7 +1448,7 @@ const createStyles = (themeColors) => {
   return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: themeColors.background,
   },
   scrollView: {
     flex: 1,
@@ -1274,34 +1465,58 @@ const createStyles = (themeColors) => {
     marginBottom: spacing.lg,
     flexWrap: 'wrap',
   },
-  addTaskButton: {
+  actionPrimary: {
     flex: 1,
-    paddingHorizontal: spacing.xl,
-    marginBottom: spacing.sm,
+    minWidth: 140,
+    height: 48,
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
     marginRight: spacing.sm,
-  },
-  addNoteButton: {
-    flex: 1,
-    marginLeft: 0,
-    paddingHorizontal: spacing.xl,
-    paddingHorizontal: spacing.xl,
     marginBottom: spacing.sm,
+  },
+  actionPrimaryGradient: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  actionPrimaryText: {
+    ...typography.body,
+    fontWeight: '600',
+    marginLeft: spacing.sm,
+  },
+  actionSecondary: {
+    flex: 1,
+    minWidth: 140,
+    height: 48,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  actionSecondaryText: {
+    ...typography.body,
+    fontWeight: '600',
+    marginLeft: spacing.sm,
   },
   calendarButton: {
     width: 48,
     height: 48,
-    marginLeft: spacing.md,
-    marginTop: spacing.sm,
     borderRadius: borderRadius.md,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
+    marginLeft: spacing.sm,
+    marginBottom: spacing.sm,
   },
   tabsRow: {
     flexDirection: 'row',
     marginBottom: spacing.md,
+    borderBottomWidth: 1,
   },
   tab: {
     marginRight: spacing.lg,
@@ -1309,38 +1524,48 @@ const createStyles = (themeColors) => {
   },
   tabActive: {
     borderBottomWidth: 2,
-    borderBottomColor: colors.primary,
   },
   tabText: {
     ...typography.body,
-    color: colors.textSecondary,
   },
   tabTextActive: {
-    color: colors.primary,
     fontWeight: '600',
   },
   filterRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: spacing.lg,
+    flexWrap: 'wrap',
+  },
+  filterIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   filterChip: {
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.md,
     marginLeft: spacing.sm,
     borderRadius: borderRadius.full,
-    backgroundColor: colors.inputBackground,
+    borderWidth: 1,
   },
   filterChipActive: {
-    backgroundColor: colors.primaryLight,
+    borderWidth: 1,
   },
   filterText: {
     ...typography.bodySmall,
-    color: colors.textSecondary,
   },
   filterTextActive: {
-    color: colors.primary,
     fontWeight: '600',
+  },
+  sectionCard: {
+    marginBottom: spacing.lg,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    overflow: 'hidden',
   },
   tasksCard: {
     marginBottom: spacing.lg,
@@ -1351,7 +1576,7 @@ const createStyles = (themeColors) => {
   },
   linkText: {
     ...typography.bodySmall,
-    color: colors.primary,
+    color: themeColors.primary,
     fontWeight: '600',
   },
   emptyState: {
@@ -1360,34 +1585,35 @@ const createStyles = (themeColors) => {
   },
   emptyTitle: {
     ...typography.h3,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
     marginTop: spacing.lg,
   },
   emptySubtitle: {
     ...typography.bodySmall,
-    color: colors.textLight,
+    color: themeColors.textLight,
     marginTop: spacing.xs,
   },
   taskItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.md,
   },
   checkbox: {
     width: 24,
     height: 24,
     borderRadius: 6,
     borderWidth: 2,
-    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: spacing.md,
   },
   checkboxChecked: {
-    backgroundColor: colors.success,
-    borderColor: colors.success,
+    backgroundColor: themeColors.success,
+    borderColor: themeColors.success,
   },
   taskContent: {
     flex: 1,
@@ -1395,10 +1621,11 @@ const createStyles = (themeColors) => {
   taskTitle: {
     ...typography.body,
     marginBottom: spacing.xs,
+    color: themeColors.text,
   },
   taskTitleCompleted: {
     textDecorationLine: 'line-through',
-    color: colors.textLight,
+    color: themeColors.textLight,
   },
   taskMeta: {
     flexDirection: 'row',
@@ -1407,7 +1634,7 @@ const createStyles = (themeColors) => {
   priorityBadge: {
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
-    borderRadius: borderRadius.sm,
+    borderRadius: borderRadius.full,
     marginRight: spacing.sm,
   },
   priorityText: {
@@ -1416,6 +1643,7 @@ const createStyles = (themeColors) => {
   },
   taskDate: {
     ...typography.caption,
+    color: themeColors.textSecondary,
   },
   notesCard: {
     marginBottom: spacing.xxxl,
@@ -1424,18 +1652,27 @@ const createStyles = (themeColors) => {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderRadius: borderRadius.lg,
     flex: 1,
   },
   noteRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  noteIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   noteTitle: {
     flex: 1,
     ...typography.body,
+    color: themeColors.text,
   },
   noteInfo: {
     flex: 1,
@@ -1448,7 +1685,6 @@ const createStyles = (themeColors) => {
   },
   lockBadgeText: {
     ...typography.caption,
-    color: colors.primary,
     marginLeft: spacing.xs,
   },
   createNoteEmptyButton: {
@@ -1457,8 +1693,11 @@ const createStyles = (themeColors) => {
   lockButton: {
     padding: spacing.sm,
     borderRadius: borderRadius.full,
-    backgroundColor: colors.inputBackground,
+    borderWidth: 1,
+    borderColor: themeColors.border,
     marginLeft: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   noteForm: {
     flex: 1,
@@ -1489,15 +1728,16 @@ const createStyles = (themeColors) => {
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     borderRadius: borderRadius.full,
-    backgroundColor: colors.inputBackground,
+    borderWidth: 1,
+    borderColor: themeColors.border,
   },
   addNewText: {
     ...typography.body,
     fontWeight: '700',
-    color: colors.primary,
   },
   inputLabel: {
     ...typography.label,
+    color: themeColors.text,
     marginBottom: spacing.sm,
   },
   priorityRow: {
@@ -1510,7 +1750,7 @@ const createStyles = (themeColors) => {
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: borderRadius.md,
-    backgroundColor: colors.inputBackground,
+    backgroundColor: themeColors.inputBackground,
     marginHorizontal: spacing.xs,
   },
   priorityOptionActive: {
@@ -1519,10 +1759,10 @@ const createStyles = (themeColors) => {
   priorityOptionText: {
     ...typography.body,
     fontWeight: '500',
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
   },
   priorityOptionTextActive: {
-    color: colors.text,
+    color: themeColors.text,
   },
   notesHeader: {
     flexDirection: 'row',
@@ -1549,14 +1789,15 @@ const createStyles = (themeColors) => {
     paddingHorizontal: spacing.md,
     borderRadius: borderRadius.md,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.inputBackground,
+    borderColor: themeColors.border,
+    backgroundColor: themeColors.inputBackground,
   },
   dateButtonText: {
     ...typography.body,
+    color: themeColors.text,
   },
   placeholderText: {
-    color: colors.placeholder,
+    color: themeColors.placeholder,
   },
   modalButtons: {
     flexDirection: 'row',
@@ -1569,13 +1810,14 @@ const createStyles = (themeColors) => {
   },
   detailTitle: {
     ...typography.h2,
+    color: themeColors.text,
     marginBottom: spacing.sm,
   },
   priorityBadgeLarge: {
     alignSelf: 'flex-start',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
-    borderRadius: borderRadius.sm,
+    borderRadius: borderRadius.full,
     marginBottom: spacing.lg,
   },
   priorityTextLarge: {
@@ -1584,16 +1826,17 @@ const createStyles = (themeColors) => {
   },
   detailLabel: {
     ...typography.caption,
-    color: colors.textLight,
+    color: themeColors.textLight,
     marginBottom: spacing.xs,
   },
   detailDescription: {
     ...typography.body,
+    color: themeColors.text,
     marginBottom: spacing.lg,
   },
   peopleLoadingText: {
     ...typography.body,
-    color: colors.textLight,
+    color: themeColors.textLight,
     marginBottom: spacing.lg,
   },
   peoplePills: {
@@ -1607,12 +1850,13 @@ const createStyles = (themeColors) => {
     paddingHorizontal: spacing.sm,
     borderRadius: borderRadius.full,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.inputBackground,
+    borderColor: themeColors.border,
+    backgroundColor: themeColors.inputBackground,
   },
   peoplePillText: {
     ...typography.bodySmall,
     fontWeight: '600',
+    color: themeColors.text,
   },
   peopleButtonRow: {
     flexDirection: 'row',
@@ -1623,12 +1867,12 @@ const createStyles = (themeColors) => {
   },
   peopleHintText: {
     ...typography.caption,
-    color: colors.textLight,
+    color: themeColors.textLight,
     flex: 1,
   },
   peopleModalHint: {
     ...typography.body,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
     marginBottom: spacing.md,
   },
   peopleEmpty: {
@@ -1638,7 +1882,7 @@ const createStyles = (themeColors) => {
   },
   peopleEmptyText: {
     ...typography.body,
-    color: colors.textLight,
+    color: themeColors.textLight,
     marginTop: spacing.sm,
   },
   peopleCard: {
@@ -1650,7 +1894,7 @@ const createStyles = (themeColors) => {
     justifyContent: 'space-between',
     paddingVertical: spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: themeColors.border,
   },
   peopleRowText: {
     flex: 1,
@@ -1659,15 +1903,16 @@ const createStyles = (themeColors) => {
   peopleName: {
     ...typography.body,
     fontWeight: '700',
+    color: themeColors.text,
   },
   peopleUsername: {
     ...typography.bodySmall,
-    color: colors.textLight,
+    color: themeColors.textLight,
   },
   scheduleBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.inputBackground,
+    backgroundColor: themeColors.inputBackground,
     padding: spacing.md,
     borderRadius: borderRadius.md,
     marginBottom: spacing.lg,
@@ -1677,11 +1922,12 @@ const createStyles = (themeColors) => {
   },
   scheduleLabel: {
     ...typography.caption,
-    color: colors.textLight,
+    color: themeColors.textLight,
   },
   scheduleValue: {
     ...typography.body,
     fontWeight: '500',
+    color: themeColors.text,
   },
   detailButtons: {
     flexDirection: 'row',
@@ -1696,6 +1942,7 @@ const createStyles = (themeColors) => {
   },
   noteContentText: {
     ...typography.body,
+    color: themeColors.text,
     marginVertical: spacing.lg,
     lineHeight: 24,
   },
@@ -1720,7 +1967,7 @@ const createStyles = (themeColors) => {
   },
   noteHeaderButtonText: {
     ...typography.body,
-    color: colors.text,
+    color: themeColors.text,
     fontWeight: '600',
   },
   noteHeaderActions: {
@@ -1731,12 +1978,12 @@ const createStyles = (themeColors) => {
     marginRight: spacing.sm,
   },
   noteDoneButton: {
-    backgroundColor: colors.primary,
+    backgroundColor: themeColors.primary,
     borderRadius: borderRadius.md,
   },
   noteDeleteText: {
     ...typography.body,
-    color: colors.danger,
+    color: themeColors.danger,
     fontWeight: '600',
   },
   noteDoneText: {
@@ -1750,15 +1997,15 @@ const createStyles = (themeColors) => {
   },
   noteEditTitle: {
     ...typography.h2,
-    color: colors.text,
+    color: themeColors.text,
     marginBottom: spacing.md,
   },
   noteEditContent: {
     ...typography.body,
-    color: colors.text,
+    color: themeColors.text,
     flex: 1,
     padding: spacing.md,
-    backgroundColor: colors.inputBackground,
+    backgroundColor: themeColors.inputBackground,
     borderRadius: borderRadius.md,
     minHeight: 260,
     lineHeight: 22,
@@ -1767,7 +2014,7 @@ const createStyles = (themeColors) => {
     marginTop: spacing.md,
   },
   errorText: {
-    color: colors.danger,
+    color: themeColors.danger,
     marginBottom: spacing.sm,
   },
 });
