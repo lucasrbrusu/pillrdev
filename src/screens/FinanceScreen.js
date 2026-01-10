@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { G, Path, Circle } from 'react-native-svg';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -158,11 +159,20 @@ const FinanceScreen = () => {
     isPremium,
     userSettings,
     themeColors,
+    themeName,
     ensureFinancesLoaded,
   } = useApp();
   const palette = themeColors || colors;
+  const isDark =
+    (themeName || '').toLowerCase() === 'dark' || palette.background === '#000000';
+  const balanceGradient = isDark
+    ? ['#6D28D9', '#BE185D']
+    : ['#8B5CF6', '#EC4899'];
   const premiumActive = !!(isPremium || profile?.isPremium);
-  const styles = useMemo(() => createStyles(themeColors), [themeColors]);
+  const styles = useMemo(
+    () => createStyles(themeColors, isDark),
+    [themeColors, isDark]
+  );
 
   useEffect(() => {
     ensureFinancesLoaded();
@@ -424,6 +434,8 @@ const FinanceScreen = () => {
     );
     return found?.icon || 'help-circle';
   };
+  const getCategoryLabel = (categoryId) =>
+    expenseCategories.find((cat) => cat.id === categoryId)?.name || categoryId;
 
   // Simple bar chart data (last 7 days)
   const chartData = useMemo(() => {
@@ -585,38 +597,52 @@ const FinanceScreen = () => {
 
         {/* Balance Card */}
         <Card style={styles.balanceCard} onPress={() => setShowChartModal(true)}>
-          <View style={styles.balanceHeader}>
-            <Text style={styles.balanceLabel}>Total Balance</Text>
-            <Ionicons name="bar-chart-outline" size={20} color={palette.card} />
-          </View>
-          <Text
-            style={[
-              styles.balanceAmount,
-              dailySummary.balance < 0 && styles.balanceNegative,
-            ]}
+          <LinearGradient
+            colors={balanceGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.balanceGradient}
           >
-            {formatCurrency(dailySummary.balance)}
-          </Text>
-          <View style={styles.balanceSummary}>
-            <View style={styles.summaryItem}>
-              <View
-                style={[styles.summaryDot, { backgroundColor: palette.income }]}
-              />
-              <Text style={styles.summaryLabel}>Income</Text>
-              <Text style={styles.summaryValue}>
-                {formatCurrency(dailySummary.income)}
-              </Text>
+            <View style={styles.balanceHeader}>
+              <View style={styles.balanceHeaderLeft}>
+                <View style={styles.balanceBadge}>
+                  <Ionicons name="wallet-outline" size={16} color="#FFFFFF" />
+                </View>
+                <Text style={styles.balanceLabel}>Total Balance</Text>
+              </View>
+              <View style={styles.balanceTrend}>
+                <Ionicons name="stats-chart-outline" size={18} color="#FFFFFF" />
+              </View>
             </View>
-            <View style={styles.summaryItem}>
-              <View
-                style={[styles.summaryDot, { backgroundColor: palette.expense }]}
-              />
-              <Text style={styles.summaryLabel}>Expenses</Text>
-              <Text style={styles.summaryValue}>
-                {formatCurrency(dailySummary.expenses)}
-              </Text>
+            <Text
+              style={[
+                styles.balanceAmount,
+                dailySummary.balance < 0 && styles.balanceNegative,
+              ]}
+            >
+              {formatCurrency(dailySummary.balance)}
+            </Text>
+            <View style={styles.balanceSummary}>
+              <View style={styles.summaryCard}>
+                <View style={styles.summaryRow}>
+                  <Ionicons name="arrow-up-circle" size={16} color="#FFFFFF" />
+                  <Text style={styles.summaryLabel}>Income</Text>
+                </View>
+                <Text style={styles.summaryValue}>
+                  {formatCurrency(dailySummary.income)}
+                </Text>
+              </View>
+              <View style={styles.summaryCard}>
+                <View style={styles.summaryRow}>
+                  <Ionicons name="arrow-down-circle" size={16} color="#FFFFFF" />
+                  <Text style={styles.summaryLabel}>Expenses</Text>
+                </View>
+                <Text style={styles.summaryValue}>
+                  {formatCurrency(dailySummary.expenses)}
+                </Text>
+              </View>
             </View>
-          </View>
+          </LinearGradient>
         </Card>
 
         {premiumActive ? (
@@ -720,7 +746,7 @@ const FinanceScreen = () => {
                         </Text>
                         <Text style={styles.budgetGroupMeta}>
                           {formatCadenceLabel(summary.group.cadence)}
-                          {summary.windowLabel ? ` · ${summary.windowLabel}` : ''}
+                          {summary.windowLabel ? ` - ${summary.windowLabel}` : ''}
                         </Text>
                       </View>
                       <View style={styles.budgetActions}>
@@ -793,23 +819,33 @@ const FinanceScreen = () => {
                     </Text>
 
                     {summary.group.type === 'budget' && (
-                      <View style={styles.categoryWrap}>
-                        {(summary.group.categories || []).map((cat) => (
-                          <View key={cat} style={styles.categoryPill}>
-                            <Feather
-                              name={getCategoryIcon(cat, 'expense')}
-                              size={14}
-                              color={palette.text}
-                            />
-                            <Text style={styles.categoryPillText}>{cat}</Text>
+                      <>
+                        {(summary.group.categories || []).length ? (
+                          <View style={styles.budgetCategoryGrid}>
+                            {(summary.group.categories || []).map((cat) => (
+                              <View key={cat} style={styles.budgetCategoryTile}>
+                                <View style={styles.budgetCategoryIcon}>
+                                  <Feather
+                                    name={getCategoryIcon(cat, 'expense')}
+                                    size={16}
+                                    color={palette.text}
+                                  />
+                                </View>
+                                <Text
+                                  style={styles.budgetCategoryLabel}
+                                  numberOfLines={2}
+                                >
+                                  {getCategoryLabel(cat)}
+                                </Text>
+                              </View>
+                            ))}
                           </View>
-                        ))}
-                        {summary.group.categories?.length === 0 && (
+                        ) : (
                           <Text style={styles.subduedLabel}>
                             No categories linked yet.
                           </Text>
                         )}
-                      </View>
+                      </>
                     )}
 
                     {summary.group.type === 'recurring' && (
@@ -817,7 +853,7 @@ const FinanceScreen = () => {
                         <Text style={styles.subduedLabel}>
                           Recurring payments
                           {summary.recurringTotal
-                            ? ` · ${formatCurrency(
+                            ? ` - ${formatCurrency(
                                 summary.recurringTotal,
                                 false,
                                 summary.group.currency
@@ -897,7 +933,9 @@ const FinanceScreen = () => {
           <Text style={styles.sectionTitle}>Transactions</Text>
           {dayTransactions.length === 0 ? (
             <View style={styles.emptyState}>
-              <Feather name="dollar-sign" size={40} color={palette.primary} />
+              <View style={styles.emptyIconCircle}>
+                <Text style={styles.emptyIconText}>$</Text>
+              </View>
               <Text style={styles.emptyText}>No transactions for this date</Text>
             </View>
           ) : (
@@ -1397,15 +1435,20 @@ const FinanceScreen = () => {
   );
 };
 
-const createStyles = (themeColorsParam) => {
+const createStyles = (themeColorsParam, isDark = false) => {
   const palette = themeColorsParam || colors;
   const text = palette.text || colors.text;
   const textSecondary = palette.textSecondary || colors.textSecondary;
+  const subduedText = isDark ? '#B5BAC7' : textSecondary;
+  const pageBackground = isDark ? palette.background : '#F5F6FF';
+  const surface = isDark ? '#0F1116' : '#F7F8FF';
+  const surfaceAlt = isDark ? '#171B26' : '#EEF2FF';
+  const surfaceBorder = isDark ? '#232838' : '#E1E6FF';
 
   return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: palette.background,
+      backgroundColor: pageBackground,
     },
     scrollView: {
       flex: 1,
@@ -1413,52 +1456,61 @@ const createStyles = (themeColorsParam) => {
     scrollContent: {
       paddingHorizontal: spacing.xl,
       paddingBottom: spacing.xxxl,
+      paddingTop: spacing.sm,
     },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
-      paddingVertical: spacing.lg,
+      justifyContent: 'space-between',
+      paddingVertical: spacing.md,
+      marginBottom: spacing.sm,
     },
     headerTitle: {
       ...typography.h2,
-      textAlign: 'center',
-      flex: 1,
+      textAlign: 'left',
+      flex: 0,
       color: text,
     },
     headerSpacer: {
-      width: 32,
+      width: 0,
     },
     dateRow: {
       flexDirection: 'row',
       alignItems: 'center',
       marginBottom: spacing.lg,
-      justifyContent: 'center',
-      columnGap: spacing.sm,
+      justifyContent: 'space-between',
     },
     dateArrow: {
       padding: spacing.sm,
       borderRadius: borderRadius.full,
-      backgroundColor: palette.inputBackground,
+      backgroundColor: palette.card,
+      borderWidth: 1,
+      borderColor: surfaceBorder,
+      ...shadows.small,
     },
     datePicker: {
+      flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
       paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.md,
-      borderRadius: borderRadius.md,
-      backgroundColor: palette.inputBackground,
-      marginHorizontal: spacing.md,
+      paddingHorizontal: spacing.lg,
+      borderRadius: borderRadius.full,
+      backgroundColor: palette.card,
+      marginHorizontal: spacing.sm,
+      borderWidth: 1,
+      borderColor: surfaceBorder,
       justifyContent: 'center',
     },
     dateText: {
       ...typography.body,
       marginHorizontal: spacing.sm,
       color: text,
+      fontWeight: '600',
     },
     actionRow: {
       flexDirection: 'row',
       marginBottom: spacing.lg,
+      gap: spacing.sm,
     },
     actionButton: {
       flex: 1,
@@ -1466,8 +1518,9 @@ const createStyles = (themeColorsParam) => {
       alignItems: 'center',
       justifyContent: 'center',
       paddingVertical: spacing.md,
-      borderRadius: borderRadius.md,
-      marginHorizontal: spacing.xs,
+      borderRadius: borderRadius.xl,
+      minHeight: 48,
+      ...shadows.small,
     },
     incomeButton: {
       backgroundColor: palette.income,
@@ -1482,8 +1535,19 @@ const createStyles = (themeColorsParam) => {
       marginLeft: spacing.sm,
     },
     balanceCard: {
-      backgroundColor: palette.primary,
+      backgroundColor: 'transparent',
+      borderWidth: 0,
+      borderColor: 'transparent',
+      padding: 0,
+      overflow: 'hidden',
       marginBottom: spacing.lg,
+      ...shadows.large,
+    },
+    balanceGradient: {
+      padding: spacing.lg,
+      borderRadius: borderRadius.lg,
+      minHeight: 180,
+      justifyContent: 'space-between',
     },
     balanceHeader: {
       flexDirection: 'row',
@@ -1491,12 +1555,34 @@ const createStyles = (themeColorsParam) => {
       alignItems: 'center',
       marginBottom: spacing.sm,
     },
+    balanceHeaderLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    balanceBadge: {
+      width: 30,
+      height: 30,
+      borderRadius: borderRadius.full,
+      backgroundColor: 'rgba(255,255,255,0.2)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    balanceTrend: {
+      width: 30,
+      height: 30,
+      borderRadius: borderRadius.full,
+      backgroundColor: 'rgba(255,255,255,0.2)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     balanceLabel: {
       ...typography.bodySmall,
-      color: 'rgba(255,255,255,0.8)',
+      color: 'rgba(255,255,255,0.85)',
+      fontWeight: '600',
     },
     balanceAmount: {
-      fontSize: 32,
+      fontSize: 34,
       fontWeight: '700',
       color: '#FFFFFF',
       marginBottom: spacing.md,
@@ -1506,30 +1592,35 @@ const createStyles = (themeColorsParam) => {
     },
     balanceSummary: {
       flexDirection: 'row',
-      justifyContent: 'space-between',
+      gap: spacing.sm,
     },
-    summaryItem: {
+    summaryCard: {
+      flex: 1,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      borderRadius: borderRadius.md,
+      backgroundColor: isDark ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.2)',
+    },
+    summaryRow: {
       flexDirection: 'row',
       alignItems: 'center',
-    },
-    summaryDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
-      marginRight: spacing.xs,
+      gap: spacing.xs,
+      marginBottom: spacing.xs,
     },
     summaryLabel: {
-      ...typography.bodySmall,
-      color: 'rgba(255,255,255,0.8)',
-      marginRight: spacing.sm,
+      ...typography.caption,
+      color: 'rgba(255,255,255,0.85)',
     },
     summaryValue: {
-      ...typography.body,
+      ...typography.h3,
       color: '#FFFFFF',
       fontWeight: '600',
     },
     insightsCard: {
       marginBottom: spacing.lg,
+      borderWidth: 1,
+      borderColor: surfaceBorder,
+      backgroundColor: palette.card,
     },
     insightsHeader: {
       flexDirection: 'row',
@@ -1538,7 +1629,7 @@ const createStyles = (themeColorsParam) => {
     },
     insightsSubtitle: {
       ...typography.caption,
-      color: textSecondary,
+      color: subduedText,
     },
     insightsStats: {
       alignItems: 'flex-end',
@@ -1589,7 +1680,7 @@ const createStyles = (themeColorsParam) => {
     },
     legendValue: {
       ...typography.caption,
-      color: textSecondary,
+      color: subduedText,
     },
     legendText: {
       ...typography.bodySmall,
@@ -1597,6 +1688,9 @@ const createStyles = (themeColorsParam) => {
     },
     budgetCard: {
       marginBottom: spacing.lg,
+      borderWidth: 1,
+      borderColor: surfaceBorder,
+      backgroundColor: palette.card,
     },
     budgetHeader: {
       flexDirection: 'row',
@@ -1606,10 +1700,12 @@ const createStyles = (themeColorsParam) => {
     },
     budgetGroupCard: {
       borderWidth: 1,
-      borderColor: palette.divider,
+      borderColor: surfaceBorder,
       borderRadius: borderRadius.lg,
       padding: spacing.md,
       marginTop: spacing.sm,
+      backgroundColor: surface,
+      ...shadows.small,
     },
     budgetGroupHeader: {
       flexDirection: 'row',
@@ -1626,7 +1722,7 @@ const createStyles = (themeColorsParam) => {
     },
     budgetGroupMeta: {
       ...typography.caption,
-      color: textSecondary,
+      color: subduedText,
       marginTop: 2,
     },
     budgetActions: {
@@ -1641,11 +1737,11 @@ const createStyles = (themeColorsParam) => {
     },
     progressLabel: {
       ...typography.bodySmall,
-      color: textSecondary,
+      color: subduedText,
     },
     progressBar: {
       height: 8,
-      backgroundColor: palette.inputBackground,
+      backgroundColor: surfaceAlt,
       borderRadius: borderRadius.full,
       marginTop: spacing.xs,
       overflow: 'hidden',
@@ -1660,24 +1756,39 @@ const createStyles = (themeColorsParam) => {
       color: text,
       marginTop: spacing.xs,
     },
-    categoryWrap: {
+    budgetCategoryGrid: {
       flexDirection: 'row',
       flexWrap: 'wrap',
-      gap: spacing.xs,
-      marginTop: spacing.sm,
+      gap: spacing.sm,
+      marginTop: spacing.md,
+      justifyContent: 'space-between',
     },
-    categoryPill: {
-      flexDirection: 'row',
+    budgetCategoryTile: {
+      width: '22%',
+      minHeight: 72,
       alignItems: 'center',
-      paddingVertical: spacing.xs,
-      paddingHorizontal: spacing.sm,
-      borderRadius: borderRadius.full,
-      backgroundColor: palette.inputBackground,
+      justifyContent: 'center',
+      paddingVertical: spacing.sm,
+      borderRadius: borderRadius.md,
+      backgroundColor: surfaceAlt,
+      borderWidth: 1,
+      borderColor: surfaceBorder,
     },
-    categoryPillText: {
+    budgetCategoryIcon: {
+      width: 28,
+      height: 28,
+      borderRadius: borderRadius.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: palette.card,
+      borderWidth: 1,
+      borderColor: surfaceBorder,
+      marginBottom: spacing.xs,
+    },
+    budgetCategoryLabel: {
       ...typography.caption,
-      marginLeft: spacing.xs,
-      color: text,
+      textAlign: 'center',
+      color: subduedText,
     },
     recurringList: {
       marginTop: spacing.sm,
@@ -1695,7 +1806,7 @@ const createStyles = (themeColorsParam) => {
     },
     recurringMeta: {
       ...typography.caption,
-      color: textSecondary,
+      color: subduedText,
     },
     recurringAmount: {
       ...typography.body,
@@ -1734,7 +1845,7 @@ const createStyles = (themeColorsParam) => {
     },
     lockedText: {
       ...typography.bodySmall,
-      color: textSecondary,
+      color: subduedText,
       marginTop: spacing.xs,
     },
     upgradeButton: {
@@ -1744,6 +1855,9 @@ const createStyles = (themeColorsParam) => {
     },
     transactionsCard: {
       marginBottom: spacing.lg,
+      borderWidth: 1,
+      borderColor: surfaceBorder,
+      backgroundColor: palette.card,
     },
     sectionTitle: {
       ...typography.h3,
@@ -1754,9 +1868,24 @@ const createStyles = (themeColorsParam) => {
       alignItems: 'center',
       paddingVertical: spacing.xl,
     },
+    emptyIconCircle: {
+      width: 64,
+      height: 64,
+      borderRadius: borderRadius.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: surfaceAlt,
+      borderWidth: 1,
+      borderColor: surfaceBorder,
+    },
+    emptyIconText: {
+      fontSize: 34,
+      fontWeight: '700',
+      color: palette.primary,
+    },
     emptyText: {
       ...typography.bodySmall,
-      color: textSecondary,
+      color: subduedText,
       marginTop: spacing.md,
     },
     transactionItem: {
@@ -1764,7 +1893,7 @@ const createStyles = (themeColorsParam) => {
       alignItems: 'center',
       paddingVertical: spacing.md,
       borderBottomWidth: 1,
-      borderBottomColor: palette.divider,
+      borderBottomColor: surfaceBorder,
     },
     transactionIcon: {
       width: 40,
@@ -1784,7 +1913,7 @@ const createStyles = (themeColorsParam) => {
     },
     transactionDate: {
       ...typography.caption,
-      color: textSecondary,
+      color: subduedText,
     },
     transactionAmount: {
       ...typography.body,
@@ -1913,7 +2042,7 @@ const createStyles = (themeColorsParam) => {
     },
     budgetOptionMeta: {
       ...typography.caption,
-      color: textSecondary,
+      color: subduedText,
     },
     modalButtons: {
       flexDirection: 'row',
@@ -1957,7 +2086,7 @@ const createStyles = (themeColorsParam) => {
     },
     chartLabel: {
       ...typography.caption,
-      color: textSecondary,
+      color: subduedText,
     },
     chartLegend: {
       flexDirection: 'row',
@@ -1970,17 +2099,22 @@ const createStyles = (themeColorsParam) => {
     iconButton: {
       padding: spacing.xs,
       borderRadius: borderRadius.full,
-      backgroundColor: palette.inputBackground,
+      backgroundColor: surfaceAlt,
+      borderWidth: 1,
+      borderColor: surfaceBorder,
     },
     createBudgetButton: {
       paddingHorizontal: spacing.md,
       minWidth: 0,
       maxWidth: 140,
       alignSelf: 'flex-end',
+      borderRadius: borderRadius.full,
+      backgroundColor: palette.primary,
+      borderColor: palette.primary,
     },
     subduedLabel: {
       ...typography.caption,
-      color: textSecondary,
+      color: subduedText,
     },
     chipRow: {
       marginBottom: spacing.md,

@@ -84,13 +84,13 @@ const HomeScreen = () => {
         itemBg: 'rgba(255,255,255,0.2)',
       },
       overview: {
-        gradient: isDark ? ['#3E52E3', '#2830A6'] : ['#5573FF', '#3E4BFF'],
-        border: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.22)',
-        iconBg: 'rgba(255,255,255,0.2)',
+        gradient: isDark ? ['#3C4FE0', '#2E3AB6'] : ['#5B76FF', '#4352FF'],
+        border: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.2)',
+        iconBg: 'rgba(255,255,255,0.22)',
         iconColor: '#FFFFFF',
         text: '#FFFFFF',
-        meta: 'rgba(255,255,255,0.78)',
-        dot: '#FFFFFF',
+        meta: 'rgba(255,255,255,0.85)',
+        dot: 'rgba(255,255,255,0.95)',
       },
       notes: {
         card: isDark ? '#12131C' : '#FFFFFF',
@@ -114,8 +114,8 @@ const HomeScreen = () => {
       habits: {
         card: isDark ? '#12131C' : '#FFFFFF',
         border: isDark ? '#2B2D40' : '#EEE6FF',
-        iconBg: isDark ? '#231B33' : '#EFE5FF',
-        iconColor: isDark ? '#C084FC' : '#8B5CF6',
+        iconBg: isDark ? '#7C3AED' : '#8B5CF6',
+        iconColor: '#FFFFFF',
         bullet: isDark ? '#C084FC' : '#8B5CF6',
         text: themeColors.text,
         meta: isDark ? '#C7C9D9' : themeColors.textSecondary,
@@ -621,14 +621,18 @@ const HomeScreen = () => {
 
         {/* Today's Overview */}
         <Card
-          style={[styles.sectionCard, styles.sectionCardGradient]}
+          style={[styles.sectionCard, styles.sectionCardGradient, styles.overviewCard]}
           onPress={() => navigation.navigate('Tasks')}
         >
           <LinearGradient
             colors={sectionListTheme.overview.gradient}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={[styles.sectionGradient, { borderColor: sectionListTheme.overview.border }]}
+            style={[
+              styles.sectionGradient,
+              styles.overviewGradient,
+              { borderColor: sectionListTheme.overview.border },
+            ]}
           >
             <View style={styles.sectionContent}>
           <View style={styles.sectionListHeader}>
@@ -647,7 +651,7 @@ const HomeScreen = () => {
             </View>
             <Ionicons name="chevron-forward" size={20} color={sectionListTheme.overview.text} />
           </View>
-          <Text style={[styles.dateText, { color: sectionListTheme.overview.meta }]}>
+          <Text style={[styles.overviewDate, { color: sectionListTheme.overview.meta }]}>
             {formattedDate}
           </Text>
           {todayTasks.length > 0 ? (
@@ -670,7 +674,7 @@ const HomeScreen = () => {
               ))}
             </View>
           ) : (
-            <Text style={[styles.emptyText, { color: sectionListTheme.overview.text }]}>
+            <Text style={[styles.overviewEmpty, { color: sectionListTheme.overview.text }]}>
               No tasks scheduled for today
             </Text>
           )}
@@ -936,22 +940,22 @@ const HomeScreen = () => {
         <Card
           style={[
             styles.sectionCard,
-            styles.sectionCardFlat,
+            styles.habitsPreviewCard,
             { backgroundColor: sectionListTheme.habits.card, borderColor: sectionListTheme.habits.border },
           ]}
           onPress={() => navigation.navigate('Habits')}
         >
-          <View style={styles.sectionListHeader}>
-            <View style={styles.sectionListTitleRow}>
+          <View style={styles.habitsHeader}>
+            <View style={styles.habitsTitleRow}>
               <View
                 style={[
-                  styles.sectionListIcon,
+                  styles.habitsIcon,
                   { backgroundColor: sectionListTheme.habits.iconBg },
                 ]}
               >
-                <Ionicons name="radio-button-on" size={16} color={sectionListTheme.habits.iconColor} />
+                <Feather name="target" size={16} color={sectionListTheme.habits.iconColor} />
               </View>
-              <Text style={[styles.sectionListTitle, { color: sectionListTheme.habits.text }]}>
+              <Text style={[styles.habitsTitle, { color: sectionListTheme.habits.text }]}>
                 Your Habits
               </Text>
             </View>
@@ -1176,6 +1180,15 @@ const createStyles = (themeColorsParam = colors) => {
       padding: spacing.lg,
       borderWidth: 1,
     },
+    overviewCard: {
+      borderRadius: borderRadius.xxl,
+      ...shadows.large,
+    },
+    overviewGradient: {
+      borderRadius: borderRadius.xxl,
+      paddingVertical: spacing.lg,
+      paddingHorizontal: spacing.lg,
+    },
     sectionContent: {
       gap: spacing.sm,
     },
@@ -1222,9 +1235,18 @@ const createStyles = (themeColorsParam = colors) => {
       ...typography.bodySmall,
       marginBottom: spacing.md,
     },
+    overviewDate: {
+      ...typography.bodySmall,
+      fontWeight: '500',
+      marginBottom: spacing.sm,
+    },
     emptyText: {
       ...typography.bodySmall,
       color: colors.textLight,
+    },
+    overviewEmpty: {
+      ...typography.bodySmall,
+      fontWeight: '600',
     },
     tasksList: {
       marginTop: spacing.sm,
@@ -1308,22 +1330,53 @@ const createStyles = (themeColorsParam = colors) => {
       color: '#FFFFFF',
     },
     habitsList: {
-      marginTop: spacing.xs,
+      marginTop: spacing.sm,
     },
     habitItem: {
       flexDirection: 'row',
       alignItems: 'center',
       paddingVertical: spacing.xs,
-      marginBottom: spacing.sm,
+      marginBottom: spacing.xs,
     },
     habitDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
+      width: 6,
+      height: 6,
+      borderRadius: 3,
       marginRight: spacing.sm,
     },
     habitText: {
+      ...typography.bodySmall,
+      fontWeight: '500',
+    },
+    habitsPreviewCard: {
+      borderRadius: borderRadius.xxl,
+      borderWidth: 1,
+      paddingVertical: spacing.lg,
+      paddingHorizontal: spacing.lg,
+      ...shadows.small,
+      overflow: 'hidden',
+    },
+    habitsHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: spacing.sm,
+    },
+    habitsTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    habitsIcon: {
+      width: 32,
+      height: 32,
+      borderRadius: borderRadius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.sm,
+    },
+    habitsTitle: {
       ...typography.body,
+      fontWeight: '700',
     },
     choreItem: {
       flexDirection: 'row',
