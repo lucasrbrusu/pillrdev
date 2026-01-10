@@ -63,8 +63,8 @@ const HomeScreen = () => {
     ensureTaskInvitesLoaded,
     themeName,
   } = useApp();
-  const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
   const isDark = themeName === 'dark';
+  const styles = React.useMemo(() => createStyles(themeColors, isDark), [themeColors, isDark]);
   const isPremium = React.useMemo(() => {
     const plan = (profile?.plan || '').toString().toLowerCase();
     const expiresAt = profile?.premium_expires_at ? new Date(profile.premium_expires_at) : null;
@@ -162,11 +162,21 @@ const HomeScreen = () => {
     ? MOOD_OPTIONS[Math.max(0, Math.min(MOOD_OPTIONS.length - 1, todayHealth.mood - 1))]
     : null;
   const bestStreak = getBestStreak ? getBestStreak() : 0;
-  const streakFlameColor = streakFrozen ? '#4da6ff' : '#ff4d4f';
-  const streakFlameBackground = streakFrozen ? 'rgba(77, 166, 255, 0.12)' : 'rgba(255, 77, 79, 0.12)';
   const consumedCalories = todayHealth?.calories || 0;
   const calorieGoal = profile?.dailyCalorieGoal || 2000;
   const remainingCalories = Math.max(calorieGoal - consumedCalories, 0);
+  const statGradients = {
+    streak: isDark ? ['#C65A1F', '#8D2A00'] : ['#FF7A2D', '#FF4D2D'],
+    calories: isDark ? ['#0EA35B', '#06733F'] : ['#19D377', '#00B563'],
+  };
+  const middleIconColors = {
+    friends: isDark ? '#1D4ED8' : '#2563EB',
+    insights: isDark ? '#6D28D9' : '#7C3AED',
+    focusBg: isDark ? 'rgba(59, 130, 246, 0.2)' : '#EAF1FF',
+    focusIcon: isDark ? '#93C5FD' : '#2563EB',
+    countdownBg: isDark ? 'rgba(245, 158, 11, 0.2)' : '#FFF1DD',
+    countdownIcon: isDark ? '#FCD34D' : '#EA580C',
+  };
   const pendingFriendRequests = friendRequests?.incoming?.length || 0;
   const pendingTaskInvites = taskInvites?.incoming?.length || 0;
   const getInitial = React.useCallback((nameValue, usernameValue) => {
@@ -393,48 +403,62 @@ const HomeScreen = () => {
 
         {/* Best Streak + Calories */}
         <View style={styles.topStatsRow}>
-          <Card style={[styles.sectionCard, styles.bestStreakCard]}>
-            <View style={styles.bestStreakRow}>
-              <View style={[styles.bestStreakIconWrap, { backgroundColor: streakFlameBackground }]}>
-                <Ionicons name="flame" size={24} color={streakFlameColor} />
-              </View>
-              <View style={styles.bestStreakTextWrap}>
-                <Text style={styles.bestStreakLabel}>Best streak</Text>
-                <Text style={styles.bestStreakValue}>{bestStreak} day{bestStreak === 1 ? '' : 's'}</Text>
-              </View>
+          <LinearGradient
+            colors={statGradients.streak}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.statCard}
+          >
+            <View style={styles.statIconWrap}>
+              <Ionicons name="flame" size={20} color="#FFFFFF" />
             </View>
-          </Card>
+            <Text style={styles.statLabel}>Best streak</Text>
+            <Text style={styles.statValue}>{bestStreak} day{bestStreak === 1 ? '' : 's'}</Text>
+          </LinearGradient>
 
-          <Card style={[styles.sectionCard, styles.caloriesCard]}>
-            <View style={styles.caloriesRow}>
-              <View style={styles.caloriesIconWrap}>
-                <Ionicons name="heart" size={22} color={colors.success} />
-              </View>
-              <View style={styles.caloriesTextWrap}>
-                <Text style={styles.caloriesLabel}>Remaining calories</Text>
-                <Text style={styles.caloriesValue}>{remainingCalories}</Text>
-                <Text style={styles.caloriesGoalText}>Goal {calorieGoal}</Text>
-              </View>
+          <LinearGradient
+            colors={statGradients.calories}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.statCard}
+          >
+            <View style={styles.statIconWrap}>
+              <Ionicons name="pulse" size={20} color="#FFFFFF" />
             </View>
-          </Card>
+            <Text style={styles.statLabel}>Remaining calories</Text>
+            <Text style={styles.statValue}>{remainingCalories}</Text>
+            <Text style={styles.statMeta}>Goal {calorieGoal}</Text>
+          </LinearGradient>
         </View>
 
         {/* Friends */}
-        <Card style={[styles.sectionCard, styles.onlineFriendsCard]}>
+        <Card style={[styles.sectionCard, styles.middleCard]}>
           <TouchableOpacity
             activeOpacity={0.9}
             onPress={() => navigation.navigate('Friends')}
           >
-            <View style={styles.cardHeader}>
-              <Text style={[styles.cardTitle, styles.onlineFriendsTitle]}>Friends</Text>
-              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
-            </View>
-            {friends.length === 0 ? (
-              <View style={styles.onlineFriendsBody}>
-                <Text style={styles.onlineFriendsText}>Find friends to see who is online.</Text>
-                <Text style={styles.onlineFriendsSubtext}>Tap to search by username.</Text>
+            <View style={styles.middleRow}>
+              <View style={[styles.middleIconWrap, { backgroundColor: middleIconColors.friends }]}>
+                <Ionicons name="people" size={18} color="#FFFFFF" />
               </View>
-            ) : (
+              <View style={styles.middleTextWrap}>
+                <Text style={styles.middleTitle}>Friends</Text>
+                {friends.length === 0 ? (
+                  <>
+                    <Text style={styles.middleSubtitle}>Find friends to see who is online.</Text>
+                    <Text style={styles.middleSubtitle}>Tap to search by username.</Text>
+                  </>
+                ) : (
+                  <Text style={styles.middleSubtitle}>See who is online right now.</Text>
+                )}
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={20}
+                color={themeColors?.textSecondary || colors.textSecondary}
+              />
+            </View>
+            {friends.length > 0 && (
               <View style={styles.onlineFriendsRow}>
                 {displayedFriends.map((friend) => (
                   <View key={friend.id} style={styles.onlineFriendItem}>
@@ -461,54 +485,62 @@ const HomeScreen = () => {
         </Card>
 
         {/* Insights */}
-        <Card style={[styles.sectionCard, styles.insightsCard]}>
+        <Card style={[styles.sectionCard, styles.middleCard]}>
           <TouchableOpacity
-            style={styles.insightsRow}
+            style={styles.middleRow}
             activeOpacity={0.85}
             onPress={() => navigation.navigate('Insights')}
           >
-            <View style={styles.insightsIconWrap}>
+            <View style={[styles.middleIconWrap, { backgroundColor: middleIconColors.insights }]}>
               <Ionicons name="bar-chart-outline" size={18} color="#FFFFFF" />
             </View>
-            <View style={styles.insightsTextWrap}>
-              <Text style={styles.insightsTitle}>View Insights</Text>
-              <Text style={styles.insightsSubtitle}>Weekly & monthly reports</Text>
+            <View style={styles.middleTextWrap}>
+              <Text style={styles.middleTitle}>View Insights</Text>
+              <Text style={styles.middleSubtitle}>Weekly & monthly reports</Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+            <Ionicons
+              name="chevron-forward"
+              size={20}
+              color={themeColors?.textSecondary || colors.textSecondary}
+            />
           </TouchableOpacity>
         </Card>
 
         {/* Focus Mode + Countdown */}
         <View style={styles.topStatsRow}>
-          <Card style={[styles.sectionCard, styles.focusCard]}>
+          <Card style={[styles.sectionCard, styles.miniCard]}>
             <TouchableOpacity
-              style={styles.focusRow}
+              style={styles.miniRow}
               activeOpacity={0.8}
               onPress={() => navigation.navigate('FocusMode')}
             >
-              <View style={[styles.focusIconWrap, styles.focusIconWrapAccent]}>
-                <Ionicons name="timer" size={22} color="#1d54de" />
+              <View style={[styles.miniIconWrap, { backgroundColor: middleIconColors.focusBg }]}>
+                <Ionicons name="timer" size={20} color={middleIconColors.focusIcon} />
               </View>
-              <View style={styles.focusTextWrap}>
-                <Text style={[styles.focusLabel, styles.focusAccentText]}>Focus mode</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+              <Text style={styles.miniTitle}>Focus mode</Text>
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color={themeColors?.textSecondary || colors.textSecondary}
+              />
             </TouchableOpacity>
           </Card>
 
-          <Card style={[styles.sectionCard, styles.countdownCard]}>
+          <Card style={[styles.sectionCard, styles.miniCard]}>
             <TouchableOpacity
-              style={styles.focusRow}
+              style={styles.miniRow}
               activeOpacity={0.8}
               onPress={() => navigation.navigate('CountdownTimer')}
             >
-              <View style={[styles.focusIconWrap, styles.countdownIconWrapAccent]}>
-                <Ionicons name="hourglass" size={22} color="#b86f16" />
+              <View style={[styles.miniIconWrap, { backgroundColor: middleIconColors.countdownBg }]}>
+                <Ionicons name="hourglass" size={20} color={middleIconColors.countdownIcon} />
               </View>
-              <View style={styles.focusTextWrap}>
-                <Text style={[styles.focusLabel, styles.countdownAccentText]}>Countdown Timer</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+              <Text style={styles.miniTitle}>Countdown Timer</Text>
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color={themeColors?.textSecondary || colors.textSecondary}
+              />
             </TouchableOpacity>
           </Card>
         </View>
@@ -1038,9 +1070,16 @@ const HomeScreen = () => {
   );
 };
 
-const createStyles = (themeColorsParam = colors) => {
+const createStyles = (themeColorsParam = colors, isDark = false) => {
   const sectionCardColor = themeColorsParam?.card || colors.card;
   const sectionBorderColor = themeColorsParam?.border || colors.border || '#E5E7EB';
+  const mutedBorder = isDark ? '#272A35' : '#EEE6FF';
+  const flatShadow = isDark
+    ? { shadowOpacity: 0, shadowRadius: 0, shadowOffset: { width: 0, height: 0 }, elevation: 0 }
+    : shadows.small;
+  const statShadow = isDark
+    ? { shadowOpacity: 0, shadowRadius: 0, shadowOffset: { width: 0, height: 0 }, elevation: 0 }
+    : shadows.medium;
 
   return StyleSheet.create({
     container: {
@@ -1218,6 +1257,104 @@ const createStyles = (themeColorsParam = colors) => {
       flexDirection: 'row',
       gap: spacing.md,
       marginBottom: spacing.lg,
+    },
+    statCard: {
+      flex: 1,
+      borderRadius: borderRadius.xl,
+      padding: spacing.lg,
+      minHeight: 118,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.35)',
+      ...statShadow,
+    },
+    statIconWrap: {
+      width: 34,
+      height: 34,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(255,255,255,0.22)',
+      marginBottom: spacing.sm,
+    },
+    statLabel: {
+      ...typography.bodySmall,
+      color: 'rgba(255,255,255,0.85)',
+      fontWeight: '600',
+      marginBottom: 2,
+    },
+    statValue: {
+      fontSize: 24,
+      fontWeight: '800',
+      color: '#FFFFFF',
+    },
+    statMeta: {
+      ...typography.caption,
+      color: 'rgba(255,255,255,0.8)',
+      marginTop: 2,
+    },
+    middleCard: {
+      borderRadius: borderRadius.xl,
+      borderWidth: 1,
+      borderColor: mutedBorder,
+      backgroundColor: sectionCardColor,
+      padding: spacing.lg,
+      ...flatShadow,
+    },
+    middleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+    },
+    middleIconWrap: {
+      width: 36,
+      height: 36,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    middleTextWrap: {
+      flex: 1,
+    },
+    middleTitle: {
+      ...typography.body,
+      color: themeColorsParam?.text || colors.text,
+      fontWeight: '700',
+    },
+    middleSubtitle: {
+      ...typography.bodySmall,
+      color: themeColorsParam?.textSecondary || colors.textSecondary,
+      marginTop: 2,
+    },
+    miniCard: {
+      flex: 1,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: mutedBorder,
+      backgroundColor: sectionCardColor,
+      paddingVertical: spacing.lg,
+      paddingHorizontal: spacing.lg,
+      minHeight: 96,
+      justifyContent: 'center',
+      ...flatShadow,
+    },
+    miniRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+    },
+    miniIconWrap: {
+      width: 40,
+      height: 40,
+      borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    miniTitle: {
+      flex: 1,
+      fontSize: 15,
+      lineHeight: 20,
+      color: themeColorsParam?.text || colors.text,
+      fontWeight: '700',
     },
     lastCard: {
       marginBottom: spacing.xxxl,
@@ -1552,8 +1689,7 @@ const createStyles = (themeColorsParam = colors) => {
       flexDirection: 'row',
       alignItems: 'center',
       flexWrap: 'wrap',
-      paddingHorizontal: spacing.md,
-      paddingBottom: spacing.md,
+      marginTop: spacing.md,
       rowGap: spacing.md,
     },
     onlineFriendItem: {
