@@ -165,7 +165,7 @@ const HealthScreen = () => {
         goal: isDark ? '#6EE7B7' : '#16A34A',
         consumed: isDark ? '#FDBA74' : '#F97316',
         ring: isDark ? '#34D399' : '#10B981',
-        ringBg: isDark ? '#24352F' : '#E5E7EB',
+        ringBg: baseCard,
       },
       food: {
         card: baseCard,

@@ -13,7 +13,8 @@ import {
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
-import { colors, spacing, borderRadius, typography } from '../utils/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import { colors, spacing, borderRadius, typography, shadows } from '../utils/theme';
 import { Card, Modal } from '../components';
 import { useApp } from '../context/AppContext';
 
@@ -267,7 +268,17 @@ const FriendProfileScreen = () => {
                     </Text>
                     {isPremiumFriend ? (
                       <View style={themedStyles.premiumBadge}>
-                        <Text style={themedStyles.premiumBadgeText}>Premium</Text>
+                        <LinearGradient
+                          colors={['rgba(255,255,255,0.6)', 'rgba(255,255,255,0.12)', 'rgba(255,255,255,0)']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={themedStyles.premiumBadgeShine}
+                          pointerEvents="none"
+                        />
+                        <View style={themedStyles.premiumBadgeContent}>
+                          <Ionicons name="star" size={12} color="#FFFFFF" />
+                          <Text style={themedStyles.premiumBadgeText}>Premium</Text>
+                        </View>
                       </View>
                     ) : null}
                   </View>
@@ -483,16 +494,32 @@ const createStyles = (themeColorsParam = colors) => {
       gap: spacing.sm,
     },
     premiumBadge: {
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 6,
       borderRadius: borderRadius.full,
-      backgroundColor: `${colors.primary}15`,
-      borderWidth: 1,
-      borderColor: colors.primary,
+      backgroundColor: '#F59E0B',
+      position: 'relative',
+      overflow: 'hidden',
+      ...shadows.small,
+    },
+    premiumBadgeContent: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      zIndex: 1,
+    },
+    premiumBadgeShine: {
+      position: 'absolute',
+      top: -6,
+      left: -18,
+      width: '70%',
+      height: '140%',
+      transform: [{ rotate: '-12deg' }],
+      opacity: 0.75,
     },
     premiumBadgeText: {
       ...typography.bodySmall,
-      color: colors.primary,
+      color: '#FFFFFF',
       fontWeight: '700',
     },
     detailRow: {

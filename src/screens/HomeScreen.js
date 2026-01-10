@@ -356,8 +356,17 @@ const HomeScreen = () => {
             <View style={styles.headerRight}>
               {isPremium && (
                 <View style={styles.premiumHeaderBadge}>
-                  <Ionicons name="star" size={14} color="#f1c232" style={styles.premiumHeaderIcon} />
-                  <Text style={styles.premiumHeaderText}>Premium</Text>
+                  <LinearGradient
+                    colors={['rgba(255,255,255,0.6)', 'rgba(255,255,255,0.12)', 'rgba(255,255,255,0)']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.premiumHeaderShine}
+                    pointerEvents="none"
+                  />
+                  <View style={styles.premiumHeaderContent}>
+                    <Ionicons name="star" size={13} color="#FFFFFF" style={styles.premiumHeaderIcon} />
+                    <Text style={styles.premiumHeaderText}>Premium</Text>
+                  </View>
                 </View>
               )}
               <TouchableOpacity
@@ -1167,20 +1176,34 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
     premiumHeaderBadge: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: '#fff7e6',
+      backgroundColor: '#F59E0B',
       borderRadius: borderRadius.full,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.xs,
-      borderWidth: 1,
-      borderColor: '#f1c232',
-      ...shadows.small,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 6,
+      position: 'relative',
+      overflow: 'hidden',
+      ...shadows.medium,
+    },
+    premiumHeaderContent: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      zIndex: 1,
+    },
+    premiumHeaderShine: {
+      position: 'absolute',
+      top: -6,
+      left: -18,
+      width: '70%',
+      height: '140%',
+      transform: [{ rotate: '-12deg' }],
+      opacity: 0.75,
     },
     premiumHeaderIcon: {
       marginRight: spacing.xs,
     },
     premiumHeaderText: {
       ...typography.caption,
-      color: '#b8860b',
+      color: '#FFFFFF',
       fontWeight: '700',
     },
     sectionButton: {
