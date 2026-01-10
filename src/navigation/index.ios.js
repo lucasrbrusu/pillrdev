@@ -15,6 +15,7 @@ import HabitsScreen from '../screens/HabitsScreen';
 import TasksScreen from '../screens/TasksScreen';
 import HealthScreen from '../screens/HealthScreen';
 import RoutineScreen from '../screens/RoutineScreen';
+import RoutineDetailScreen from '../screens/RoutineDetailScreen';
 import FinanceScreen from '../screens/FinanceScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
@@ -232,6 +233,7 @@ const Navigation = () => {
             component={BudgetGroupInsightScreen}
           />
           <Stack.Screen name="Calendar" component={CalendarScreen} />
+          <Stack.Screen name="RoutineDetail" component={RoutineDetailScreen} />
           <Stack.Screen name="Appearance" component={AppearanceScreen} />
           <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
           <Stack.Screen name="NotificationCenter" component={NotificationCenterScreen} />

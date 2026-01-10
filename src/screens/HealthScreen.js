@@ -128,10 +128,89 @@ const HealthScreen = () => {
     profile,
     getAverageWater,
     getAverageSleep,
+    themeName,
     themeColors,
     ensureHealthLoaded,
   } = useApp();
-  const styles = useMemo(() => createStyles(), [themeColors]);
+  const isDark = themeName === 'dark';
+  const healthTheme = useMemo(() => {
+    const baseCard = isDark ? '#1D2236' : '#FFFFFF';
+    return {
+      background: isDark ? themeColors.background : '#F6F4FF',
+      stats: {
+        water: {
+          card: baseCard,
+          border: isDark ? '#1F3148' : '#D6E9FF',
+          iconBg: isDark ? '#1D3551' : '#D9ECFF',
+          iconColor: isDark ? '#7DD3FC' : themeColors.info,
+          label: isDark ? '#C7D2FE' : themeColors.textSecondary,
+          value: isDark ? '#7DD3FC' : themeColors.info,
+          goal: isDark ? '#A5B4FC' : themeColors.textLight,
+        },
+        sleep: {
+          card: baseCard,
+          border: isDark ? '#2F2448' : '#E5D6FF',
+          iconBg: isDark ? '#2F2448' : '#E8DCFF',
+          iconColor: isDark ? '#C4B5FD' : themeColors.primary,
+          label: isDark ? '#C7D2FE' : themeColors.textSecondary,
+          value: isDark ? '#C4B5FD' : themeColors.primary,
+          goal: isDark ? '#A5B4FC' : themeColors.textLight,
+        },
+      },
+      calorie: {
+        card: baseCard,
+        border: isDark ? '#263A31' : '#CFEEDD',
+        title: isDark ? '#6EE7B7' : '#16A34A',
+        label: isDark ? '#C7D2FE' : themeColors.textSecondary,
+        goal: isDark ? '#6EE7B7' : '#16A34A',
+        consumed: isDark ? '#FDBA74' : '#F97316',
+        ring: isDark ? '#34D399' : '#10B981',
+        ringBg: isDark ? '#24352F' : '#E5E7EB',
+      },
+      food: {
+        card: baseCard,
+        border: isDark ? '#3A2C22' : '#F7D8C0',
+        title: isDark ? '#FDBA74' : '#F97316',
+        itemBg: isDark ? '#33271E' : '#FFF8F2',
+        itemBorder: isDark ? '#443426' : '#F4D6C0',
+        buttonBorder: isDark ? '#FDBA74' : '#F97316',
+        buttonText: isDark ? '#FDBA74' : '#F97316',
+      },
+      mood: {
+        card: baseCard,
+        border: isDark ? '#3A2A40' : '#F3C8FF',
+        title: isDark ? '#E879F9' : '#C026D3',
+        text: isDark ? '#D1C4E9' : themeColors.textSecondary,
+      },
+      sleep: {
+        card: baseCard,
+        border: isDark ? '#2C334C' : '#E5E7EB',
+        title: isDark ? '#A5B4FC' : '#4F46E5',
+        inputBg: isDark ? '#232A42' : '#F9FAFB',
+        inputBorder: isDark ? '#323A57' : '#E5E7EB',
+        chipBg: isDark ? '#2B314A' : '#F3F4F6',
+        chipActiveBg: isDark ? '#4F46E5' : '#6D28D9',
+        chipText: isDark ? '#C7D2FE' : themeColors.textSecondary,
+        chipActiveText: '#FFFFFF',
+        logBg: isDark ? '#242B44' : '#F6F7FF',
+        logBorder: isDark ? '#333B5A' : '#E3E8FF',
+      },
+      water: {
+        card: baseCard,
+        border: isDark ? '#223A4E' : '#CFE8FF',
+        title: isDark ? '#38BDF8' : '#0284C7',
+        count: isDark ? '#7DD3FC' : '#0284C7',
+        progressBg: isDark ? '#223447' : '#D9ECFF',
+        progressFill: isDark ? '#38BDF8' : '#0EA5E9',
+        inputBg: isDark ? '#1C3346' : '#FFFFFF',
+        inputBorder: isDark ? '#2E465A' : '#D6E9FF',
+        buttonBg: isDark ? '#0EA5E9' : '#0284C7',
+        buttonGradient: isDark ? ['#38BDF8', '#1D4ED8'] : ['#22D3EE', '#0284C7'],
+        buttonText: '#FFFFFF',
+      },
+    };
+  }, [isDark, themeColors]);
+  const styles = useMemo(() => createStyles(themeColors), [themeColors]);
 
   useEffect(() => {
     ensureHealthLoaded();
@@ -437,6 +516,8 @@ const HealthScreen = () => {
   const waterProgress = normalizedWaterGoal
     ? Math.min(1, todayWaterLitres / normalizedWaterGoal)
     : 0;
+  const waterValueColor = healthTheme.stats.water.value;
+  const sleepValueColor = healthTheme.stats.sleep.value;
   const caloriesConsumed = selectedHealth.calories || 0;
   const caloriesRemaining = profile.dailyCalorieGoal - caloriesConsumed;
   const remainingRatio = profile.dailyCalorieGoal
@@ -549,7 +630,12 @@ const HealthScreen = () => {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View
+      style={[
+        styles.container,
+        { paddingTop: insets.top, backgroundColor: healthTheme.background },
+      ]}
+    >
       <PlatformScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -565,7 +651,7 @@ const HealthScreen = () => {
               return d;
             })}
           >
-            <Ionicons name="chevron-back" size={18} color={colors.text} />
+            <Ionicons name="chevron-back" size={18} color={themeColors.text} />
           </TouchableOpacity>
           <Text style={styles.dateLabel}>
             {selectedDate.toDateString() === new Date().toDateString()
@@ -580,44 +666,99 @@ const HealthScreen = () => {
               return d;
             })}
           >
-            <Ionicons name="chevron-forward" size={18} color={colors.text} />
+            <Ionicons name="chevron-forward" size={18} color={themeColors.text} />
           </TouchableOpacity>
         </View>
 
         {/* Stats Row */}
         <View style={styles.statsRow}>
-          <Card style={styles.statCard}>
-            <View style={styles.statHeader}>
-              <Ionicons name="water" size={18} color={colors.info} />
-              <Text style={styles.statLabel}>Avg Water</Text>
+          <Card
+            style={[
+              styles.statCard,
+              {
+                backgroundColor: healthTheme.stats.water.card,
+                borderColor: healthTheme.stats.water.border,
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.statIconWrap,
+                { backgroundColor: healthTheme.stats.water.iconBg },
+              ]}
+            >
+              <Ionicons name="water" size={18} color={healthTheme.stats.water.iconColor} />
             </View>
-            <Text style={styles.statValue}>{formatWaterLitres(getAverageWater())} L</Text>
-            <Text style={styles.statGoal}>
-              Goal: {formatWaterLitres(profile.dailyWaterGoal)} L/day
+            <Text style={[styles.statLabel, { color: healthTheme.stats.water.label }]}>
+              Avg Water
+            </Text>
+            <Text style={[styles.statValue, { color: waterValueColor }]}>
+              {formatWaterLitres(getAverageWater())} L
+            </Text>
+            <Text style={[styles.statGoal, { color: healthTheme.stats.water.goal }]}>
+              Over 7 days
             </Text>
           </Card>
-          <Card style={styles.statCard}>
-            <View style={styles.statHeader}>
-              <Ionicons name="moon" size={18} color={colors.primary} />
-              <Text style={styles.statLabel}>Avg Sleep</Text>
+          <Card
+            style={[
+              styles.statCard,
+              {
+                backgroundColor: healthTheme.stats.sleep.card,
+                borderColor: healthTheme.stats.sleep.border,
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.statIconWrap,
+                { backgroundColor: healthTheme.stats.sleep.iconBg },
+              ]}
+            >
+              <Ionicons name="moon" size={18} color={healthTheme.stats.sleep.iconColor} />
             </View>
-            <Text style={styles.statValue}>{getAverageSleep()} hours</Text>
-            <Text style={styles.statGoal}>Goal: {profile.dailySleepGoal} hours/night</Text>
+            <Text style={[styles.statLabel, { color: healthTheme.stats.sleep.label }]}>
+              Avg Sleep
+            </Text>
+            <Text style={[styles.statValue, { color: sleepValueColor }]}>
+              {getAverageSleep()} hours
+            </Text>
+            <Text style={[styles.statGoal, { color: healthTheme.stats.sleep.goal }]}>
+              Goal: {profile.dailySleepGoal} hours/night
+            </Text>
           </Card>
         </View>
 
         {/* Calorie Tracker Section */}
-        <Card style={[styles.sectionCard, styles.calorieCard]}>
-          <Text style={styles.sectionTitle}>Calorie Tracker</Text>
+        <Card
+          style={[
+            styles.sectionCard,
+            styles.calorieCard,
+            {
+              backgroundColor: healthTheme.calorie.card,
+              borderColor: healthTheme.calorie.border,
+            },
+          ]}
+        >
+          <Text style={[styles.sectionTitle, { color: healthTheme.calorie.title }]}>
+            Calorie Tracker
+          </Text>
           <View style={styles.calorieRow}>
             <View style={styles.calorieLeft}>
               <View style={styles.calorieStat}>
-                <Text style={styles.calorieLabel}>Daily Goal</Text>
-                <Text style={styles.calorieValue}>{profile.dailyCalorieGoal} cal</Text>
+                <Text style={[styles.calorieLabel, { color: healthTheme.calorie.label }]}>
+                  Daily Goal
+                </Text>
+                <Text style={[styles.calorieValue, { color: healthTheme.calorie.goal }]}>
+                  {profile.dailyCalorieGoal} cal
+                </Text>
               </View>
               <View style={styles.calorieStat}>
-                <Text style={styles.calorieLabel}>Consumed</Text>
-                <Text style={styles.calorieValue}>{caloriesConsumed} cal</Text>
+                <Text style={[styles.calorieLabel, { color: healthTheme.calorie.label }]}>
+                  Consumed
+                </Text>
+                <Text style={[styles.calorieValue, { color: healthTheme.calorie.consumed }]}>
+                  {caloriesConsumed} cal
+                </Text>
               </View>
             </View>
             <View style={styles.calorieRight}>
@@ -627,41 +768,61 @@ const HealthScreen = () => {
                   {
                     width: calorieCircleSize,
                     height: calorieCircleSize,
-                    borderColor: getRemainingColor(),
+                    borderColor: healthTheme.calorie.ring,
+                    backgroundColor: healthTheme.calorie.ringBg,
                   },
                 ]}
               >
                 <Text
                   style={[
                     styles.remainingText,
-                    { color: getRemainingColor() },
+                    { color: healthTheme.calorie.ring },
                   ]}
                 >
                   {Math.max(caloriesRemaining, 0)} cal
                 </Text>
-                <Text style={[styles.remainingSub, { color: getRemainingColor() }]}>
+                <Text style={[styles.remainingSub, { color: healthTheme.calorie.ring }]}>
                   Remaining
                 </Text>
               </View>
             </View>
           </View>
+        </Card>
 
-          {selectedHealth.foods && selectedHealth.foods.length > 0 && (
+        {/* Food Section */}
+        <Card
+          style={[
+            styles.sectionCard,
+            {
+              backgroundColor: healthTheme.food.card,
+              borderColor: healthTheme.food.border,
+            },
+          ]}
+        >
+          <Text style={[styles.sectionTitle, { color: healthTheme.food.title }]}>
+            Food for{' '}
+            {selectedDate.toDateString() === new Date().toDateString()
+              ? 'Today'
+              : selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+          </Text>
+          {selectedHealth.foods && selectedHealth.foods.length > 0 ? (
             <View style={styles.foodList}>
-              <Text style={styles.foodListTitle}>
-                Food for{' '}
-                {selectedDate.toDateString() === new Date().toDateString()
-                  ? 'Today'
-                  : selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-              </Text>
               {selectedHealth.foods.map((food, idx) => (
                 <View
                   key={food.id || food.timestamp || `${food.name}-${idx}`}
-                  style={styles.foodItem}
+                  style={[
+                    styles.foodItem,
+                    {
+                      backgroundColor: healthTheme.food.itemBg,
+                      borderColor: healthTheme.food.itemBorder,
+                    },
+                  ]}
                 >
                   <View style={styles.foodInfo}>
                     <Text style={styles.foodName}>{food.name}</Text>
-                    <Text style={styles.foodCal}>{food.calories} cal</Text>
+                    <Text style={[styles.foodCal, { color: healthTheme.food.title }]}>
+                      {food.calories} cal
+                    </Text>
                     <Text style={styles.foodMacros}>
                       Protein: {formatMacroValue(food.proteinGrams)} | Carbs: {formatMacroValue(food.carbsGrams)} | Fat: {formatMacroValue(food.fatGrams)}
                     </Text>
@@ -679,30 +840,44 @@ const HealthScreen = () => {
                     }}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
-                    <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                    <Ionicons name="trash-outline" size={18} color={themeColors.danger} />
                   </TouchableOpacity>
                 </View>
               ))}
             </View>
+          ) : (
+            <Text style={styles.foodEmpty}>No food logged yet.</Text>
           )}
 
           <TouchableOpacity
-            style={styles.logFoodButton}
+            style={[
+              styles.logFoodButton,
+              { borderColor: healthTheme.food.buttonBorder },
+            ]}
             onPress={() => setShowFoodModal(true)}
           >
-            <Ionicons name="add" size={18} color={colors.textSecondary} />
-            <Text style={styles.logFoodText}>Log Food</Text>
+            <Ionicons name="add" size={18} color={healthTheme.food.buttonText} />
+            <Text style={[styles.logFoodText, { color: healthTheme.food.buttonText }]}>
+              Log Food
+            </Text>
           </TouchableOpacity>
         </Card>
 
         {/* Mood Section */}
-        <Card style={styles.sectionCard}>
+        <Card
+          style={[
+            styles.sectionCard,
+            { backgroundColor: healthTheme.mood.card, borderColor: healthTheme.mood.border },
+          ]}
+        >
           <TouchableOpacity
             activeOpacity={0.9}
             onPress={openMoodPicker}
             style={styles.moodTouchable}
           >
-            <Text style={styles.sectionTitle}>How are you feeling?</Text>
+            <Text style={[styles.sectionTitle, { color: healthTheme.mood.title }]}>
+              How are you feeling?
+            </Text>
             {selectedHealth.mood ? (
               <View style={styles.moodSummary}>
                 <Text style={styles.moodSummaryEmoji}>
@@ -714,7 +889,7 @@ const HealthScreen = () => {
                 <Text style={styles.moodHint}>Tap to change</Text>
               </View>
             ) : (
-              <Text style={styles.moodPlaceholder}>
+              <Text style={[styles.moodPlaceholder, { color: healthTheme.mood.text }]}>
                 Check in your mood with us!
               </Text>
             )}
@@ -722,31 +897,48 @@ const HealthScreen = () => {
         </Card>
 
         {/* Sleep Section */}
-        <Card style={[styles.sectionCard]}>
-          <Text style={styles.sectionTitle}>Sleep</Text>
+        <Card
+          style={[
+            styles.sectionCard,
+            { backgroundColor: healthTheme.sleep.card, borderColor: healthTheme.sleep.border },
+          ]}
+        >
+          <Text style={[styles.sectionTitle, { color: healthTheme.sleep.title }]}>Sleep</Text>
           <View style={styles.sleepInputRow}>
             <View style={styles.sleepInput}>
               <Text style={styles.sleepLabel}>Sleep Time</Text>
               <TouchableOpacity
-                style={styles.timeButton}
+                style={[
+                  styles.timeButton,
+                  {
+                    backgroundColor: healthTheme.sleep.inputBg,
+                    borderColor: healthTheme.sleep.inputBorder,
+                  },
+                ]}
                 onPress={() => openSleepTimePicker('sleep')}
               >
                 <Text style={styles.timeButtonText}>
                   {sleepForm.sleepTime || '--:--'}
                 </Text>
-                <Ionicons name="time-outline" size={18} color={colors.textLight} />
+                <Ionicons name="time-outline" size={18} color={themeColors.textLight} />
               </TouchableOpacity>
             </View>
             <View style={styles.sleepInput}>
               <Text style={styles.sleepLabel}>Wake Time</Text>
               <TouchableOpacity
-                style={styles.timeButton}
+                style={[
+                  styles.timeButton,
+                  {
+                    backgroundColor: healthTheme.sleep.inputBg,
+                    borderColor: healthTheme.sleep.inputBorder,
+                  },
+                ]}
                 onPress={() => openSleepTimePicker('wake')}
               >
                 <Text style={styles.timeButtonText}>
                   {sleepForm.wakeTime || '--:--'}
                 </Text>
-                <Ionicons name="time-outline" size={18} color={colors.textLight} />
+                <Ionicons name="time-outline" size={18} color={themeColors.textLight} />
               </TouchableOpacity>
             </View>
           </View>
@@ -756,14 +948,22 @@ const HealthScreen = () => {
                 key={quality}
                 style={[
                   styles.qualityOption,
-                  sleepForm.sleepQuality === quality && styles.qualityOptionActive,
+                  { backgroundColor: healthTheme.sleep.chipBg },
+                  sleepForm.sleepQuality === quality && [
+                    styles.qualityOptionActive,
+                    { backgroundColor: healthTheme.sleep.chipActiveBg },
+                  ],
                 ]}
                 onPress={() => handleSleepQualitySelect(quality)}
               >
                 <Text
                   style={[
                     styles.qualityText,
-                    sleepForm.sleepQuality === quality && styles.qualityTextActive,
+                    { color: healthTheme.sleep.chipText },
+                    sleepForm.sleepQuality === quality && [
+                      styles.qualityTextActive,
+                      { color: healthTheme.sleep.chipActiveText },
+                    ],
                   ]}
                 >
                   {quality}
@@ -775,12 +975,24 @@ const HealthScreen = () => {
             title={isSavingSleep ? 'Saving...' : 'Submit'}
             onPress={handleSubmitSleepLog}
             disabled={isSavingSleep || !sleepForm.sleepTime || !sleepForm.wakeTime || !sleepForm.sleepQuality}
-            style={{ marginTop: spacing.md }}
+            style={[
+              styles.sleepSubmitButton,
+              { backgroundColor: healthTheme.sleep.chipActiveBg },
+            ]}
+            textStyle={styles.sleepSubmitText}
           />
           {selectedHealth.sleepTime && selectedHealth.wakeTime && (
             <View style={styles.sleepLogContainer}>
               <Text style={styles.sleepLogTitle}>Logged Sleep</Text>
-              <View style={styles.sleepLogCard}>
+              <View
+                style={[
+                  styles.sleepLogCard,
+                  {
+                    backgroundColor: healthTheme.sleep.logBg,
+                    borderColor: healthTheme.sleep.logBorder,
+                  },
+                ]}
+              >
                 <View style={styles.sleepLogRow}>
                   <Text style={styles.sleepLogLabel}>Sleep</Text>
                   <Text style={styles.sleepLogValue}>{selectedHealth.sleepTime}</Text>
@@ -813,21 +1025,30 @@ const HealthScreen = () => {
         />
 
         {/* Water Intake Section */}
-        <Card style={[styles.sectionCard, styles.lastCard]}>
+        <Card
+          style={[
+            styles.sectionCard,
+            styles.lastCard,
+            { backgroundColor: healthTheme.water.card, borderColor: healthTheme.water.border },
+          ]}
+        >
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Water Intake</Text>
-            <Text style={styles.waterCount}>
+            <Text style={[styles.sectionTitle, { color: healthTheme.water.title }]}>Water Intake</Text>
+            <Text style={[styles.waterCount, { color: healthTheme.water.count }]}>
               {formatWaterLitres(todayWaterLitres)} / {formatWaterLitres(normalizedWaterGoal)} L
             </Text>
           </View>
           <View style={styles.waterSummaryRow}>
             <Text style={styles.waterSummaryLabel}>Today's total</Text>
-            <Text style={styles.waterSummaryValue}>{formatWaterLitres(todayWaterLitres)} L</Text>
+            <Text style={[styles.waterSummaryValue, { color: healthTheme.water.count }]}>
+              {formatWaterLitres(todayWaterLitres)} L
+            </Text>
           </View>
-          <View style={styles.waterProgressBar}>
+          <View style={[styles.waterProgressBar, { backgroundColor: healthTheme.water.progressBg }]}>
             <View
               style={[
                 styles.waterProgressFill,
+                { backgroundColor: healthTheme.water.progressFill },
                 { width: `${Math.min(100, Math.max(0, waterProgress * 100))}%` },
               ]}
             />
@@ -839,14 +1060,29 @@ const HealthScreen = () => {
               onChangeText={setWaterInput}
               placeholder="e.g., 0.25"
               keyboardType="decimal-pad"
+              style={{
+                backgroundColor: healthTheme.water.inputBg,
+                borderColor: healthTheme.water.inputBorder,
+              }}
               containerStyle={styles.waterInput}
             />
-            <Button
-              title="Log Water"
-              icon="add"
+            <TouchableOpacity
               onPress={handleLogWater}
+              activeOpacity={0.85}
               style={styles.addWaterButton}
-            />
+            >
+              <LinearGradient
+                colors={healthTheme.water.buttonGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.waterButtonGradient}
+              >
+                <Ionicons name="add" size={18} color={healthTheme.water.buttonText} />
+                <Text style={[styles.addWaterButtonText, { color: healthTheme.water.buttonText }]}>
+                  Log Water
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
           </View>
         </Card>
       </PlatformScrollView>
@@ -1065,7 +1301,7 @@ const HealthScreen = () => {
                     ]}
                   >
                     <LinearGradient
-                      colors={isActive ? option.gradient : [colors.card, colors.card]}
+                    colors={isActive ? option.gradient : [themeColors.card, themeColors.card]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
                       style={styles.moodEmojiButtonGradient}
@@ -1105,10 +1341,10 @@ const HealthScreen = () => {
   );
 };
 
-const createStyles = () => StyleSheet.create({
+const createStyles = (themeColors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: themeColors.background,
   },
   scrollView: {
     flex: 1,
@@ -1126,15 +1362,19 @@ const createStyles = () => StyleSheet.create({
     flex: 1,
     marginHorizontal: spacing.xs,
     padding: spacing.md,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
   },
-  statHeader: {
-    flexDirection: 'row',
+  statIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
-    marginBottom: spacing.xs,
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
   },
   statLabel: {
     ...typography.caption,
-    marginLeft: spacing.xs,
   },
   statValue: {
     ...typography.h3,
@@ -1142,10 +1382,13 @@ const createStyles = () => StyleSheet.create({
   },
   statGoal: {
     ...typography.caption,
-    color: colors.textLight,
+    color: themeColors.textLight,
   },
   sectionCard: {
     marginBottom: spacing.lg,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    overflow: 'hidden',
   },
   lastCard: {
     marginBottom: spacing.xxxl,
@@ -1153,6 +1396,7 @@ const createStyles = () => StyleSheet.create({
   sectionTitle: {
     ...typography.h3,
     marginBottom: spacing.md,
+    color: themeColors.text,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -1170,7 +1414,7 @@ const createStyles = () => StyleSheet.create({
     borderRadius: borderRadius.md,
   },
   moodOptionActive: {
-    backgroundColor: colors.primaryLight,
+    backgroundColor: themeColors.primaryLight,
   },
   moodEmoji: {
     fontSize: 28,
@@ -1178,15 +1422,14 @@ const createStyles = () => StyleSheet.create({
   },
   moodLabel: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
   },
   moodLabelActive: {
-    color: colors.primary,
+    color: themeColors.primary,
     fontWeight: '600',
   },
   waterCount: {
     ...typography.body,
-    color: colors.info,
     fontWeight: '600',
   },
   waterSummaryRow: {
@@ -1197,22 +1440,23 @@ const createStyles = () => StyleSheet.create({
   },
   waterSummaryLabel: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
   },
   waterSummaryValue: {
     ...typography.body,
     fontWeight: '600',
+    color: themeColors.text,
   },
   waterProgressBar: {
     height: 10,
     borderRadius: borderRadius.sm,
-    backgroundColor: colors.inputBackground,
+    backgroundColor: themeColors.inputBackground,
     overflow: 'hidden',
     marginBottom: spacing.md,
   },
   waterProgressFill: {
     height: '100%',
-    backgroundColor: colors.info,
+    backgroundColor: themeColors.info,
   },
   waterActions: {
     marginTop: spacing.sm,
@@ -1222,6 +1466,20 @@ const createStyles = () => StyleSheet.create({
   },
   addWaterButton: {
     marginTop: spacing.sm,
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+  },
+  waterButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.lg,
+  },
+  addWaterButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    marginLeft: spacing.sm,
   },
   sleepInputRow: {
     flexDirection: 'row',
@@ -1234,6 +1492,7 @@ const createStyles = () => StyleSheet.create({
   sleepLabel: {
     ...typography.caption,
     marginBottom: spacing.xs,
+    color: themeColors.textSecondary,
   },
   timeButton: {
     flexDirection: 'row',
@@ -1243,12 +1502,12 @@ const createStyles = () => StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderRadius: borderRadius.md,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.inputBackground,
+    borderColor: themeColors.border,
+    backgroundColor: themeColors.inputBackground,
   },
   timeButtonText: {
     ...typography.body,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
   },
   sleepQualityRow: {
     flexDirection: 'row',
@@ -1259,12 +1518,13 @@ const createStyles = () => StyleSheet.create({
   sleepLogTitle: {
     ...typography.label,
     marginBottom: spacing.sm,
+    color: themeColors.text,
   },
   sleepLogCard: {
     borderRadius: borderRadius.md,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.inputBackground,
+    borderColor: themeColors.border,
+    backgroundColor: themeColors.inputBackground,
     padding: spacing.md,
   },
   sleepLogRow: {
@@ -1274,10 +1534,18 @@ const createStyles = () => StyleSheet.create({
   },
   sleepLogLabel: {
     ...typography.bodySmall,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
   },
   sleepLogValue: {
     ...typography.body,
+    fontWeight: '600',
+    color: themeColors.text,
+  },
+  sleepSubmitButton: {
+    marginTop: spacing.md,
+  },
+  sleepSubmitText: {
+    color: '#FFFFFF',
     fontWeight: '600',
   },
   qualityOption: {
@@ -1285,15 +1553,17 @@ const createStyles = () => StyleSheet.create({
     paddingVertical: spacing.sm,
     alignItems: 'center',
     borderRadius: borderRadius.md,
-    backgroundColor: colors.inputBackground,
+    backgroundColor: themeColors.inputBackground,
     marginHorizontal: spacing.xs,
+    borderWidth: 1,
+    borderColor: themeColors.border,
   },
   qualityOptionActive: {
-    backgroundColor: colors.primary,
+    backgroundColor: themeColors.primary,
   },
   qualityText: {
     ...typography.bodySmall,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
   },
   qualityTextActive: {
     color: '#FFFFFF',
@@ -1304,19 +1574,20 @@ const createStyles = () => StyleSheet.create({
   },
   calorieStat: {
     flex: 1,
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   calorieLabel: {
     ...typography.caption,
     marginBottom: spacing.xs,
+    color: themeColors.textSecondary,
   },
   calorieValue: {
     ...typography.body,
     fontWeight: '600',
-    color: colors.success,
+    color: themeColors.text,
   },
   calorieOverLimit: {
-    color: colors.danger,
+    color: themeColors.danger,
   },
   calorieRow: {
     flexDirection: 'row',
@@ -1337,7 +1608,7 @@ const createStyles = () => StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.inputBackground,
+    backgroundColor: themeColors.inputBackground,
     padding: spacing.sm,
   },
   remainingText: {
@@ -1353,34 +1624,40 @@ const createStyles = () => StyleSheet.create({
   },
   foodList: {
     marginBottom: spacing.md,
-    paddingTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.divider,
+    paddingTop: 0,
   },
   foodListTitle: {
     ...typography.label,
     marginBottom: spacing.sm,
   },
+  foodEmpty: {
+    ...typography.bodySmall,
+    color: themeColors.textSecondary,
+    marginBottom: spacing.md,
+  },
   foodItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.sm,
   },
   foodInfo: {
     flex: 1,
   },
   foodName: {
     ...typography.body,
+    color: themeColors.text,
   },
   foodCal: {
     ...typography.bodySmall,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
   },
   foodMacros: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
     marginTop: 2,
   },
   logFoodButton: {
@@ -1390,12 +1667,12 @@ const createStyles = () => StyleSheet.create({
     paddingVertical: spacing.md,
     borderRadius: borderRadius.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: themeColors.border,
     borderStyle: 'dashed',
   },
   logFoodText: {
     ...typography.body,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
     marginLeft: spacing.sm,
   },
   dateSwitcher: {
@@ -1406,10 +1683,12 @@ const createStyles = () => StyleSheet.create({
   },
   dateSwitchButton: {
     padding: spacing.xs,
+    borderRadius: borderRadius.full,
   },
   dateLabel: {
     ...typography.body,
     fontWeight: '600',
+    color: themeColors.text,
   },
   moodTouchable: {
     paddingVertical: spacing.sm,
@@ -1425,15 +1704,16 @@ const createStyles = () => StyleSheet.create({
     ...typography.body,
     marginTop: spacing.xs,
     fontWeight: '600',
+    color: themeColors.text,
   },
   moodHint: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
     marginTop: spacing.xs,
   },
   moodPlaceholder: {
     ...typography.body,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
     marginTop: spacing.sm,
   },
   moodModalContent: {
@@ -1555,8 +1835,8 @@ const createStyles = () => StyleSheet.create({
     borderRadius: borderRadius.lg,
     overflow: 'hidden',
     borderWidth: 2,
-    borderColor: colors.border,
-    backgroundColor: colors.inputBackground,
+    borderColor: themeColors.border,
+    backgroundColor: themeColors.inputBackground,
   },
   scannerOverlayTop: {
     flex: 1,
@@ -1580,18 +1860,18 @@ const createStyles = () => StyleSheet.create({
     width: '60%',
     height: '100%',
     borderWidth: 2,
-    borderColor: colors.primary,
+    borderColor: themeColors.primary,
     borderRadius: borderRadius.md,
   },
   scannerHint: {
     ...typography.bodySmall,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
     marginTop: spacing.md,
     textAlign: 'center',
   },
   scannerMessageText: {
     ...typography.bodySmall,
-    color: colors.text,
+    color: themeColors.text,
     marginTop: spacing.sm,
     textAlign: 'center',
   },
@@ -1603,3 +1883,4 @@ const createStyles = () => StyleSheet.create({
 });
 
 export default HealthScreen;
+

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -49,11 +50,70 @@ const HabitsScreen = () => {
     groupHabitCompletions,
     authUser,
     isPremiumUser,
+    themeName,
     themeColors,
     streakFrozen,
     ensureHabitsLoaded,
   } = useApp();
-  const styles = useMemo(() => createStyles(), [themeColors]);
+  const isDark = themeName === 'dark';
+  const habitTheme = useMemo(() => {
+    const streakAccent = streakFrozen ? '#4DA6FF' : '#FF7A2F';
+    return {
+      background: isDark ? themeColors.background : '#F7F2FF',
+      addGradient: ['#A855F7', '#EC4899'],
+      stats: {
+        streak: {
+          card: isDark ? '#1F1B2A' : '#FFF3E7',
+          border: isDark ? '#2E2938' : '#FFE3CC',
+          iconBg: isDark ? '#3A2A1F' : '#FFE2CC',
+          iconColor: streakAccent,
+          label: isDark ? '#C8C4D8' : themeColors.textSecondary,
+          value: streakAccent,
+        },
+        today: {
+          card: isDark ? '#1F1B2F' : '#F3EDFF',
+          border: isDark ? '#2E2940' : '#E2D3FF',
+          iconBg: isDark ? '#3B2B55' : '#E7D8FF',
+          iconColor: isDark ? '#C084FC' : themeColors.primary,
+          label: isDark ? '#C8C4D8' : themeColors.textSecondary,
+          value: isDark ? '#E9D5FF' : themeColors.primary,
+        },
+        total: {
+          card: isDark ? '#1A2422' : '#ECFBF3',
+          border: isDark ? '#263634' : '#CFF3E0',
+          iconBg: isDark ? '#243832' : '#D6F6E6',
+          iconColor: isDark ? '#34D399' : themeColors.success,
+          label: isDark ? '#C1D5CE' : themeColors.textSecondary,
+          value: isDark ? '#6EE7B7' : themeColors.success,
+        },
+      },
+      filterIconBg: isDark ? '#1B1A24' : '#FFFFFF',
+      filterIconBorder: isDark ? '#2F2C3C' : '#E6D9FF',
+      filterIconColor: isDark ? '#C8C4D8' : themeColors.textSecondary,
+      filterChipBg: isDark ? '#1B1A24' : '#FFFFFF',
+      filterChipBorder: isDark ? '#2F2C3C' : '#E6D9FF',
+      filterChipActiveBg: isDark ? '#3A2B4F' : '#F4E9FF',
+      filterChipActiveBorder: isDark ? '#6B46C1' : '#CDB3FF',
+      filterChipText: isDark ? '#C8C4D8' : themeColors.textSecondary,
+      filterChipTextActive: isDark ? '#F1E8FF' : themeColors.primary,
+      cardBg: isDark ? '#1A1722' : '#FFFFFF',
+      cardBorder: isDark ? '#2B2735' : '#EFE4FF',
+      categoryTitle: isDark ? '#D8B4FE' : themeColors.primary,
+      itemBg: isDark ? '#241F2E' : '#F9F2FF',
+      itemBorder: isDark ? '#3A3446' : '#EAD9FF',
+      itemText: isDark ? '#E9E5F4' : themeColors.text,
+      itemMuted: isDark ? '#9C97B2' : themeColors.textLight,
+      streakBadgeBg: isDark ? '#3B2B20' : '#FFE7D1',
+      streakBadgeBorder: isDark ? '#6B3F2A' : '#FFC7A1',
+      streakBadgeText: isDark ? '#FFB37A' : '#FF7A2F',
+      groupCardBg: isDark ? '#1C1E28' : '#FFFFFF',
+      groupCardBorder: isDark ? '#2E3040' : '#E7E1FF',
+      groupRowBg: isDark ? '#232638' : '#F6F0FF',
+      groupRowBorder: isDark ? '#3A3E52' : '#E2D7FF',
+      groupMeta: isDark ? '#B0B2C4' : themeColors.textSecondary,
+    };
+  }, [isDark, themeColors, streakFrozen]);
+  const styles = useMemo(() => createStyles(themeColors), [themeColors]);
 
   useEffect(() => {
     ensureHabitsLoaded();
@@ -80,6 +140,9 @@ const HabitsScreen = () => {
   const todayCount = getTodayHabitsCount();
   const streakFlameColor = streakFrozen ? '#4da6ff' : '#ff4d4f';
   const streakFlameBackground = streakFrozen ? 'rgba(77, 166, 255, 0.12)' : 'rgba(255, 77, 79, 0.12)';
+  const streakValueColor = habitTheme.stats.streak.value;
+  const todayValueColor = habitTheme.stats.today.value;
+  const totalValueColor = habitTheme.stats.total.value;
   const selectedCompleted = selectedHabit ? isHabitCompletedToday(selectedHabit.id) : false;
   const todayKey = new Date().toISOString().slice(0, 10);
 
@@ -283,7 +346,7 @@ const HabitsScreen = () => {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: habitTheme.background }]}>
       <PlatformScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -291,53 +354,137 @@ const HabitsScreen = () => {
       >
         {/* Stats Row */}
         <View style={styles.statsRow}>
-          <Card style={styles.statCard}>
-            <View style={styles.statContent}>
-              <Ionicons name="flame" size={16} color={streakFlameColor} style={styles.statIcon} />
-              <Text style={styles.statLabel}>Best Streak</Text>
+          <Card
+            style={[
+              styles.statCard,
+              {
+                backgroundColor: habitTheme.stats.streak.card,
+                borderColor: habitTheme.stats.streak.border,
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.statIconWrap,
+                { backgroundColor: habitTheme.stats.streak.iconBg },
+              ]}
+            >
+              <Ionicons name="flame" size={16} color={habitTheme.stats.streak.iconColor} />
             </View>
-            <Text style={styles.statValue}>{bestStreak} days</Text>
+            <Text style={[styles.statLabel, { color: habitTheme.stats.streak.label }]}>
+              Best Streak
+            </Text>
+            <Text style={[styles.statValue, { color: streakValueColor }]}>
+              {bestStreak} days
+            </Text>
           </Card>
-          <Card style={styles.statCard}>
-            <View style={styles.statContent}>
-              <Feather name="target" size={16} color={colors.habits} />
-              <Text style={styles.statLabel}>Today</Text>
+          <Card
+            style={[
+              styles.statCard,
+              {
+                backgroundColor: habitTheme.stats.today.card,
+                borderColor: habitTheme.stats.today.border,
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.statIconWrap,
+                { backgroundColor: habitTheme.stats.today.iconBg },
+              ]}
+            >
+              <Feather name="target" size={16} color={habitTheme.stats.today.iconColor} />
             </View>
-            <Text style={styles.statValue}>{todayCount}</Text>
+            <Text style={[styles.statLabel, { color: habitTheme.stats.today.label }]}>
+              Today
+            </Text>
+            <Text style={[styles.statValue, { color: todayValueColor }]}>
+              {todayCount}
+            </Text>
           </Card>
-          <Card style={styles.statCard}>
-            <View style={styles.statContent}>
-              <Ionicons name="trending-up" size={16} color={colors.success} />
-              <Text style={styles.statLabel}>Total</Text>
+          <Card
+            style={[
+              styles.statCard,
+              {
+                backgroundColor: habitTheme.stats.total.card,
+                borderColor: habitTheme.stats.total.border,
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.statIconWrap,
+                { backgroundColor: habitTheme.stats.total.iconBg },
+              ]}
+            >
+              <Ionicons name="trending-up" size={16} color={habitTheme.stats.total.iconColor} />
             </View>
-            <Text style={styles.statValue}>{habits.length}</Text>
+            <Text style={[styles.statLabel, { color: habitTheme.stats.total.label }]}>
+              Total
+            </Text>
+            <Text style={[styles.statValue, { color: totalValueColor }]}>
+              {habits.length}
+            </Text>
           </Card>
         </View>
 
         {/* Add Habit Button */}
-        <Button
-          title="Add Habit"
-          icon="add"
-          onPress={() => setShowAddModal(true)}
+        <TouchableOpacity
           style={styles.addButton}
-        />
+          onPress={() => setShowAddModal(true)}
+          activeOpacity={0.85}
+        >
+          <LinearGradient
+            colors={habitTheme.addGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.addHabitGradient}
+          >
+            <Ionicons name="add" size={20} color="#FFFFFF" />
+            <Text style={styles.addHabitText}>Add Habit</Text>
+          </LinearGradient>
+        </TouchableOpacity>
 
         {/* Filter Row */}
         <View style={styles.filterRow}>
-          <Ionicons name="filter-outline" size={18} color={colors.textLight} />
+          <View
+            style={[
+              styles.filterIcon,
+              {
+                backgroundColor: habitTheme.filterIconBg,
+                borderColor: habitTheme.filterIconBorder,
+              },
+            ]}
+          >
+            <Ionicons name="options-outline" size={18} color={habitTheme.filterIconColor} />
+          </View>
           {['Latest Added', 'A-Z', 'Repeat'].map((filter) => (
             <TouchableOpacity
               key={filter}
               style={[
                 styles.filterChip,
-                filterType === filter && styles.filterChipActive,
+                {
+                  backgroundColor: habitTheme.filterChipBg,
+                  borderColor: habitTheme.filterChipBorder,
+                },
+                filterType === filter && [
+                  styles.filterChipActive,
+                  {
+                    backgroundColor: habitTheme.filterChipActiveBg,
+                    borderColor: habitTheme.filterChipActiveBorder,
+                  },
+                ],
               ]}
               onPress={() => setFilterType(filter)}
             >
               <Text
                 style={[
                   styles.filterText,
-                  filterType === filter && styles.filterTextActive,
+                  { color: habitTheme.filterChipText },
+                  filterType === filter && [
+                    styles.filterTextActive,
+                    { color: habitTheme.filterChipTextActive },
+                  ],
                 ]}
               >
                 {filter}
@@ -347,10 +494,18 @@ const HabitsScreen = () => {
         </View>
 
         {/* Habits List */}
-        <Card style={styles.habitsCard}>
+        <Card
+          style={[
+            styles.habitsCard,
+            {
+              backgroundColor: habitTheme.cardBg,
+              borderColor: habitTheme.cardBorder,
+            },
+          ]}
+        >
           {habits.length === 0 ? (
             <View style={styles.emptyState}>
-              <Feather name="target" size={48} color={colors.primaryLight} />
+              <Feather name="target" size={48} color={habitTheme.categoryTitle} />
               <Text style={styles.emptyTitle}>No habits yet. Start building your routines!</Text>
               <TouchableOpacity onPress={() => setShowAddModal(true)}>
                 <Text style={styles.emptyAction}>Create Your First Habit</Text>
@@ -359,19 +514,28 @@ const HabitsScreen = () => {
           ) : (
             Object.entries(habitsByCategory).map(([category, categoryHabits]) => (
               <View key={category} style={styles.categorySection}>
-                <Text style={styles.categoryTitle}>{category}</Text>
+                <Text style={[styles.categoryTitle, { color: habitTheme.categoryTitle }]}>
+                  {category}
+                </Text>
                 {categoryHabits.map((habit) => {
                   const isCompleted = isHabitCompletedToday(habit.id);
                   return (
                     <TouchableOpacity
                       key={habit.id}
-                      style={styles.habitItem}
+                      style={[
+                        styles.habitItem,
+                        {
+                          backgroundColor: habitTheme.itemBg,
+                          borderColor: habitTheme.itemBorder,
+                        },
+                      ]}
                       onPress={() => handleHabitPress(habit)}
                       activeOpacity={0.7}
                     >
                       <TouchableOpacity
                         style={[
                           styles.checkbox,
+                          { borderColor: habitTheme.itemBorder },
                           isCompleted && styles.checkboxChecked,
                         ]}
                         onPress={() => toggleHabitCompletion(habit.id)}
@@ -383,6 +547,7 @@ const HabitsScreen = () => {
                       <Text
                         style={[
                           styles.habitTitle,
+                          { color: habitTheme.itemText },
                           isCompleted && styles.habitTitleCompleted,
                         ]}
                       >
@@ -393,19 +558,25 @@ const HabitsScreen = () => {
                           style={[
                             styles.streakBadge,
                             streakFrozen && styles.streakBadgeFrozen,
-                            { backgroundColor: streakFrozen ? streakFlameBackground : colors.primaryLight },
+                            {
+                              backgroundColor: streakFrozen
+                                ? streakFlameBackground
+                                : habitTheme.streakBadgeBg,
+                              borderColor: habitTheme.streakBadgeBorder,
+                            },
                           ]}
                         >
                           <Ionicons
                             name="flame"
                             size={14}
-                            color={streakFlameColor}
+                            color={streakFrozen ? streakFlameColor : habitTheme.streakBadgeText}
                             style={styles.streakBadgeIcon}
                           />
                           <Text
                             style={[
                               styles.streakText,
                               streakFrozen && styles.streakTextFrozen,
+                              !streakFrozen && { color: habitTheme.streakBadgeText },
                             ]}
                           >
                             {habit.streak}
@@ -421,10 +592,19 @@ const HabitsScreen = () => {
         </Card>
 
         {groups.length > 0 ? (
-          <Card style={styles.groupCard}>
+          <Card
+            style={[
+              styles.groupCard,
+              { backgroundColor: habitTheme.groupCardBg, borderColor: habitTheme.groupCardBorder },
+            ]}
+          >
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Group habits</Text>
-              <Text style={styles.sectionMeta}>{groupHabits.length} total</Text>
+              <Text style={[styles.sectionTitle, { color: habitTheme.categoryTitle }]}>
+                Group habits
+              </Text>
+              <Text style={[styles.sectionMeta, { color: habitTheme.groupMeta }]}>
+                {groupHabits.length} total
+              </Text>
             </View>
             {groupHabits.length === 0 ? (
               <Text style={styles.emptyText}>No group habits yet. Share one when creating a habit.</Text>
@@ -435,25 +615,44 @@ const HabitsScreen = () => {
                 const memberCount = group.members?.length || 1;
                 return (
                   <View key={group.id} style={styles.groupSection}>
-                    <Text style={styles.groupName}>{group.name}</Text>
+                    <Text style={[styles.groupName, { color: habitTheme.itemText }]}>
+                      {group.name}
+                    </Text>
                     {groupList.map((habit) => {
                       const completions = groupHabitCompletions[habit.id] || [];
                       const todayCompletions = completions.filter((c) => c.date === todayKey);
                       const completedByMe = todayCompletions.some((c) => c.userId === authUser?.id);
 
                       return (
-                        <View key={habit.id} style={styles.groupHabitRow}>
+                        <View
+                          key={habit.id}
+                          style={[
+                            styles.groupHabitRow,
+                            {
+                              backgroundColor: habitTheme.groupRowBg,
+                              borderColor: habitTheme.groupRowBorder,
+                            },
+                          ]}
+                        >
                           <View style={styles.groupHabitText}>
-                            <Text style={styles.groupHabitTitle}>{habit.title}</Text>
+                            <Text style={[styles.groupHabitTitle, { color: habitTheme.itemText }]}>
+                              {habit.title}
+                            </Text>
                             {habit.description ? (
-                              <Text style={styles.groupHabitMeta}>{habit.description}</Text>
+                              <Text style={[styles.groupHabitMeta, { color: habitTheme.groupMeta }]}>
+                                {habit.description}
+                              </Text>
                             ) : null}
-                            <Text style={styles.groupHabitMeta}>
+                            <Text style={[styles.groupHabitMeta, { color: habitTheme.groupMeta }]}>
                               {todayCompletions.length}/{memberCount} completed today
                             </Text>
                           </View>
                           <TouchableOpacity
-                            style={[styles.checkbox, completedByMe && styles.checkboxChecked]}
+                            style={[
+                              styles.checkbox,
+                              { borderColor: habitTheme.groupRowBorder },
+                              completedByMe && styles.checkboxChecked,
+                            ]}
                             onPress={() => toggleGroupHabitCompletion(habit.id)}
                           >
                             {completedByMe ? (
@@ -759,10 +958,10 @@ const HabitsScreen = () => {
   );
 };
 
-const createStyles = () => StyleSheet.create({
+const createStyles = (themeColors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: themeColors.background,
   },
   scrollView: {
     flex: 1,
@@ -780,31 +979,55 @@ const createStyles = () => StyleSheet.create({
     flex: 1,
     marginHorizontal: spacing.xs,
     padding: spacing.md,
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
   },
-  statContent: {
-    flexDirection: 'row',
+  statIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
-    marginBottom: spacing.xs,
-  },
-  statIcon: {
-    fontSize: 14,
-    marginRight: spacing.xs,
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
   },
   statLabel: {
     ...typography.caption,
-    marginLeft: spacing.xs,
+    marginBottom: spacing.xs,
   },
   statValue: {
     ...typography.h3,
+    fontWeight: '700',
   },
   addButton: {
     marginBottom: spacing.lg,
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+  },
+  addHabitGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
+  },
+  addHabitText: {
+    ...typography.body,
+    color: '#FFFFFF',
+    fontWeight: '600',
+    marginLeft: spacing.sm,
   },
   filterRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: spacing.lg,
+  },
+  filterIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -817,31 +1040,33 @@ const createStyles = () => StyleSheet.create({
   },
   sectionMeta: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
   },
   filterChip: {
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.md,
     marginLeft: spacing.sm,
     borderRadius: borderRadius.full,
-    backgroundColor: colors.inputBackground,
+    borderWidth: 1,
   },
   filterChipActive: {
-    backgroundColor: colors.primaryLight,
+    borderWidth: 1,
   },
   filterText: {
     ...typography.bodySmall,
-    color: colors.textSecondary,
   },
   filterTextActive: {
-    color: colors.primary,
     fontWeight: '600',
   },
   habitsCard: {
     minHeight: 200,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
   },
   groupCard: {
     marginTop: spacing.md,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
   },
   groupSection: {
     marginBottom: spacing.md,
@@ -856,8 +1081,10 @@ const createStyles = () => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.sm,
   },
   groupHabitText: {
     flex: 1,
@@ -868,22 +1095,27 @@ const createStyles = () => StyleSheet.create({
   },
   groupHabitMeta: {
     ...typography.bodySmall,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
     marginTop: 2,
   },
   emptyState: {
     alignItems: 'center',
     paddingVertical: spacing.xxxl,
   },
+  emptyText: {
+    ...typography.bodySmall,
+    color: themeColors.textSecondary,
+    marginTop: spacing.sm,
+  },
   emptyTitle: {
     ...typography.body,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
     textAlign: 'center',
     marginTop: spacing.lg,
   },
   emptyAction: {
     ...typography.body,
-    color: colors.primary,
+    color: themeColors.primary,
     fontWeight: '600',
     marginTop: spacing.md,
   },
@@ -892,29 +1124,30 @@ const createStyles = () => StyleSheet.create({
   },
   categoryTitle: {
     ...typography.label,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
     marginBottom: spacing.sm,
   },
   habitItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.sm,
   },
   checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     borderWidth: 2,
-    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: spacing.md,
   },
   checkboxChecked: {
-    backgroundColor: colors.success,
-    borderColor: colors.success,
+    backgroundColor: themeColors.success,
+    borderColor: themeColors.success,
   },
   habitTitle: {
     flex: 1,
@@ -922,15 +1155,15 @@ const createStyles = () => StyleSheet.create({
   },
   habitTitleCompleted: {
     textDecorationLine: 'line-through',
-    color: colors.textLight,
+    color: themeColors.textLight,
   },
   streakBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
-    backgroundColor: colors.primaryLight,
     borderRadius: borderRadius.full,
+    borderWidth: 1,
   },
   streakBadgeFrozen: {
     backgroundColor: 'rgba(77, 166, 255, 0.12)',
@@ -1170,3 +1403,4 @@ const createStyles = () => StyleSheet.create({
 });
 
 export default HabitsScreen;
+

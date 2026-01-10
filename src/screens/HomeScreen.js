@@ -61,14 +61,78 @@ const HomeScreen = () => {
     ensureHomeDataLoaded,
     ensureFriendDataLoaded,
     ensureTaskInvitesLoaded,
+    themeName,
   } = useApp();
   const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
+  const isDark = themeName === 'dark';
   const isPremium = React.useMemo(() => {
     const plan = (profile?.plan || '').toString().toLowerCase();
     const expiresAt = profile?.premium_expires_at ? new Date(profile.premium_expires_at) : null;
     const stillActive = expiresAt ? expiresAt > new Date() : false;
     return !!(profile?.isPremium || plan === 'premium' || plan === 'paid' || stillActive);
   }, [profile]);
+
+  const sectionListTheme = React.useMemo(
+    () => ({
+      reminders: {
+        gradient: isDark ? ['#C56B1C', '#8E3E00'] : ['#FF8B1E', '#FF6A00'],
+        border: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.25)',
+        iconBg: 'rgba(255,255,255,0.22)',
+        iconColor: '#FFFFFF',
+        text: '#FFFFFF',
+        meta: 'rgba(255,255,255,0.8)',
+        itemBg: 'rgba(255,255,255,0.2)',
+      },
+      overview: {
+        gradient: isDark ? ['#3E52E3', '#2830A6'] : ['#5573FF', '#3E4BFF'],
+        border: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.22)',
+        iconBg: 'rgba(255,255,255,0.2)',
+        iconColor: '#FFFFFF',
+        text: '#FFFFFF',
+        meta: 'rgba(255,255,255,0.78)',
+        dot: '#FFFFFF',
+      },
+      notes: {
+        card: isDark ? '#12131C' : '#FFFFFF',
+        border: isDark ? '#26293B' : '#EEE6FF',
+        iconBg: isDark ? '#211E33' : '#F3E8FF',
+        iconColor: isDark ? '#C084FC' : '#A855F7',
+        itemBg: isDark ? '#1A1C2C' : '#F7F1FF',
+        itemBorder: isDark ? '#2D3248' : '#EFE5FF',
+        text: themeColors.text,
+        meta: isDark ? '#C7C9D9' : themeColors.textSecondary,
+        lock: isDark ? '#C084FC' : '#A855F7',
+      },
+      health: {
+        gradient: isDark ? ['#D81B60', '#A80F44'] : ['#FF3B8D', '#FF1F7A'],
+        border: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.25)',
+        iconBg: 'rgba(255,255,255,0.2)',
+        iconColor: '#FFFFFF',
+        text: '#FFFFFF',
+        meta: 'rgba(255,255,255,0.82)',
+      },
+      habits: {
+        card: isDark ? '#12131C' : '#FFFFFF',
+        border: isDark ? '#2B2D40' : '#EEE6FF',
+        iconBg: isDark ? '#231B33' : '#EFE5FF',
+        iconColor: isDark ? '#C084FC' : '#8B5CF6',
+        bullet: isDark ? '#C084FC' : '#8B5CF6',
+        text: themeColors.text,
+        meta: isDark ? '#C7C9D9' : themeColors.textSecondary,
+      },
+      chores: {
+        card: isDark ? '#111A14' : '#FFFFFF',
+        border: isDark ? '#213528' : '#DFF4E7',
+        iconBg: isDark ? '#1B2B21' : '#E3F7EA',
+        iconColor: isDark ? '#6EE7B7' : '#22C55E',
+        bulletBg: isDark ? '#1F3327' : '#E9FBF1',
+        bulletColor: isDark ? '#6EE7B7' : '#16A34A',
+        text: themeColors.text,
+        meta: isDark ? '#C7D7CE' : themeColors.textSecondary,
+      },
+    }),
+    [isDark, themeColors]
+  );
 
   const today = new Date();
   const formattedDate = today.toLocaleDateString('en-US', {
@@ -477,30 +541,73 @@ const HomeScreen = () => {
 
         {/* Upcoming Reminders */}
         <Card
-          style={[styles.sectionCard, styles.remindersCard]}
+          style={[styles.sectionCard, styles.sectionCardGradient]}
           onPress={() => navigation.navigate('Routine')}
         >
-          <View style={styles.cardHeader}>
-            <Text style={[styles.cardTitle, styles.remindersTitle]}>Reminders</Text>
-            <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
+          <LinearGradient
+            colors={sectionListTheme.reminders.gradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.sectionGradient, { borderColor: sectionListTheme.reminders.border }]}
+          >
+            <View style={styles.sectionContent}>
+          <View style={styles.sectionListHeader}>
+            <View style={styles.sectionListTitleRow}>
+              <View
+                style={[
+                  styles.sectionListIcon,
+                  { backgroundColor: sectionListTheme.reminders.iconBg },
+                ]}
+              >
+                <Ionicons
+                  name="notifications-outline"
+                  size={16}
+                  color={sectionListTheme.reminders.iconColor}
+                />
+              </View>
+              <Text style={[styles.sectionListTitle, { color: sectionListTheme.reminders.text }]}>
+                Reminders
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={sectionListTheme.reminders.text} />
           </View>
           {upcomingReminders.length === 0 ? (
-            <Text style={[styles.emptyText, styles.remindersText]}>No reminders available</Text>
+            <Text style={[styles.emptyText, { color: sectionListTheme.reminders.meta }]}>
+              No reminders available
+            </Text>
           ) : (
             <View style={styles.reminderList}>
               {upcomingReminders.map((reminder) => (
-                <View key={reminder.id} style={styles.reminderItem}>
-                  <View style={styles.reminderIcon}>
-                    <Ionicons name="notifications-outline" size={18} color="#FFFFFF" />
+                <View
+                  key={reminder.id}
+                  style={[
+                    styles.reminderPill,
+                    { backgroundColor: sectionListTheme.reminders.itemBg },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.reminderPillIcon,
+                      { backgroundColor: sectionListTheme.reminders.iconBg },
+                    ]}
+                  >
+                    <Ionicons
+                      name="notifications"
+                      size={14}
+                      color={sectionListTheme.reminders.iconColor}
+                    />
                   </View>
                   <View style={styles.reminderContent}>
-                    <Text style={[styles.reminderTitle, styles.remindersText]} numberOfLines={1}>
+                    <Text
+                      style={[styles.reminderTitle, { color: sectionListTheme.reminders.text }]}
+                      numberOfLines={1}
+                    >
                       {reminder.title}
                     </Text>
                     {(reminder.date || reminder.time) && (
-                      <Text style={[styles.reminderMeta, styles.remindersMeta]}>
+                      <Text style={[styles.reminderMeta, { color: sectionListTheme.reminders.meta }]}>
                         {reminder.date}
-                        {reminder.time ? ` • ${reminder.time}` : ''}
+                        {reminder.time ? ` - ${reminder.time}` : ''}
                       </Text>
                     )}
                   </View>
@@ -508,63 +615,121 @@ const HomeScreen = () => {
               ))}
             </View>
           )}
+            </View>
+          </LinearGradient>
         </Card>
 
         {/* Today's Overview */}
         <Card
-          style={[styles.sectionCard, styles.tasksOverviewCard]}
+          style={[styles.sectionCard, styles.sectionCardGradient]}
           onPress={() => navigation.navigate('Tasks')}
         >
-          <View style={styles.cardHeader}>
-            <Text style={[styles.cardTitle, styles.tasksOverviewTitle]}>Today's Overview</Text>
-            <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
+          <LinearGradient
+            colors={sectionListTheme.overview.gradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.sectionGradient, { borderColor: sectionListTheme.overview.border }]}
+          >
+            <View style={styles.sectionContent}>
+          <View style={styles.sectionListHeader}>
+            <View style={styles.sectionListTitleRow}>
+              <View
+                style={[
+                  styles.sectionListIcon,
+                  { backgroundColor: sectionListTheme.overview.iconBg },
+                ]}
+              >
+                <Ionicons name="calendar" size={16} color={sectionListTheme.overview.iconColor} />
+              </View>
+              <Text style={[styles.sectionListTitle, { color: sectionListTheme.overview.text }]}>
+                Today's Overview
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={sectionListTheme.overview.text} />
           </View>
-          <Text style={[styles.dateText, styles.tasksOverviewMeta]}>{formattedDate}</Text>
+          <Text style={[styles.dateText, { color: sectionListTheme.overview.meta }]}>
+            {formattedDate}
+          </Text>
           {todayTasks.length > 0 ? (
             <View style={styles.tasksList}>
               {todayTasks.slice(0, 3).map((task) => (
                 <View key={task.id} style={styles.taskItem}>
-                  <View style={[styles.taskDot, styles.tasksOverviewDot]} />
-                  <Text style={[styles.taskText, styles.tasksOverviewText]} numberOfLines={1}>
+                  <View
+                    style={[
+                      styles.taskDot,
+                      { backgroundColor: sectionListTheme.overview.dot },
+                    ]}
+                  />
+                  <Text style={[styles.taskText, { color: sectionListTheme.overview.text }]} numberOfLines={1}>
                     {task.title}
                   </Text>
                   {task.time && (
-                    <Text style={[styles.taskTime, styles.tasksOverviewMeta]}>{task.time}</Text>
+                    <Text style={[styles.taskTime, { color: sectionListTheme.overview.meta }]}>{task.time}</Text>
                   )}
                 </View>
               ))}
             </View>
           ) : (
-            <Text style={[styles.emptyText, styles.tasksOverviewText]}>No tasks scheduled for today</Text>
+            <Text style={[styles.emptyText, { color: sectionListTheme.overview.text }]}>
+              No tasks scheduled for today
+            </Text>
           )}
+            </View>
+          </LinearGradient>
         </Card>
 
         {/* Quick Notes */}
-        <Card style={[styles.sectionCard, styles.quickNotesCard]}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>Quick Notes</Text>
-            <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+        <Card
+          style={[
+            styles.sectionCard,
+            styles.sectionCardFlat,
+            { backgroundColor: sectionListTheme.notes.card, borderColor: sectionListTheme.notes.border },
+          ]}
+        >
+          <View style={styles.sectionListHeader}>
+            <View style={styles.sectionListTitleRow}>
+              <View
+                style={[
+                  styles.sectionListIcon,
+                  { backgroundColor: sectionListTheme.notes.iconBg },
+                ]}
+              >
+                <Ionicons name="document-text" size={16} color={sectionListTheme.notes.iconColor} />
+              </View>
+              <Text style={[styles.sectionListTitle, { color: sectionListTheme.notes.text }]}>
+                Quick Notes
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={sectionListTheme.notes.meta} />
           </View>
           {sortedNotes.length === 0 ? (
-            <Text style={styles.emptyText}>No notes yet</Text>
+            <Text style={[styles.emptyText, { color: sectionListTheme.notes.meta }]}>
+              No notes yet
+            </Text>
           ) : (
             sortedNotes.map((note) => (
               <TouchableOpacity
                 key={note.id}
-                style={styles.quickNoteRow}
+                style={[
+                  styles.quickNoteRow,
+                  {
+                    backgroundColor: sectionListTheme.notes.itemBg,
+                    borderColor: sectionListTheme.notes.itemBorder,
+                  },
+                ]}
                 onPress={() => handleNotePress(note)}
                 activeOpacity={0.7}
               >
                 <View style={styles.quickNoteInfo}>
-                  <Text style={styles.quickNoteTitle} numberOfLines={1}>
+                  <Text style={[styles.quickNoteTitle, { color: sectionListTheme.notes.text }]} numberOfLines={1}>
                     {note.title || 'Untitled note'}
                   </Text>
-                  <Text style={styles.quickNoteExcerpt} numberOfLines={1}>
+                  <Text style={[styles.quickNoteExcerpt, { color: sectionListTheme.notes.meta }]} numberOfLines={1}>
                     {note.content ? note.content : 'Tap to view'}
                   </Text>
                 </View>
                 {note.password && (
-                  <Ionicons name="lock-closed" size={18} color={colors.primary} />
+                  <Ionicons name="lock-closed" size={18} color={sectionListTheme.notes.lock} />
                 )}
               </TouchableOpacity>
             ))
@@ -722,83 +887,145 @@ const HomeScreen = () => {
 
         {/* Today's Health */}
         <Card
-          style={[styles.sectionCard, styles.healthCard]}
+          style={[styles.sectionCard, styles.sectionCardGradient]}
           onPress={() => navigation.navigate('Health')}
         >
-          <View style={styles.cardHeader}>
-            <Text style={[styles.cardTitle, styles.healthTitle]}>Today's Health</Text>
-            <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
+          <LinearGradient
+            colors={sectionListTheme.health.gradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.sectionGradient, { borderColor: sectionListTheme.health.border }]}
+          >
+            <View style={styles.sectionContent}>
+          <View style={styles.sectionListHeader}>
+            <View style={styles.sectionListTitleRow}>
+              <View
+                style={[
+                  styles.sectionListIcon,
+                  { backgroundColor: sectionListTheme.health.iconBg },
+                ]}
+              >
+                <Ionicons name="heart" size={16} color={sectionListTheme.health.iconColor} />
+              </View>
+              <Text style={[styles.sectionListTitle, { color: sectionListTheme.health.text }]}>
+                Today's Health
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={sectionListTheme.health.text} />
           </View>
           {currentMood ? (
             <View style={styles.healthContent}>
               <Text style={styles.moodEmoji}>{currentMood.emoji}</Text>
-              <Text style={[styles.moodLabel, styles.healthText]}>Today's mood</Text>
+              <Text style={[styles.moodLabel, { color: sectionListTheme.health.text }]}>
+                Today's mood
+              </Text>
             </View>
           ) : (
             <View style={styles.healthPrompt}>
-              <Ionicons name="heart-outline" size={20} color="#FFFFFF" />
-              <Text style={[styles.healthPromptText, styles.healthText]}>
+              <Ionicons name="heart-outline" size={20} color={sectionListTheme.health.text} />
+              <Text style={[styles.healthPromptText, { color: sectionListTheme.health.meta }]}>
                 Check in with your health and mood today
               </Text>
             </View>
           )}
+            </View>
+          </LinearGradient>
         </Card>
 
         {/* Your Habits */}
         <Card
-          style={[styles.sectionCard, styles.habitsCard]}
+          style={[
+            styles.sectionCard,
+            styles.sectionCardFlat,
+            { backgroundColor: sectionListTheme.habits.card, borderColor: sectionListTheme.habits.border },
+          ]}
           onPress={() => navigation.navigate('Habits')}
         >
-          <View style={styles.cardHeader}>
-            <Text style={[styles.cardTitle, styles.habitsTitle]}>Your Habits</Text>
-            <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
+          <View style={styles.sectionListHeader}>
+            <View style={styles.sectionListTitleRow}>
+              <View
+                style={[
+                  styles.sectionListIcon,
+                  { backgroundColor: sectionListTheme.habits.iconBg },
+                ]}
+              >
+                <Ionicons name="radio-button-on" size={16} color={sectionListTheme.habits.iconColor} />
+              </View>
+              <Text style={[styles.sectionListTitle, { color: sectionListTheme.habits.text }]}>
+                Your Habits
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={sectionListTheme.habits.meta} />
           </View>
           {recentHabits.length > 0 ? (
             <View style={styles.habitsList}>
               {recentHabits.map((habit) => (
                 <View key={habit.id} style={styles.habitItem}>
-                  <View style={[styles.habitDot, { backgroundColor: '#FFFFFF' }]} />
-                  <Text style={[styles.habitText, styles.habitsText]} numberOfLines={1}>
+                  <View style={[styles.habitDot, { backgroundColor: sectionListTheme.habits.bullet }]} />
+                  <Text style={[styles.habitText, { color: sectionListTheme.habits.text }]} numberOfLines={1}>
                     {habit.title}
                   </Text>
                 </View>
               ))}
             </View>
           ) : (
-            <Text style={[styles.emptyText, styles.habitsText]}>No habits yet</Text>
+            <Text style={[styles.emptyText, { color: sectionListTheme.habits.meta }]}>No habits yet</Text>
           )}
         </Card>
 
         {/* Home & Chores */}
         <Card
-          style={[styles.sectionCard, styles.lastCard, styles.choresCard]}
+          style={[
+            styles.sectionCard,
+            styles.lastCard,
+            styles.sectionCardFlat,
+            { backgroundColor: sectionListTheme.chores.card, borderColor: sectionListTheme.chores.border },
+          ]}
           onPress={() => navigation.navigate('Routine')}
         >
-          <View style={styles.cardHeader}>
-            <Text style={[styles.cardTitle, styles.choresTitle]}>Home & Chores</Text>
-            <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
+          <View style={styles.sectionListHeader}>
+            <View style={styles.sectionListTitleRow}>
+              <View
+                style={[
+                  styles.sectionListIcon,
+                  { backgroundColor: sectionListTheme.chores.iconBg },
+                ]}
+              >
+                <Ionicons name="checkmark" size={16} color={sectionListTheme.chores.iconColor} />
+              </View>
+              <Text style={[styles.sectionListTitle, { color: sectionListTheme.chores.text }]}>
+                Home & Chores
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={sectionListTheme.chores.meta} />
           </View>
           {upcomingChores.length > 0 || groceryPreview.length > 0 ? (
             <View>
               {upcomingChores.map((chore) => (
                 <View key={chore.id} style={styles.choreItem}>
-                  <Ionicons name="checkbox-outline" size={18} color="#FFFFFF" />
-                  <Text style={[styles.choreText, styles.choresText]} numberOfLines={1}>
+                  <View style={[styles.choreBullet, { backgroundColor: sectionListTheme.chores.bulletBg }]}>
+                    <Ionicons name="checkmark" size={14} color={sectionListTheme.chores.bulletColor} />
+                  </View>
+                  <Text style={[styles.choreText, { color: sectionListTheme.chores.text }]} numberOfLines={1}>
                     {chore.title}
                   </Text>
                 </View>
               ))}
               {groceryPreview.length > 0 && (
                 <View style={styles.groceryPreview}>
-                  <Ionicons name="cart-outline" size={16} color="#FFFFFF" />
-                  <Text style={[styles.groceryText, styles.choresText]}>
+                  <View style={[styles.choreBullet, { backgroundColor: sectionListTheme.chores.bulletBg }]}>
+                    <Ionicons name="cart" size={14} color={sectionListTheme.chores.bulletColor} />
+                  </View>
+                  <Text style={[styles.groceryText, { color: sectionListTheme.chores.meta }]}>
                     {groceryPreview.length} item{groceryPreview.length !== 1 ? 's' : ''} on grocery list
                   </Text>
                 </View>
               )}
             </View>
           ) : (
-            <Text style={[styles.emptyText, styles.choresText]}>No upcoming chores or grocery items</Text>
+            <Text style={[styles.emptyText, { color: sectionListTheme.chores.meta }]}>
+              No upcoming chores or grocery items
+            </Text>
           )}
         </Card>
 
@@ -932,6 +1159,48 @@ const createStyles = (themeColorsParam = colors) => {
     sectionCard: {
       marginBottom: spacing.lg,
     },
+    sectionCardGradient: {
+      padding: 0,
+      borderWidth: 0,
+      backgroundColor: 'transparent',
+      borderRadius: borderRadius.xl,
+      overflow: 'hidden',
+    },
+    sectionCardFlat: {
+      borderWidth: 1,
+      borderRadius: borderRadius.xl,
+      overflow: 'hidden',
+    },
+    sectionGradient: {
+      borderRadius: borderRadius.xl,
+      padding: spacing.lg,
+      borderWidth: 1,
+    },
+    sectionContent: {
+      gap: spacing.sm,
+    },
+    sectionListHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: spacing.sm,
+    },
+    sectionListTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    sectionListIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.sm,
+    },
+    sectionListTitle: {
+      ...typography.h3,
+      fontWeight: '700',
+    },
     topStatsRow: {
       flexDirection: 'row',
       gap: spacing.md,
@@ -1044,6 +1313,7 @@ const createStyles = (themeColorsParam = colors) => {
     habitItem: {
       flexDirection: 'row',
       alignItems: 'center',
+      paddingVertical: spacing.xs,
       marginBottom: spacing.sm,
     },
     habitDot: {
@@ -1058,15 +1328,23 @@ const createStyles = (themeColorsParam = colors) => {
     choreItem: {
       flexDirection: 'row',
       alignItems: 'center',
+      paddingVertical: spacing.xs,
       marginBottom: spacing.sm,
+    },
+    choreBullet: {
+      width: 24,
+      height: 24,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.sm,
     },
     choreText: {
       ...typography.body,
-      marginLeft: spacing.sm,
       flex: 1,
     },
     reminderList: {
-      marginTop: spacing.xs,
+      marginTop: spacing.sm,
     },
     reminderItem: {
       flexDirection: 'row',
@@ -1075,11 +1353,18 @@ const createStyles = (themeColorsParam = colors) => {
       borderBottomWidth: 1,
       borderBottomColor: '#FFFFFF33',
     },
-    reminderIcon: {
-      width: 36,
-      height: 36,
-      borderRadius: borderRadius.full,
-      backgroundColor: '#FFFFFF22',
+    reminderPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      borderRadius: borderRadius.lg,
+      marginBottom: spacing.sm,
+    },
+    reminderPillIcon: {
+      width: 30,
+      height: 30,
+      borderRadius: 10,
       alignItems: 'center',
       justifyContent: 'center',
       marginRight: spacing.sm,
@@ -1123,13 +1408,9 @@ const createStyles = (themeColorsParam = colors) => {
       flexDirection: 'row',
       alignItems: 'center',
       marginTop: spacing.sm,
-      paddingTop: spacing.sm,
-      borderTopWidth: 1,
-      borderTopColor: '#FFFFFF33',
     },
     groceryText: {
       ...typography.bodySmall,
-      marginLeft: spacing.sm,
     },
     choresCard: {
       backgroundColor: '#1f4f2b',
@@ -1415,8 +1696,10 @@ const createStyles = (themeColorsParam = colors) => {
       flexDirection: 'row',
       alignItems: 'center',
       paddingVertical: spacing.sm,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.divider,
+      paddingHorizontal: spacing.md,
+      borderWidth: 1,
+      borderRadius: borderRadius.lg,
+      marginBottom: spacing.sm,
     },
     quickNoteInfo: {
       flex: 1,
@@ -1651,3 +1934,5 @@ const createStyles = (themeColorsParam = colors) => {
 };
 
 export default HomeScreen;
+
+

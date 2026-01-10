@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
 import {
   Card,
@@ -36,6 +37,7 @@ const REMINDER_TIME_OPTIONS = Array.from({ length: 48 }).map((_, idx) => {
 
 const RoutineScreen = () => {
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
     const {
       routines,
       groupRoutines,
@@ -44,14 +46,6 @@ const RoutineScreen = () => {
     groceries,
     addRoutine,
     addGroupRoutine,
-    deleteRoutine,
-    deleteGroupRoutine,
-    addTaskToRoutine,
-    addTaskToGroupRoutine,
-    removeTaskFromRoutine,
-    removeTaskFromGroupRoutine,
-    reorderRoutineTasks,
-    reorderGroupRoutineTasks,
     addChore,
     updateChore,
       deleteChore,
@@ -62,7 +56,6 @@ const RoutineScreen = () => {
       deleteGroceryItem,
       clearCompletedGroceries,
       groups,
-      isPremiumUser,
       themeName,
       themeColors,
       ensureRoutinesLoaded,
@@ -217,9 +210,7 @@ const RoutineScreen = () => {
     const [showRoutineModal, setShowRoutineModal] = useState(false);
   const [showChoreModal, setShowChoreModal] = useState(false);
   const [showReminderModal, setShowReminderModal] = useState(false);
-  const [showTaskModal, setShowTaskModal] = useState(false);
   const [showGroceryModal, setShowGroceryModal] = useState(false);
-  const [selectedRoutineId, setSelectedRoutineId] = useState(null);
 
   const [routineName, setRoutineName] = useState('');
   const [routineGroupId, setRoutineGroupId] = useState(null);
@@ -232,8 +223,15 @@ const RoutineScreen = () => {
   const [reminderTime, setReminderTime] = useState('');
   const [showReminderDatePicker, setShowReminderDatePicker] = useState(false);
   const [showReminderTimePicker, setShowReminderTimePicker] = useState(false);
-  const [taskName, setTaskName] = useState('');
   const [groceryInput, setGroceryInput] = useState('');
+
+  const groupNameMap = useMemo(() => {
+    const map = new Map();
+    (groups || []).forEach((group) => {
+      map.set(group.id, group.name);
+    });
+    return map;
+  }, [groups]);
 
   const handleCreateRoutine = async () => {
     if (!routineName.trim()) return;
@@ -275,51 +273,14 @@ const RoutineScreen = () => {
     setShowReminderModal(false);
   };
 
-  const handleAddTaskToRoutine = async () => {
-    if (!taskName.trim() || !selectedRoutineId) return;
-    const isGroup = groupRoutines.some((r) => r.id === selectedRoutineId);
-    if (isGroup) {
-      await addTaskToGroupRoutine(selectedRoutineId, { name: taskName.trim() });
-    } else {
-      await addTaskToRoutine(selectedRoutineId, { name: taskName.trim() });
-    }
-    setTaskName('');
-    setShowTaskModal(false);
-    setSelectedRoutineId(null);
-  };
-
   const handleAddGroceryItem = async () => {
     if (!groceryInput.trim()) return;
     await addGroceryItem(groceryInput.trim());
     setGroceryInput('');
   };
 
-  const handleMoveRoutineTask = (routineId, index, direction) => {
-    const routine = routines.find((r) => r.id === routineId);
-    const isGroup = groupRoutines.some((r) => r.id === routineId);
-    if (isGroup) {
-      const groupRoutine = groupRoutines.find((r) => r.id === routineId);
-      if (!groupRoutine || !groupRoutine.tasks || !groupRoutine.tasks.length) return;
-      const newIndex = index + direction;
-      if (newIndex < 0 || newIndex >= groupRoutine.tasks.length) return;
-      const newOrder = [...groupRoutine.tasks];
-      const [item] = newOrder.splice(index, 1);
-      newOrder.splice(newIndex, 0, item);
-      reorderGroupRoutineTasks(routineId, newOrder);
-      return;
-    }
-    if (!routine || !routine.tasks || !routine.tasks.length) return;
-    const newIndex = index + direction;
-    if (newIndex < 0 || newIndex >= routine.tasks.length) return;
-    const newOrder = [...routine.tasks];
-    const [item] = newOrder.splice(index, 1);
-    newOrder.splice(newIndex, 0, item);
-    reorderRoutineTasks(routineId, newOrder);
-  };
-
-  const openAddTaskModal = (routineId) => {
-    setSelectedRoutineId(routineId);
-    setShowTaskModal(true);
+  const openRoutineDetail = (routineId, isGroup) => {
+    navigation.navigate('RoutineDetail', { routineId, isGroup });
   };
 
   const formatDate = (dateString) => {
@@ -534,132 +495,50 @@ const RoutineScreen = () => {
                 <Text style={styles.emptyText}>No routines yet</Text>
               </View>
             ) : (
-              routines.map((routine) => (
-                <View
-                  key={routine.id}
-                  style={[
-                    styles.routineSection,
-                    {
-                      backgroundColor: routineTheme.sectionBg,
-                      borderColor: routineTheme.itemBorder,
-                    },
-                  ]}
-                >
-                  <View style={styles.routineHeader}>
-                    <View style={styles.routineTitleRow}>
-                      <View
-                        style={[
-                          styles.routineBadge,
-                          {
-                            borderColor: routineTheme.itemBorder,
-                            backgroundColor: routineTheme.itemBg,
-                          },
-                        ]}
-                      >
-                        <Ionicons
-                          name="sparkles"
-                          size={12}
-                          color={routineTheme.accent}
-                        />
-                      </View>
-                      <Text style={[styles.routineName, { color: routineTheme.accent }]}>
-                        {routine.name}
-                      </Text>
-                    </View>
-                    <View style={styles.routineActions}>
-                      <TouchableOpacity
-                        style={[
-                          styles.routineActionButton,
-                          {
-                            backgroundColor: routineTheme.itemBg,
-                            borderColor: routineTheme.itemBorder,
-                          },
-                        ]}
-                        onPress={() => openAddTaskModal(routine.id)}
-                      >
-                        <Ionicons name="add" size={18} color={routineTheme.accent} />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[
-                          styles.routineActionButton,
-                          {
-                            backgroundColor: routineTheme.itemBg,
-                            borderColor: routineTheme.itemBorder,
-                          },
-                        ]}
-                        onPress={() => deleteRoutine(routine.id)}
-                      >
-                        <Ionicons name="close" size={18} color={themeColors.textLight} />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                  {routine.tasks && routine.tasks.length > 0 ? (
-                    routine.tasks.map((task, index) => {
-                      const atTop = index === 0;
-                      const atBottom = index === routine.tasks.length - 1;
-                      return (
+              routines.map((routine) => {
+                const taskCount = routine.tasks?.length || 0;
+                return (
+                  <TouchableOpacity
+                    key={routine.id}
+                    style={[
+                      styles.routineSection,
+                      {
+                        backgroundColor: routineTheme.sectionBg,
+                        borderColor: routineTheme.itemBorder,
+                      },
+                    ]}
+                    onPress={() => openRoutineDetail(routine.id, false)}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.routineHeader}>
+                      <View style={styles.routineTitleRow}>
                         <View
-                          key={task.id}
                           style={[
-                            styles.routineTaskItem,
+                            styles.routineBadge,
                             {
-                              backgroundColor: routineTheme.itemBg,
                               borderColor: routineTheme.itemBorder,
+                              backgroundColor: routineTheme.itemBg,
                             },
                           ]}
                         >
-                          <View style={styles.taskOrderControls}>
-                            <TouchableOpacity
-                              style={[
-                                styles.orderButton,
-                                {
-                                  borderColor: routineTheme.itemBorder,
-                                  backgroundColor: routineTheme.card,
-                                  opacity: atTop ? 0.4 : 1,
-                                },
-                              ]}
-                              onPress={() => handleMoveRoutineTask(routine.id, index, -1)}
-                              disabled={atTop}
-                            >
-                              <Ionicons
-                                name="chevron-up"
-                                size={16}
-                                color={routineTheme.muted}
-                              />
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={[
-                                styles.orderButton,
-                                {
-                                  borderColor: routineTheme.itemBorder,
-                                  backgroundColor: routineTheme.card,
-                                  opacity: atBottom ? 0.4 : 1,
-                                },
-                              ]}
-                              onPress={() => handleMoveRoutineTask(routine.id, index, 1)}
-                              disabled={atBottom}
-                            >
-                              <Ionicons
-                                name="chevron-down"
-                                size={16}
-                                color={routineTheme.muted}
-                              />
-                            </TouchableOpacity>
-                          </View>
-                          <Text style={styles.routineTaskText}>{task.name}</Text>
-                          <TouchableOpacity
-                            onPress={() => removeTaskFromRoutine(routine.id, task.id)}
-                          >
-                            <Ionicons name="close" size={18} color={themeColors.textLight} />
-                          </TouchableOpacity>
+                          <Ionicons
+                            name="sparkles"
+                            size={12}
+                            color={routineTheme.accent}
+                          />
                         </View>
-                      );
-                    })
-                  ) : (
-                    <Text style={styles.noTasksText}>No tasks added</Text>
-                  )}
-                </View>
-              ))
+                        <Text style={[styles.routineName, { color: routineTheme.accent }]}>
+                          {routine.name}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={18} color={routineTheme.accent} />
+                    </View>
+                    <Text style={[styles.routineMeta, { color: routineTheme.muted }]}>
+                      {taskCount} {taskCount === 1 ? 'task' : 'tasks'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })
             )}
           </View>
         </Card>
@@ -700,120 +579,36 @@ const RoutineScreen = () => {
               {groupRoutines.length === 0 ? (
                 <Text style={styles.emptyText}>No group routines yet</Text>
               ) : (
-                groupRoutines.map((routine) => (
-                  <View
-                    key={routine.id}
-                    style={[
-                      styles.routineSection,
-                      {
-                        backgroundColor: groupTheme.sectionBg,
-                        borderColor: groupTheme.itemBorder,
-                      },
-                    ]}
-                  >
-                    <View style={styles.routineHeader}>
-                      <View>
-                        <Text style={[styles.routineName, { color: groupTheme.accent }]}>
-                          {routine.name}
-                        </Text>
-                        <Text style={styles.routineMeta}>
-                          {(groups.find((g) => g.id === routine.groupId)?.name) || 'Group'}
-                        </Text>
+                groupRoutines.map((routine) => {
+                  const taskCount = routine.tasks?.length || 0;
+                  const groupName = groupNameMap.get(routine.groupId) || 'Group';
+                  return (
+                    <TouchableOpacity
+                      key={routine.id}
+                      style={[
+                        styles.routineSection,
+                        {
+                          backgroundColor: groupTheme.sectionBg,
+                          borderColor: groupTheme.itemBorder,
+                        },
+                      ]}
+                      onPress={() => openRoutineDetail(routine.id, true)}
+                      activeOpacity={0.85}
+                    >
+                      <View style={styles.routineHeader}>
+                        <View>
+                          <Text style={[styles.routineName, { color: groupTheme.accent }]}>
+                            {routine.name}
+                          </Text>
+                          <Text style={[styles.routineMeta, { color: groupTheme.muted }]}>
+                            {groupName} • {taskCount} {taskCount === 1 ? 'task' : 'tasks'}
+                          </Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={18} color={groupTheme.accent} />
                       </View>
-                      <View style={styles.routineActions}>
-                        <TouchableOpacity
-                          style={[
-                            styles.routineActionButton,
-                            {
-                              backgroundColor: groupTheme.itemBg,
-                              borderColor: groupTheme.itemBorder,
-                            },
-                          ]}
-                          onPress={() => openAddTaskModal(routine.id)}
-                        >
-                          <Ionicons name="add" size={18} color={groupTheme.accent} />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[
-                            styles.routineActionButton,
-                            {
-                              backgroundColor: groupTheme.itemBg,
-                              borderColor: groupTheme.itemBorder,
-                            },
-                          ]}
-                          onPress={() => deleteGroupRoutine(routine.id)}
-                        >
-                          <Ionicons name="close" size={18} color={themeColors.textLight} />
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                    {routine.tasks && routine.tasks.length > 0 ? (
-                      routine.tasks.map((task, index) => {
-                        const atTop = index === 0;
-                        const atBottom = index === routine.tasks.length - 1;
-                        return (
-                          <View
-                            key={task.id}
-                            style={[
-                              styles.routineTaskItem,
-                              {
-                                backgroundColor: groupTheme.itemBg,
-                                borderColor: groupTheme.itemBorder,
-                              },
-                            ]}
-                          >
-                            <View style={styles.taskOrderControls}>
-                              <TouchableOpacity
-                                style={[
-                                  styles.orderButton,
-                                  {
-                                    borderColor: groupTheme.itemBorder,
-                                    backgroundColor: groupTheme.card,
-                                    opacity: atTop ? 0.4 : 1,
-                                  },
-                                ]}
-                                onPress={() => handleMoveRoutineTask(routine.id, index, -1)}
-                                disabled={atTop}
-                              >
-                                <Ionicons
-                                  name="chevron-up"
-                                  size={16}
-                                  color={groupTheme.muted}
-                                />
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                style={[
-                                  styles.orderButton,
-                                  {
-                                    borderColor: groupTheme.itemBorder,
-                                    backgroundColor: groupTheme.card,
-                                    opacity: atBottom ? 0.4 : 1,
-                                  },
-                                ]}
-                                onPress={() => handleMoveRoutineTask(routine.id, index, 1)}
-                                disabled={atBottom}
-                              >
-                                <Ionicons
-                                  name="chevron-down"
-                                  size={16}
-                                  color={groupTheme.muted}
-                                />
-                              </TouchableOpacity>
-                            </View>
-                            <Text style={styles.routineTaskText}>{task.name}</Text>
-                            <TouchableOpacity
-                              onPress={() => removeTaskFromGroupRoutine(routine.id, task.id)}
-                            >
-                              <Ionicons name="close" size={18} color={themeColors.textLight} />
-                            </TouchableOpacity>
-                          </View>
-                        );
-                      })
-                    ) : (
-                      <Text style={styles.noTasksText}>No tasks added</Text>
-                    )}
-                  </View>
-                ))
+                    </TouchableOpacity>
+                  );
+                })
               )}
             </View>
           </Card>
@@ -1265,41 +1060,6 @@ const RoutineScreen = () => {
         />
       </Modal>
 
-      {/* Add Task to Routine Modal */}
-      <Modal
-        visible={showTaskModal}
-        onClose={() => {
-          setShowTaskModal(false);
-          setTaskName('');
-          setSelectedRoutineId(null);
-        }}
-        title="Add Task"
-      >
-        <Input
-          label="Task Name"
-          value={taskName}
-          onChangeText={setTaskName}
-          placeholder="e.g., Brush teeth"
-        />
-        <View style={styles.modalButtons}>
-          <Button
-            title="Cancel"
-            variant="secondary"
-            onPress={() => {
-              setShowTaskModal(false);
-              setTaskName('');
-              setSelectedRoutineId(null);
-            }}
-            style={styles.modalButton}
-          />
-          <Button
-            title="Add"
-            onPress={handleAddTaskToRoutine}
-            disabled={!taskName.trim()}
-            style={styles.modalButton}
-          />
-        </View>
-      </Modal>
     </View>
   );
 };
