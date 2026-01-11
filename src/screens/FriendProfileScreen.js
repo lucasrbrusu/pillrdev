@@ -54,8 +54,10 @@ const FriendProfileScreen = () => {
     isBlockedByUser,
     getUserProfileById,
     groups,
+    themeName,
   } = useApp();
   const insets = useSafeAreaInsets();
+  const isDark = themeName === 'dark';
   const [profileData, setProfileData] = useState(
     () => friends.find((f) => f.id === friendId) || null
   );
@@ -70,6 +72,48 @@ const FriendProfileScreen = () => {
   const relationship = getFriendRelationship(friendId);
   const blocked = relationship?.blocked || isUserBlocked(friendId);
   const blockedBy = relationship?.blockedBy || isBlockedByUser(friendId);
+
+  const profileTheme = useMemo(
+    () => ({
+      heroGradient: isDark ? ['#0F172A', '#312E81'] : ['#60A5FA', '#A855F7'],
+      cardBg: isDark ? '#0B1020' : '#FFFFFF',
+      cardBorder: isDark ? 'rgba(148, 163, 184, 0.25)' : '#E2E8F0',
+      headerText: '#FFFFFF',
+      headerSubText: 'rgba(255, 255, 255, 0.85)',
+      iconBg: 'rgba(255, 255, 255, 0.2)',
+      statusBg: isDark ? 'rgba(59, 130, 246, 0.18)' : '#DBEAFE',
+      statusBorder: isDark ? 'rgba(59, 130, 246, 0.35)' : '#BFDBFE',
+      statusText: isDark ? '#BFDBFE' : '#1E3A8A',
+      secondaryBg: isDark ? '#111827' : '#F3F4F6',
+      secondaryBorder: isDark ? '#1F2937' : '#E5E7EB',
+      secondaryText: themeColors?.text || colors.text,
+      blockGradient: isDark ? ['#EF4444', '#F97316'] : ['#FB7185', '#F97316'],
+      deleteGradient: isDark ? ['#991B1B', '#EF4444'] : ['#DC2626', '#B91C1C'],
+      reportGradient: isDark ? ['#7C2D12', '#DC2626'] : ['#FB923C', '#EF4444'],
+      fieldBg: isDark ? '#111827' : '#F9FAFB',
+      fieldBorder: isDark ? '#1F2937' : '#E5E7EB',
+    }),
+    [isDark, themeColors]
+  );
+
+  const reportTheme = useMemo(
+    () => ({
+      gradient: profileTheme.reportGradient,
+      surface: profileTheme.cardBg,
+      border: profileTheme.cardBorder,
+      fieldBg: profileTheme.fieldBg,
+      fieldBorder: profileTheme.fieldBorder,
+      secondaryBg: profileTheme.secondaryBg,
+      secondaryBorder: profileTheme.secondaryBorder,
+      secondaryText: profileTheme.secondaryText,
+      actionGradient: profileTheme.blockGradient,
+      headerText: profileTheme.headerText,
+      headerSubText: profileTheme.headerSubText,
+      iconBg: profileTheme.iconBg,
+      closeBg: 'rgba(255, 255, 255, 0.22)',
+    }),
+    [profileTheme]
+  );
 
   const themedStyles = useMemo(() => createStyles(themeColors || colors), [themeColors]);
   const isPremiumFriend = useMemo(() => {
@@ -114,9 +158,15 @@ const FriendProfileScreen = () => {
     };
   }, [friendId, getUserProfileById]);
 
+  const isOnline = !blocked && isUserOnline(friendId);
+  const statusDotColor = blocked
+    ? themeColors?.danger || colors.danger
+    : isOnline
+      ? themeColors?.success || colors.success
+      : themeColors?.textLight || colors.textLight;
   const statusText = blocked
     ? 'Blocked'
-    : isUserOnline(friendId)
+    : isOnline
       ? 'Online'
       : profileData?.lastSeen
         ? `Last seen ${formatRelative(profileData.lastSeen)}`
@@ -203,17 +253,21 @@ const FriendProfileScreen = () => {
   const renderAvatar = () => {
     if (profileData?.avatarUrl) {
       return (
-        <Image
-          source={{ uri: profileData.avatarUrl }}
-          style={{ width: 80, height: 80, borderRadius: borderRadius.full }}
-        />
+        <View style={[themedStyles.avatarFrame, { borderColor: profileTheme.statusBorder }]}>
+          <Image
+            source={{ uri: profileData.avatarUrl }}
+            style={themedStyles.avatarImage}
+          />
+        </View>
       );
     }
     return (
-      <View style={[themedStyles.avatarFallback, { width: 80, height: 80, borderRadius: 40 }]}>
-        <Text style={themedStyles.avatarInitial}>
-          {getInitial(profileData?.name, profileData?.username)}
-        </Text>
+      <View style={[themedStyles.avatarFrame, { borderColor: profileTheme.statusBorder }]}>
+        <View style={themedStyles.avatarFallback}>
+          <Text style={themedStyles.avatarInitial}>
+            {getInitial(profileData?.name, profileData?.username)}
+          </Text>
+        </View>
       </View>
     );
   };
@@ -232,7 +286,7 @@ const FriendProfileScreen = () => {
         >
           <Ionicons name="chevron-back" size={22} color={themedStyles.iconColor} />
         </TouchableOpacity>
-        <Text style={themedStyles.title}>Friend&apos;s Profile</Text>
+        <Text style={themedStyles.title}>Friend Profile</Text>
         <View style={themedStyles.headerSpacer} />
       </View>
 
@@ -258,40 +312,140 @@ const FriendProfileScreen = () => {
               </View>
             ) : null}
 
-            <Card style={themedStyles.sectionCard}>
-              <View style={themedStyles.profileHeader}>
-                {renderAvatar()}
-                <View style={themedStyles.profileInfo}>
-                  <View style={themedStyles.nameRow}>
-                    <Text style={themedStyles.profileName} numberOfLines={1}>
-                      {profileData?.name || profileData?.username || 'Unknown user'}
-                    </Text>
-                    {isPremiumFriend ? (
-                      <View style={themedStyles.premiumBadge}>
-                        <LinearGradient
-                          colors={['rgba(255,255,255,0.6)', 'rgba(255,255,255,0.12)', 'rgba(255,255,255,0)']}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                          style={themedStyles.premiumBadgeShine}
-                          pointerEvents="none"
-                        />
-                        <View style={themedStyles.premiumBadgeContent}>
-                          <Ionicons name="star" size={12} color="#FFFFFF" />
-                          <Text style={themedStyles.premiumBadgeText}>Premium</Text>
-                        </View>
-                      </View>
-                    ) : null}
+            <View
+              style={[
+                themedStyles.heroCard,
+                { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder },
+              ]}
+            >
+              <LinearGradient colors={profileTheme.heroGradient} style={themedStyles.heroHeader}>
+                <View style={themedStyles.heroHeaderRow}>
+                  <View
+                    style={[
+                      themedStyles.heroIconBadge,
+                      { backgroundColor: profileTheme.iconBg },
+                    ]}
+                  >
+                    <Ionicons name="person" size={18} color={profileTheme.headerText} />
                   </View>
-                  <Text style={themedStyles.profileHandle}>
-                    {profileData?.username ? `@${profileData.username}` : 'No username'}
-                  </Text>
-                  {statusText ? <Text style={themedStyles.profileStatus}>{statusText}</Text> : null}
+                  <View style={themedStyles.heroHeaderText}>
+                    <Text style={[themedStyles.heroTitle, { color: profileTheme.headerText }]}>
+                      Friend Profile
+                    </Text>
+                    <Text
+                      style={[themedStyles.heroSubtitle, { color: profileTheme.headerSubText }]}
+                    >
+                      Stay connected and check progress
+                    </Text>
+                  </View>
+                </View>
+              </LinearGradient>
+              <View style={themedStyles.heroBody}>
+                <View style={themedStyles.profileHeader}>
+                  {renderAvatar()}
+                  <View style={themedStyles.profileInfo}>
+                    <View style={themedStyles.nameRow}>
+                      <Text style={themedStyles.profileName} numberOfLines={1}>
+                        {profileData?.name || profileData?.username || 'Unknown user'}
+                      </Text>
+                      {isPremiumFriend ? (
+                        <View style={themedStyles.premiumBadge}>
+                          <LinearGradient
+                            colors={[
+                              'rgba(255,255,255,0.6)',
+                              'rgba(255,255,255,0.12)',
+                              'rgba(255,255,255,0)',
+                            ]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={themedStyles.premiumBadgeShine}
+                            pointerEvents="none"
+                          />
+                          <View style={themedStyles.premiumBadgeContent}>
+                            <Ionicons name="star" size={12} color="#FFFFFF" />
+                            <Text style={themedStyles.premiumBadgeText}>Premium</Text>
+                          </View>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={themedStyles.profileHandle}>
+                      {profileData?.username ? `@${profileData.username}` : 'No username'}
+                    </Text>
+                    <View style={themedStyles.statusRow}>
+                      {statusText ? (
+                        <View
+                          style={[
+                            themedStyles.statusPill,
+                            {
+                              backgroundColor: profileTheme.statusBg,
+                              borderColor: profileTheme.statusBorder,
+                            },
+                          ]}
+                        >
+                          <View
+                            style={[
+                              themedStyles.statusDot,
+                              { backgroundColor: statusDotColor },
+                            ]}
+                          />
+                          <Text
+                            style={[
+                              themedStyles.statusText,
+                              { color: profileTheme.statusText },
+                            ]}
+                          >
+                            {statusText}
+                          </Text>
+                        </View>
+                      ) : null}
+                      {mutualGroups.length > 0 ? (
+                        <View
+                          style={[
+                            themedStyles.statusPill,
+                            {
+                              backgroundColor: profileTheme.statusBg,
+                              borderColor: profileTheme.statusBorder,
+                            },
+                          ]}
+                        >
+                          <Ionicons
+                            name="people"
+                            size={12}
+                            color={profileTheme.statusText}
+                          />
+                          <Text
+                            style={[
+                              themedStyles.statusText,
+                              { color: profileTheme.statusText },
+                            ]}
+                          >
+                            {mutualGroups.length} mutual
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  </View>
                 </View>
               </View>
-            </Card>
+            </View>
 
-            <Card style={themedStyles.sectionCard}>
-              <Text style={themedStyles.sectionTitle}>Details</Text>
+            <Card
+              style={[
+                themedStyles.sectionCard,
+                { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder },
+              ]}
+            >
+              <View style={themedStyles.sectionHeaderRow}>
+                <View
+                  style={[
+                    themedStyles.sectionIcon,
+                    { backgroundColor: profileTheme.statusBg },
+                  ]}
+                >
+                  <Ionicons name="information" size={16} color={profileTheme.statusText} />
+                </View>
+                <Text style={themedStyles.sectionTitle}>Details</Text>
+              </View>
               {detailRows.map((row) => (
                 <View key={row.label} style={themedStyles.detailRow}>
                   <Text style={themedStyles.detailLabel}>{row.label}</Text>
@@ -300,8 +454,23 @@ const FriendProfileScreen = () => {
               ))}
             </Card>
 
-            <Card style={themedStyles.sectionCard}>
-              <Text style={themedStyles.sectionTitle}>Mutual groups</Text>
+            <Card
+              style={[
+                themedStyles.sectionCard,
+                { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder },
+              ]}
+            >
+              <View style={themedStyles.sectionHeaderRow}>
+                <View
+                  style={[
+                    themedStyles.sectionIcon,
+                    { backgroundColor: profileTheme.statusBg },
+                  ]}
+                >
+                  <Ionicons name="people" size={16} color={profileTheme.statusText} />
+                </View>
+                <Text style={themedStyles.sectionTitle}>Mutual groups</Text>
+              </View>
               {mutualGroups.length === 0 ? (
                 <Text style={themedStyles.emptyText}>No mutual groups yet.</Text>
               ) : (
@@ -314,54 +483,103 @@ const FriendProfileScreen = () => {
               )}
             </Card>
 
-            <View style={themedStyles.actions}>
-              <TouchableOpacity
-                style={[themedStyles.secondaryButton, themedStyles.actionButton]}
-                onPress={() => setReportVisible(true)}
-              >
-                <Feather name="flag" size={18} color={themedStyles.iconColor} />
-                <Text style={themedStyles.secondaryButtonText}>Report</Text>
-              </TouchableOpacity>
+            <View
+              style={[
+                themedStyles.actionCard,
+                { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder },
+              ]}
+            >
+              <View style={themedStyles.sectionHeaderRow}>
+                <View
+                  style={[
+                    themedStyles.sectionIcon,
+                    { backgroundColor: profileTheme.statusBg },
+                  ]}
+                >
+                  <Ionicons name="shield-checkmark" size={16} color={profileTheme.statusText} />
+                </View>
+                <Text style={themedStyles.sectionTitle}>Actions</Text>
+              </View>
+              <View style={themedStyles.actions}>
+                <TouchableOpacity
+                  style={[
+                    themedStyles.secondaryButton,
+                    themedStyles.actionButton,
+                    {
+                      backgroundColor: profileTheme.secondaryBg,
+                      borderColor: profileTheme.secondaryBorder,
+                    },
+                  ]}
+                  onPress={() => setReportVisible(true)}
+                >
+                  <Feather name="flag" size={18} color={themedStyles.iconColor} />
+                  <Text style={themedStyles.secondaryButtonText}>Report</Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[
-                  themedStyles.blockButton,
-                  themedStyles.actionButton,
-                  blocked && { backgroundColor: themeColors?.inputBackground || colors.inputBackground },
-                ]}
-                disabled={blocking}
-                onPress={handleBlockToggle}
-              >
-                {blocking ? (
-                  <ActivityIndicator color={blocked ? themedStyles.iconColor : '#fff'} size="small" />
+                {blocked ? (
+                  <TouchableOpacity
+                    style={[
+                      themedStyles.secondaryButton,
+                      themedStyles.actionButton,
+                      {
+                        backgroundColor: profileTheme.secondaryBg,
+                        borderColor: profileTheme.secondaryBorder,
+                      },
+                    ]}
+                    disabled={blocking}
+                    onPress={handleBlockToggle}
+                  >
+                    {blocking ? (
+                      <ActivityIndicator color={themedStyles.iconColor} size="small" />
+                    ) : (
+                      <>
+                        <Feather name="unlock" size={18} color={themedStyles.iconColor} />
+                        <Text style={themedStyles.secondaryButtonText}>Unblock</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
                 ) : (
-                  <>
-                    <Feather
-                      name={blocked ? 'unlock' : 'slash'}
-                      size={18}
-                      color={blocked ? themedStyles.iconColor : '#fff'}
-                    />
-                    <Text style={blocked ? themedStyles.secondaryButtonText : themedStyles.blockButtonText}>
-                      {blocked ? 'Unblock' : 'Block'}
-                    </Text>
-                  </>
+                  <TouchableOpacity
+                    style={[themedStyles.gradientButton, themedStyles.actionButton]}
+                    disabled={blocking}
+                    onPress={handleBlockToggle}
+                  >
+                    <LinearGradient
+                      colors={profileTheme.blockGradient}
+                      style={themedStyles.gradientButtonInner}
+                    >
+                      {blocking ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <>
+                          <Feather name="slash" size={18} color="#fff" />
+                          <Text style={themedStyles.gradientButtonText}>Block</Text>
+                        </>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
                 )}
-              </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[themedStyles.deleteButton, themedStyles.actionButton]}
-                disabled={deleting}
-                onPress={handleDeleteFriend}
-              >
-                {deleting ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <>
-                    <Feather name="trash-2" size={18} color="#fff" />
-                    <Text style={themedStyles.deleteButtonText}>Delete</Text>
-                  </>
-                )}
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={[themedStyles.gradientButton, themedStyles.actionButton]}
+                  disabled={deleting}
+                  onPress={handleDeleteFriend}
+                >
+                  <LinearGradient
+                    colors={profileTheme.deleteGradient}
+                    style={themedStyles.gradientButtonInner}
+                  >
+                    {deleting ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <>
+                        <Feather name="trash-2" size={18} color="#fff" />
+                        <Text style={themedStyles.gradientButtonText}>Delete</Text>
+                      </>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
             </View>
           </>
         )}
@@ -371,39 +589,95 @@ const FriendProfileScreen = () => {
         visible={reportVisible}
         onClose={() => setReportVisible(false)}
         title="Report user"
+        hideHeader
+        showCloseButton={false}
+        containerStyle={{ backgroundColor: reportTheme.surface }}
       >
-        <Text style={themedStyles.modalText}>
-          Tell us what happened. Your report will be reviewed and forwarded to our team.
-        </Text>
-        <TextInput
-          style={themedStyles.textArea}
-          value={reportDescription}
-          onChangeText={setReportDescription}
-          placeholder="Write your report here..."
-          placeholderTextColor={themedStyles.subduedText}
-          multiline
-        />
-        <View style={themedStyles.modalActions}>
-          <TouchableOpacity
-            style={themedStyles.secondaryButton}
-            onPress={() => {
-              setReportDescription('');
-              setReportVisible(false);
-            }}
-          >
-            <Text style={themedStyles.secondaryButtonText}>Cancel</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[themedStyles.blockButton, { flex: 1 }]}
-            disabled={reporting}
-            onPress={handleSubmitReport}
-          >
-            {reporting ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <Text style={themedStyles.blockButtonText}>Submit</Text>
-            )}
-          </TouchableOpacity>
+        <View
+          style={[
+            themedStyles.reportCard,
+            { backgroundColor: reportTheme.surface, borderColor: reportTheme.border },
+          ]}
+        >
+          <LinearGradient colors={reportTheme.gradient} style={themedStyles.reportHeader}>
+            <View style={themedStyles.reportHeaderRow}>
+              <View
+                style={[
+                  themedStyles.reportIconBadge,
+                  { backgroundColor: reportTheme.iconBg },
+                ]}
+              >
+                <Feather name="flag" size={18} color={reportTheme.headerText} />
+              </View>
+              <View style={themedStyles.reportHeaderText}>
+                <Text style={[themedStyles.reportTitle, { color: reportTheme.headerText }]}>
+                  Report user
+                </Text>
+                <Text
+                  style={[themedStyles.reportSubtitle, { color: reportTheme.headerSubText }]}
+                >
+                  Help us keep the community safe
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={[themedStyles.reportCloseButton, { backgroundColor: reportTheme.closeBg }]}
+              onPress={() => setReportVisible(false)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="close" size={18} color={reportTheme.headerText} />
+            </TouchableOpacity>
+          </LinearGradient>
+          <View style={themedStyles.reportBody}>
+            <Text style={themedStyles.reportText}>
+              Tell us what happened. Your report will be reviewed and forwarded to our team.
+            </Text>
+            <TextInput
+              style={[
+                themedStyles.reportInput,
+                { backgroundColor: reportTheme.fieldBg, borderColor: reportTheme.fieldBorder },
+              ]}
+              value={reportDescription}
+              onChangeText={setReportDescription}
+              placeholder="Write your report here..."
+              placeholderTextColor={themedStyles.subduedText}
+              multiline
+            />
+            <View style={themedStyles.reportActions}>
+              <TouchableOpacity
+                style={[
+                  themedStyles.secondaryButton,
+                  themedStyles.reportButton,
+                  {
+                    backgroundColor: reportTheme.secondaryBg,
+                    borderColor: reportTheme.secondaryBorder,
+                  },
+                ]}
+                onPress={() => {
+                  setReportDescription('');
+                  setReportVisible(false);
+                }}
+              >
+                <Text style={themedStyles.secondaryButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[themedStyles.reportButton, themedStyles.reportPrimaryButton]}
+                disabled={reporting}
+                onPress={handleSubmitReport}
+              >
+                <LinearGradient
+                  colors={reportTheme.actionGradient}
+                  style={themedStyles.reportPrimaryInner}
+                >
+                  {reporting ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={themedStyles.reportPrimaryText}>Submit</Text>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
     </View>
@@ -413,6 +687,7 @@ const FriendProfileScreen = () => {
 const createStyles = (themeColorsParam = colors) => {
   const baseText = themeColorsParam?.text || colors.text;
   const subdued = themeColorsParam?.textSecondary || colors.textSecondary;
+  const accent = themeColorsParam?.primary || colors.primary;
   return StyleSheet.create({
     container: {
       flex: 1,
@@ -432,6 +707,8 @@ const createStyles = (themeColorsParam = colors) => {
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
+      borderWidth: 1,
+      borderColor: themeColorsParam?.border || colors.border,
     },
     iconColor: baseText,
     title: {
@@ -461,6 +738,45 @@ const createStyles = (themeColorsParam = colors) => {
     },
     sectionCard: {
       marginBottom: spacing.md,
+      borderRadius: borderRadius.xl,
+    },
+    heroCard: {
+      marginBottom: spacing.lg,
+      borderRadius: borderRadius.xl,
+      borderWidth: 1,
+      overflow: 'hidden',
+      ...shadows.medium,
+    },
+    heroHeader: {
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.lg,
+      minHeight: 104,
+      justifyContent: 'center',
+    },
+    heroHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    heroIconBadge: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.md,
+    },
+    heroHeaderText: {
+      flex: 1,
+    },
+    heroTitle: {
+      ...typography.h2,
+    },
+    heroSubtitle: {
+      ...typography.bodySmall,
+      marginTop: 2,
+    },
+    heroBody: {
+      padding: spacing.lg,
     },
     profileHeader: {
       flexDirection: 'row',
@@ -479,14 +795,46 @@ const createStyles = (themeColorsParam = colors) => {
       ...typography.body,
       color: subdued,
     },
-    profileStatus: {
+    statusRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      marginTop: spacing.sm,
+    },
+    statusPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      borderRadius: borderRadius.full,
+      borderWidth: 1,
+      paddingVertical: 4,
+      paddingHorizontal: spacing.sm,
+    },
+    statusDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+    },
+    statusText: {
       ...typography.caption,
-      color: subdued,
+      fontWeight: '600',
     },
     sectionTitle: {
-      ...typography.h4,
+      ...typography.h3,
       color: baseText,
+    },
+    sectionHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
       marginBottom: spacing.sm,
+    },
+    sectionIcon: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.sm,
     },
     nameRow: {
       flexDirection: 'row',
@@ -552,11 +900,19 @@ const createStyles = (themeColorsParam = colors) => {
       gap: spacing.sm,
       flexWrap: 'wrap',
     },
+    actionCard: {
+      borderRadius: borderRadius.xl,
+      borderWidth: 1,
+      padding: spacing.lg,
+      marginBottom: spacing.lg,
+    },
     actionButton: {
       flex: 1,
       minWidth: 0,
       paddingVertical: spacing.md,
       minHeight: 48,
+      borderRadius: borderRadius.lg,
+      overflow: 'hidden',
     },
     secondaryButton: {
       flexDirection: 'row',
@@ -575,58 +931,114 @@ const createStyles = (themeColorsParam = colors) => {
       color: baseText,
       fontWeight: '700',
     },
-    blockButton: {
-      backgroundColor: colors.danger || '#d9534f',
-      paddingVertical: spacing.md,
-      paddingHorizontal: spacing.lg,
-      borderRadius: borderRadius.md,
+    gradientButton: {
+      paddingVertical: 0,
+      paddingHorizontal: 0,
+      borderRadius: borderRadius.lg,
+      overflow: 'hidden',
+    },
+    gradientButtonInner: {
+      flex: 1,
+      flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      flexDirection: 'row',
       gap: spacing.xs,
-    },
-    blockButtonText: {
-      ...typography.body,
-      color: '#fff',
-      fontWeight: '700',
-    },
-    deleteButton: {
-      backgroundColor: '#b32020',
       paddingVertical: spacing.md,
       paddingHorizontal: spacing.lg,
-      borderRadius: borderRadius.md,
-      alignItems: 'center',
-      justifyContent: 'center',
-      flexDirection: 'row',
-      gap: spacing.xs,
     },
-    deleteButtonText: {
+    gradientButtonText: {
       ...typography.body,
-      color: '#fff',
+      color: '#FFFFFF',
       fontWeight: '700',
     },
-    modalText: {
+    reportCard: {
+      borderRadius: borderRadius.xl,
+      borderWidth: 1,
+      overflow: 'hidden',
+      ...shadows.large,
+    },
+    reportHeader: {
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.lg,
+      minHeight: 96,
+      justifyContent: 'center',
+    },
+    reportHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    reportIconBadge: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.md,
+    },
+    reportHeaderText: {
+      flex: 1,
+    },
+    reportTitle: {
+      ...typography.h2,
+      color: '#FFFFFF',
+    },
+    reportSubtitle: {
+      ...typography.bodySmall,
+      color: 'rgba(255, 255, 255, 0.85)',
+      marginTop: 2,
+    },
+    reportCloseButton: {
+      position: 'absolute',
+      top: spacing.md,
+      right: spacing.md,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    reportBody: {
+      padding: spacing.lg,
+    },
+    reportText: {
       ...typography.body,
       color: baseText,
       marginBottom: spacing.sm,
     },
-    textArea: {
+    reportInput: {
       minHeight: 120,
       borderWidth: 1,
-      borderColor: themeColorsParam?.border || colors.border,
-      borderRadius: borderRadius.md,
+      borderRadius: borderRadius.lg,
       padding: spacing.md,
       ...typography.body,
       color: baseText,
       backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
       textAlignVertical: 'top',
     },
-    modalActions: {
+    reportActions: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: spacing.sm,
       marginTop: spacing.md,
+    },
+    reportButton: {
+      flex: 1,
+      borderRadius: borderRadius.lg,
+      overflow: 'hidden',
+    },
+    reportPrimaryButton: {
+      paddingVertical: 0,
+    },
+    reportPrimaryInner: {
+      paddingVertical: spacing.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    reportPrimaryText: {
+      ...typography.body,
+      color: '#FFFFFF',
+      fontWeight: '700',
     },
     notice: {
       flexDirection: 'row',
@@ -645,9 +1057,26 @@ const createStyles = (themeColorsParam = colors) => {
       flex: 1,
     },
     avatarFallback: {
-      backgroundColor: `${colors.primary}15`,
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      backgroundColor: `${accent}15`,
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    avatarFrame: {
+      width: 90,
+      height: 90,
+      borderRadius: 45,
+      borderWidth: 1.5,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: themeColorsParam?.card || colors.card,
+    },
+    avatarImage: {
+      width: 80,
+      height: 80,
+      borderRadius: 40,
     },
     avatarInitial: {
       ...typography.h2,

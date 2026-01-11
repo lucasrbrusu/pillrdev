@@ -16,7 +16,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { useApp } from '../context/AppContext';
-import { Card, Button, Input } from '../components';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Card, Input } from '../components';
 import {
   colors,
   shadows,
@@ -25,11 +26,57 @@ import {
   typography,
 } from '../utils/theme';
 
+const getInitials = (name, email) => {
+  const source = (name || email || '').trim();
+  if (!source) return 'U';
+  const parts = source.split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+};
+
 const EditProfileScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { profile, updateProfile, deleteAccount, themeColors } = useApp();
-  const styles = React.useMemo(() => createStyles(), [themeColors]);
+  const { profile, updateProfile, deleteAccount, themeColors, themeName, tasks, getBestStreak } = useApp();
+  const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
+  const isDark = themeName === 'dark';
+  const profileTheme = React.useMemo(
+    () => ({
+      heroGradient: isDark ? ['#1F1B2F', '#0B1020'] : ['#F7E8FF', '#FDF4FF'],
+      cardBg: isDark ? '#0F172A' : '#FFFFFF',
+      cardBorder: isDark ? '#1F2937' : '#E7E5F0',
+      avatarRing: isDark ? ['#8B5CF6', '#F97316'] : ['#C084FC', '#F97316'],
+      buttonGradient: isDark ? ['#8B5CF6', '#EC4899'] : ['#A855F7', '#EC4899'],
+      buttonText: '#FFFFFF',
+      secondaryBg: isDark ? '#111827' : '#F9FAFB',
+      secondaryBorder: isDark ? '#1F2937' : '#E5E7EB',
+      secondaryText: themeColors.text,
+      statDivider: isDark ? '#1F2937' : '#EAE6F3',
+      goalTints: {
+        calorie: {
+          bg: isDark ? 'rgba(249,115,22,0.18)' : '#FFF3E7',
+          border: isDark ? 'rgba(249,115,22,0.35)' : '#FFD9B5',
+          icon: '#F97316',
+        },
+        water: {
+          bg: isDark ? 'rgba(59,130,246,0.18)' : '#EFF6FF',
+          border: isDark ? 'rgba(59,130,246,0.35)' : '#BFDBFE',
+          icon: '#3B82F6',
+        },
+        sleep: {
+          bg: isDark ? 'rgba(168,85,247,0.18)' : '#F5F3FF',
+          border: isDark ? 'rgba(168,85,247,0.35)' : '#DDD6FE',
+          icon: '#8B5CF6',
+        },
+      },
+    }),
+    [isDark, themeColors]
+  );
+  const isPremium = !!profile?.isPremium;
+  const bestStreak = getBestStreak ? getBestStreak() : 0;
+  const totalTasks = tasks?.length || 0;
+  const completedTasks = tasks?.filter((task) => task.completed).length || 0;
+  const successRate = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   const [name, setName] = useState(profile.name);
   const [email, setEmail] = useState(profile.email);
@@ -116,39 +163,146 @@ const EditProfileScreen = () => {
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
-            <Ionicons name="arrow-back" size={24} color={colors.text} />
+            <Ionicons name="arrow-back" size={24} color={themeColors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Edit Profile</Text>
-          <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-            <Text style={styles.saveText}>Save</Text>
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={[
+                styles.cancelButton,
+                {
+                  backgroundColor: profileTheme.secondaryBg,
+                  borderColor: profileTheme.secondaryBorder,
+                },
+              ]}
+              onPress={() => navigation.goBack()}
+            >
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
+              <LinearGradient
+                colors={profileTheme.buttonGradient}
+                style={styles.saveButtonInner}
+              >
+                <Text style={styles.saveText}>Save</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* Profile Photo */}
-        <View style={styles.photoSection}>
-          <TouchableOpacity onPress={handleChangePhoto}>
-            {photo ? (
-              <Image source={{ uri: photo }} style={styles.avatar} />
-            ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Ionicons name="person" size={48} color={colors.textLight} />
+        {/* Profile Hero */}
+        <LinearGradient
+          colors={profileTheme.heroGradient}
+          style={[styles.heroCard, { borderColor: profileTheme.cardBorder }]}
+        >
+          <View style={styles.heroContent}>
+            <TouchableOpacity onPress={handleChangePhoto} style={styles.avatarTap}>
+              <LinearGradient colors={profileTheme.avatarRing} style={styles.avatarRing}>
+                {photo ? (
+                  <Image source={{ uri: photo }} style={styles.avatar} />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    <Text style={styles.avatarInitial}>
+                      {getInitials(profile.name, profile.email)}
+                    </Text>
+                  </View>
+                )}
+              </LinearGradient>
+              <View style={styles.cameraIcon}>
+                <Ionicons name="camera" size={16} color="#FFFFFF" />
               </View>
-            )}
-            <View style={styles.cameraIcon}>
-              <Ionicons name="camera" size={16} color="#FFFFFF" />
+            </TouchableOpacity>
+            <View style={styles.nameRow}>
+              <Text style={styles.profileName}>{profile.name}</Text>
+              {isPremium && (
+                <View style={styles.premiumBadge}>
+                  <LinearGradient
+                    colors={[
+                      'rgba(255,255,255,0.6)',
+                      'rgba(255,255,255,0.12)',
+                      'rgba(255,255,255,0)',
+                    ]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.premiumBadgeShine}
+                    pointerEvents="none"
+                  />
+                  <View style={styles.premiumBadgeContent}>
+                    <Ionicons name="star" size={13} color="#FFFFFF" style={styles.premiumIcon} />
+                    <Text style={styles.premiumText}>Premium</Text>
+                  </View>
+                </View>
+              )}
             </View>
-          </TouchableOpacity>
-          <Text style={styles.changePhotoText}>Change Photo</Text>
-        </View>
+            {!!profile.username && <Text style={styles.profileHandle}>@{profile.username}</Text>}
+            <Text style={styles.profileEmail}>{profile.email}</Text>
+          </View>
+          <View style={[styles.statsDivider, { backgroundColor: profileTheme.statDivider }]} />
+          <View style={styles.statsRow}>
+            <View style={styles.statItem}>
+              <View
+                style={[
+                  styles.statIconWrap,
+                  {
+                    backgroundColor: profileTheme.goalTints.calorie.bg,
+                    borderColor: profileTheme.goalTints.calorie.border,
+                  },
+                ]}
+              >
+                <Ionicons name="flame" size={18} color={profileTheme.goalTints.calorie.icon} />
+              </View>
+              <Text style={styles.statValue}>{bestStreak}</Text>
+              <Text style={styles.statLabel}>Day Streak</Text>
+            </View>
+            <View style={styles.statItem}>
+              <View
+                style={[
+                  styles.statIconWrap,
+                  {
+                    backgroundColor: profileTheme.goalTints.sleep.bg,
+                    borderColor: profileTheme.goalTints.sleep.border,
+                  },
+                ]}
+              >
+                <Ionicons name="ribbon" size={18} color={profileTheme.goalTints.sleep.icon} />
+              </View>
+              <Text style={styles.statValue}>{completedTasks}</Text>
+              <Text style={styles.statLabel}>Tasks Done</Text>
+            </View>
+            <View style={styles.statItem}>
+              <View
+                style={[
+                  styles.statIconWrap,
+                  {
+                    backgroundColor: profileTheme.goalTints.water.bg,
+                    borderColor: profileTheme.goalTints.water.border,
+                  },
+                ]}
+              >
+                <Ionicons name="trending-up" size={18} color={profileTheme.goalTints.water.icon} />
+              </View>
+              <Text style={styles.statValue}>{successRate}%</Text>
+              <Text style={styles.statLabel}>Success</Text>
+            </View>
+          </View>
+        </LinearGradient>
 
         {/* Personal Information */}
-        <Card style={styles.sectionCard}>
+        <Card
+          style={[
+            styles.sectionCard,
+            { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder },
+          ]}
+        >
           <Text style={styles.sectionTitle}>Personal Information</Text>
           <Input
             label="Name"
             value={name}
             onChangeText={setName}
             placeholder="Your name"
+            containerStyle={styles.formInputContainer}
+            style={styles.formInput}
+            inputStyle={styles.formInputText}
           />
           <Input
             label="Email"
@@ -157,18 +311,31 @@ const EditProfileScreen = () => {
             placeholder="your@email.com"
             keyboardType="email-address"
             autoCapitalize="none"
+            containerStyle={styles.formInputContainer}
+            style={styles.formInput}
+            inputStyle={styles.formInputText}
           />
           <TouchableOpacity
             style={styles.changePasswordButton}
             onPress={handleChangePassword}
           >
-            <Ionicons name="lock-closed-outline" size={20} color={colors.primary} />
-            <Text style={styles.changePasswordText}>Change Password</Text>
+            <LinearGradient
+              colors={profileTheme.buttonGradient}
+              style={styles.changePasswordInner}
+            >
+              <Ionicons name="lock-closed-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.changePasswordText}>Change Password</Text>
+            </LinearGradient>
           </TouchableOpacity>
         </Card>
 
         {/* Health Goals */}
-        <Card style={styles.sectionCard}>
+        <Card
+          style={[
+            styles.sectionCard,
+            { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder },
+          ]}
+        >
           <Text style={styles.sectionTitle}>Health Goals</Text>
           <Input
             label="Daily Calorie Goal"
@@ -176,7 +343,16 @@ const EditProfileScreen = () => {
             onChangeText={setCalorieGoal}
             placeholder="2000"
             keyboardType="numeric"
-            rightIcon="nutrition-outline"
+            icon="nutrition-outline"
+            containerStyle={styles.formInputContainer}
+            style={[
+              styles.formInput,
+              {
+                backgroundColor: profileTheme.goalTints.calorie.bg,
+                borderColor: profileTheme.goalTints.calorie.border,
+              },
+            ]}
+            inputStyle={styles.formInputText}
           />
           <Input
             label="Daily Water Goal (L)"
@@ -184,7 +360,16 @@ const EditProfileScreen = () => {
             onChangeText={setWaterGoal}
             placeholder="2.0"
             keyboardType="decimal-pad"
-            rightIcon="water-outline"
+            icon="water-outline"
+            containerStyle={styles.formInputContainer}
+            style={[
+              styles.formInput,
+              {
+                backgroundColor: profileTheme.goalTints.water.bg,
+                borderColor: profileTheme.goalTints.water.border,
+              },
+            ]}
+            inputStyle={styles.formInputText}
           />
           <Input
             label="Daily Sleep Goal (hours)"
@@ -192,42 +377,62 @@ const EditProfileScreen = () => {
             onChangeText={setSleepGoal}
             placeholder="8"
             keyboardType="numeric"
-            rightIcon="moon-outline"
+            icon="moon-outline"
+            containerStyle={styles.formInputContainer}
+            style={[
+              styles.formInput,
+              {
+                backgroundColor: profileTheme.goalTints.sleep.bg,
+                borderColor: profileTheme.goalTints.sleep.border,
+              },
+            ]}
+            inputStyle={styles.formInputText}
           />
         </Card>
 
         {/* Data & Account */}
-        <Card style={styles.sectionCard}>
+        <Card
+          style={[
+            styles.sectionCard,
+            { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder },
+          ]}
+        >
           <Text style={styles.sectionTitle}>Data & Account</Text>
           <TouchableOpacity
             style={styles.actionItem}
             onPress={handleExportData}
           >
-            <Ionicons name="download-outline" size={20} color={colors.text} />
+            <Ionicons name="download-outline" size={20} color={themeColors.text} />
             <Text style={styles.actionText}>Export My Data</Text>
-            <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
+            <Ionicons name="chevron-forward" size={20} color={themeColors.textLight} />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.actionItem}
             onPress={() => Linking.openURL('https://pillarup.net/account-deletion.html')}
           >
-            <Ionicons name="document-text-outline" size={20} color={colors.text} />
+            <Ionicons name="document-text-outline" size={20} color={themeColors.text} />
             <Text style={styles.actionText}>Account & Data Deletion Terms</Text>
-            <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
+            <Ionicons name="chevron-forward" size={20} color={themeColors.textLight} />
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.actionItem, styles.dangerItem]}
             onPress={handleDeleteAccount}
             disabled={deleting}
           >
-            <Ionicons name="trash-outline" size={20} color={colors.danger} />
+            <Ionicons name="trash-outline" size={20} color={themeColors.danger} />
             <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
               <Text style={[styles.actionText, styles.dangerText]}>
                 {deleting ? 'Deleting...' : 'Delete Account'}
               </Text>
-              {deleting && <ActivityIndicator size="small" color={colors.danger} style={{ marginLeft: spacing.sm }} />}
+              {deleting && (
+                <ActivityIndicator
+                  size="small"
+                  color={themeColors.danger}
+                  style={{ marginLeft: spacing.sm }}
+                />
+              )}
             </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.danger} />
+            <Ionicons name="chevron-forward" size={20} color={themeColors.danger} />
           </TouchableOpacity>
         </Card>
       </ScrollView>
@@ -235,11 +440,13 @@ const EditProfileScreen = () => {
   );
 };
 
-const createStyles = () =>
-  StyleSheet.create({
+const createStyles = (themeColorsParam = colors) => {
+  const baseText = themeColorsParam?.text || colors.text;
+  const mutedText = themeColorsParam?.textSecondary || colors.textSecondary;
+  return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.background,
+      backgroundColor: themeColorsParam?.background || colors.background,
     },
     scrollView: {
       flex: 1,
@@ -255,87 +462,250 @@ const createStyles = () =>
       paddingVertical: spacing.lg,
     },
     backButton: {
-      padding: spacing.xs,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
+      borderWidth: 1,
+      borderColor: themeColorsParam?.border || colors.border,
     },
     headerTitle: {
       ...typography.h3,
+      color: baseText,
     },
-    saveButton: {
-      padding: spacing.xs,
+    headerActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
     },
-    saveText: {
-      ...typography.body,
-      color: colors.primary,
+    cancelButton: {
+      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.md,
+      borderRadius: borderRadius.full,
+      borderWidth: 1,
+    },
+    cancelText: {
+      ...typography.bodySmall,
+      color: baseText,
       fontWeight: '600',
     },
-    photoSection: {
-      alignItems: 'center',
-      paddingVertical: spacing.xl,
+    saveButton: {
+      borderRadius: borderRadius.full,
+      overflow: 'hidden',
     },
-    avatar: {
-      width: 100,
-      height: 100,
-      borderRadius: 50,
-    },
-    avatarPlaceholder: {
-      width: 100,
-      height: 100,
-      borderRadius: 50,
-      backgroundColor: colors.inputBackground,
+    saveButtonInner: {
+      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.lg,
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    saveText: {
+      ...typography.bodySmall,
+      color: '#FFFFFF',
+      fontWeight: '700',
+    },
+    heroCard: {
+      borderRadius: borderRadius.xl,
+      borderWidth: 1,
+      overflow: 'hidden',
+      marginBottom: spacing.lg,
+      ...shadows.medium,
+    },
+    heroContent: {
+      alignItems: 'center',
+      paddingVertical: spacing.xl,
+      paddingHorizontal: spacing.lg,
+    },
+    avatarTap: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: spacing.md,
+    },
+    avatarRing: {
+      width: 110,
+      height: 110,
+      borderRadius: 55,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    avatar: {
+      width: 96,
+      height: 96,
+      borderRadius: 48,
+    },
+    avatarPlaceholder: {
+      width: 96,
+      height: 96,
+      borderRadius: 48,
+      backgroundColor: themeColorsParam?.card || colors.card,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    avatarInitial: {
+      ...typography.h2,
+      color: baseText,
     },
     cameraIcon: {
       position: 'absolute',
-      bottom: 0,
-      right: 0,
+      bottom: -2,
+      right: -2,
       width: 32,
       height: 32,
       borderRadius: 16,
-      backgroundColor: colors.primary,
+      backgroundColor: themeColorsParam?.primary || colors.primary,
       alignItems: 'center',
       justifyContent: 'center',
+      borderWidth: 2,
+      borderColor: themeColorsParam?.card || colors.card,
     },
-    changePhotoText: {
+    nameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+      marginBottom: spacing.xs,
+    },
+    profileName: {
+      ...typography.h3,
+      color: baseText,
+    },
+    profileHandle: {
       ...typography.bodySmall,
-      color: colors.primary,
-      marginTop: spacing.sm,
+      color: mutedText,
+    },
+    profileEmail: {
+      ...typography.bodySmall,
+      color: mutedText,
+      marginTop: 2,
+    },
+    statsDivider: {
+      height: 1,
+      width: '100%',
+      backgroundColor: themeColorsParam?.divider || colors.divider,
+    },
+    statsRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.lg,
+    },
+    statItem: {
+      flex: 1,
+      alignItems: 'center',
+    },
+    statIconWrap: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      marginBottom: spacing.xs,
+    },
+    statValue: {
+      ...typography.h3,
+      color: baseText,
+      marginBottom: 2,
+    },
+    statLabel: {
+      ...typography.caption,
+      color: mutedText,
     },
     sectionCard: {
       marginBottom: spacing.lg,
+      borderRadius: borderRadius.xl,
     },
     sectionTitle: {
       ...typography.h3,
       marginBottom: spacing.md,
+      color: baseText,
+    },
+    formInputContainer: {
+      marginBottom: spacing.md,
+    },
+    formInput: {
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
+      borderColor: themeColorsParam?.border || colors.border,
+    },
+    formInputText: {
+      color: baseText,
     },
     changePasswordButton: {
+      borderRadius: borderRadius.full,
+      overflow: 'hidden',
+      marginTop: spacing.sm,
+      alignSelf: 'stretch',
+    },
+    changePasswordInner: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingVertical: spacing.md,
+      justifyContent: 'center',
+      gap: spacing.sm,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.lg,
     },
     changePasswordText: {
-      ...typography.body,
-      color: colors.primary,
-      marginLeft: spacing.sm,
+      ...typography.bodySmall,
+      color: '#FFFFFF',
+      fontWeight: '700',
     },
     actionItem: {
       flexDirection: 'row',
       alignItems: 'center',
       paddingVertical: spacing.md,
       borderBottomWidth: 1,
-      borderBottomColor: colors.divider,
+      borderBottomColor: themeColorsParam?.divider || colors.divider,
     },
     actionText: {
       flex: 1,
       ...typography.body,
       marginLeft: spacing.md,
+      color: baseText,
     },
     dangerItem: {
       borderBottomWidth: 0,
     },
     dangerText: {
-      color: colors.danger,
+      color: themeColorsParam?.danger || colors.danger,
+    },
+    premiumBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#F59E0B',
+      borderRadius: borderRadius.full,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 6,
+      position: 'relative',
+      overflow: 'hidden',
+      ...shadows.small,
+    },
+    premiumBadgeContent: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      zIndex: 1,
+    },
+    premiumBadgeShine: {
+      position: 'absolute',
+      top: -6,
+      left: -18,
+      width: '70%',
+      height: '140%',
+      transform: [{ rotate: '-12deg' }],
+      opacity: 0.75,
+    },
+    premiumIcon: {
+      marginRight: spacing.xs,
+    },
+    premiumText: {
+      ...typography.caption,
+      color: '#FFFFFF',
+      fontWeight: '700',
     },
   });
+};
 
 export default EditProfileScreen;

@@ -22,6 +22,12 @@ const repeatChoices = repeatOptions.filter(
 );
 const defaultMonthlyDay = new Date().getDate();
 const monthDays = Array.from({ length: 31 }, (_, idx) => idx + 1);
+const HABIT_SUGGESTIONS = [
+  'Drink water',
+  'Morning stretch',
+  'Read 10 pages',
+  'Evening walk',
+];
 const formatOrdinal = (day) => {
   const value = parseInt(day, 10) || 0;
   const j = value % 10;
@@ -56,6 +62,7 @@ const HabitsScreen = () => {
     ensureHabitsLoaded,
   } = useApp();
   const isDark = themeName === 'dark';
+  const modalTopPadding = Math.max(spacing.lg, insets.top);
   const habitTheme = useMemo(() => {
     const streakAccent = streakFrozen ? '#4DA6FF' : '#FF7A2F';
     return {
@@ -113,6 +120,31 @@ const HabitsScreen = () => {
       groupMeta: isDark ? '#B0B2C4' : themeColors.textSecondary,
     };
   }, [isDark, themeColors, streakFrozen]);
+  const habitModal = useMemo(
+    () => ({
+      gradient: isDark ? ['#0F3D2E', '#0EA5A6'] : ['#34D399', '#22D3EE'],
+      surface: isDark ? '#0C1F18' : '#FFFFFF',
+      border: isDark ? 'rgba(52, 211, 153, 0.35)' : '#C7F5E6',
+      fieldBg: isDark ? '#112A20' : '#F0FFFA',
+      fieldBorder: isDark ? 'rgba(52, 211, 153, 0.35)' : '#BDEFE1',
+      headerText: '#FFFFFF',
+      headerSubText: 'rgba(255, 255, 255, 0.85)',
+      iconBg: 'rgba(255, 255, 255, 0.2)',
+      closeBg: 'rgba(255, 255, 255, 0.22)',
+      chipBg: isDark ? 'rgba(45, 212, 191, 0.2)' : '#D5F7F1',
+      chipBorder: isDark ? 'rgba(45, 212, 191, 0.35)' : '#BCEEE6',
+      chipText: isDark ? '#A7F3D0' : '#0F766E',
+      chipActiveBg: isDark ? '#10B981' : '#34D399',
+      chipActiveBorder: isDark ? '#34D399' : '#10B981',
+      chipActiveText: '#FFFFFF',
+      actionGradient: isDark ? ['#10B981', '#22D3EE'] : ['#34D399', '#22D3EE'],
+      secondaryBg: isDark ? '#122117' : '#F3F4F6',
+      secondaryBorder: isDark ? '#1F3B2B' : '#E5E7EB',
+      secondaryText: themeColors.text,
+      accent: themeColors.habits,
+    }),
+    [isDark, themeColors]
+  );
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
 
   useEffect(() => {
@@ -197,6 +229,15 @@ const HabitsScreen = () => {
     setHabitGroupId(null);
     setIsEditingHabit(false);
     setSelectedHabit(null);
+  };
+
+  const closeHabitModal = () => {
+    setShowAddModal(false);
+    resetForm();
+  };
+
+  const handleHabitSuggestion = (label) => {
+    setHabitTitle(label);
   };
 
   const handleSubmitHabit = async () => {
@@ -673,188 +714,310 @@ const HabitsScreen = () => {
       {/* Add Habit Modal */}
       <Modal
         visible={showAddModal}
-        onClose={() => {
-          setShowAddModal(false);
-          resetForm();
-        }}
+        onClose={closeHabitModal}
         title={isEditingHabit ? 'Edit Habit' : 'New Habit'}
         fullScreen
+        hideHeader
+        showCloseButton={false}
       >
-        <Input
-          label="Habit Title"
-          value={habitTitle}
-          onChangeText={setHabitTitle}
-          placeholder="e.g., Morning meditation"
-        />
-
-        <Text style={styles.inputLabel}>Category</Text>
-        <ChipGroup
-          options={habitCategories}
-          selectedValue={habitCategory}
-          onSelect={setHabitCategory}
-          style={styles.chipGroup}
-        />
-
-        <Input
-          label="Description (Optional)"
-          value={habitDescription}
-          onChangeText={setHabitDescription}
-          placeholder="Add more details..."
-          multiline
-          numberOfLines={3}
-        />
-
-        {groups.length > 0 ? (
-          <>
-            <Text style={styles.inputLabel}>Share with group</Text>
-            <ChipGroup
-              options={[
-                { label: 'Personal', value: null },
-                ...groups.map((g) => ({ label: g.name, value: g.id })),
-              ]}
-              selectedValue={habitGroupId}
-              onSelect={setHabitGroupId}
-              style={styles.chipGroup}
-            />
-          </>
-        ) : null}
-
-        <Text style={styles.inputLabel}>Repeat</Text>
-        <ChipGroup
-          options={repeatChoices}
-          selectedValue={habitRepeat}
-          onSelect={handleSelectRepeat}
-          style={styles.chipGroup}
-        />
-
-        {(habitRepeat === 'Daily' || habitRepeat === 'Weekly') && (
-          <View style={styles.daysSection}>
-            {habitRepeat === 'Daily' ? (
-              <TouchableOpacity
-                style={styles.everydayToggle}
-                onPress={toggleEveryday}
-              >
-                <Text style={styles.everydayLabel}>Repeat everyday</Text>
-                <View
-                  style={[
-                    styles.toggle,
-                    repeatEveryday && styles.toggleActive,
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.toggleThumb,
-                      repeatEveryday && styles.toggleThumbActive,
-                    ]}
-                  />
+        <View style={[styles.modalScreen, { paddingTop: modalTopPadding }]}>
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: habitModal.surface, borderColor: habitModal.border },
+            ]}
+          >
+            <LinearGradient colors={habitModal.gradient} style={styles.modalHeader}>
+              <View style={styles.modalHeaderContent}>
+                <View style={[styles.modalIconBadge, { backgroundColor: habitModal.iconBg }]}>
+                  <Ionicons name="leaf" size={18} color={habitModal.headerText} />
                 </View>
+                <View style={styles.modalHeaderText}>
+                  <Text style={[styles.modalTitle, { color: habitModal.headerText }]}>
+                    {isEditingHabit ? 'Edit Habit' : 'New Habit'}
+                  </Text>
+                  <Text style={[styles.modalSubtitle, { color: habitModal.headerSubText }]}>
+                    Build routines that stick
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={[styles.modalCloseButton, { backgroundColor: habitModal.closeBg }]}
+                onPress={closeHabitModal}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={18} color={habitModal.headerText} />
               </TouchableOpacity>
-            ) : (
-              <Text style={styles.inputLabel}>Repeat on</Text>
-            )}
+            </LinearGradient>
+            <View style={styles.modalBody}>
+              <Input
+                label="Habit Title"
+                value={habitTitle}
+                onChangeText={setHabitTitle}
+                placeholder="e.g., Morning meditation"
+                containerStyle={styles.modalInputContainer}
+                style={[
+                  styles.modalInput,
+                  {
+                    backgroundColor: habitModal.fieldBg,
+                    borderColor: habitModal.fieldBorder,
+                  },
+                ]}
+                inputStyle={styles.modalInputText}
+              />
 
-            <View style={styles.daysRow}>
-              {daysOfWeek.map((day) => (
+              <Text style={styles.quickLabel}>Quick suggestions</Text>
+              <View style={styles.quickGroup}>
+                {HABIT_SUGGESTIONS.map((label) => {
+                  const selected = habitTitle.trim() === label;
+                  return (
+                    <TouchableOpacity
+                      key={label}
+                      style={[
+                        styles.quickChip,
+                        {
+                          backgroundColor: selected
+                            ? habitModal.chipActiveBg
+                            : habitModal.chipBg,
+                          borderColor: selected
+                            ? habitModal.chipActiveBorder
+                            : habitModal.chipBorder,
+                        },
+                      ]}
+                      onPress={() => handleHabitSuggestion(label)}
+                      activeOpacity={0.8}
+                    >
+                      <Text
+                        style={[
+                          styles.quickChipText,
+                          {
+                            color: selected
+                              ? habitModal.chipActiveText
+                              : habitModal.chipText,
+                          },
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.inputLabel}>Category</Text>
+              <ChipGroup
+                options={habitCategories}
+                selectedValue={habitCategory}
+                onSelect={setHabitCategory}
+                style={styles.chipGroup}
+                color={habitModal.chipActiveBg}
+              />
+
+              <Input
+                label="Description (Optional)"
+                value={habitDescription}
+                onChangeText={setHabitDescription}
+                placeholder="Add more details..."
+                multiline
+                numberOfLines={3}
+                containerStyle={styles.modalInputContainer}
+                style={[
+                  styles.modalInput,
+                  {
+                    backgroundColor: habitModal.fieldBg,
+                    borderColor: habitModal.fieldBorder,
+                  },
+                ]}
+                inputStyle={styles.modalInputText}
+              />
+
+              {groups.length > 0 ? (
+                <>
+                  <Text style={styles.inputLabel}>Share with group</Text>
+                  <ChipGroup
+                    options={[
+                      { label: 'Personal', value: null },
+                      ...groups.map((g) => ({ label: g.name, value: g.id })),
+                    ]}
+                    selectedValue={habitGroupId}
+                    onSelect={setHabitGroupId}
+                    style={styles.chipGroup}
+                    color={habitModal.chipActiveBg}
+                  />
+                </>
+              ) : null}
+
+              <Text style={styles.inputLabel}>Repeat</Text>
+              <ChipGroup
+                options={repeatChoices}
+                selectedValue={habitRepeat}
+                onSelect={handleSelectRepeat}
+                style={styles.chipGroup}
+                color={habitModal.chipActiveBg}
+              />
+
+              {(habitRepeat === 'Daily' || habitRepeat === 'Weekly') && (
+                <View style={styles.daysSection}>
+                  {habitRepeat === 'Daily' ? (
+                    <TouchableOpacity
+                      style={styles.everydayToggle}
+                      onPress={toggleEveryday}
+                    >
+                      <Text style={styles.everydayLabel}>Repeat everyday</Text>
+                      <View
+                        style={[
+                          styles.toggle,
+                          repeatEveryday && styles.toggleActive,
+                        ]}
+                      >
+                        <View
+                          style={[
+                            styles.toggleThumb,
+                            repeatEveryday && styles.toggleThumbActive,
+                          ]}
+                        />
+                      </View>
+                    </TouchableOpacity>
+                  ) : (
+                    <Text style={styles.inputLabel}>Repeat on</Text>
+                  )}
+
+                  <View style={styles.daysRow}>
+                    {daysOfWeek.map((day) => (
+                      <TouchableOpacity
+                        key={day}
+                        style={[
+                          styles.dayButton,
+                          selectedDays.includes(day) && styles.dayButtonActive,
+                        ]}
+                        onPress={() => toggleDay(day)}
+                      >
+                        <Text
+                          style={[
+                            styles.dayText,
+                            selectedDays.includes(day) && styles.dayTextActive,
+                          ]}
+                        >
+                          {day}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  {habitRepeat === 'Weekly' ? (
+                    <Text style={styles.helperText}>Choose one day for this weekly habit.</Text>
+                  ) : null}
+                </View>
+              )}
+
+              {habitRepeat === 'Monthly' && (
+                <View style={styles.monthlySection}>
+                  <Text style={styles.inputLabel}>Day of the month</Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.dateButton,
+                      {
+                        backgroundColor: habitModal.fieldBg,
+                        borderColor: habitModal.fieldBorder,
+                      },
+                    ]}
+                    onPress={() => setShowMonthlyDatePicker(true)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.dateButtonText}>
+                      Repeats on {formatOrdinal(monthlyDay)} of every month
+                    </Text>
+                    <Ionicons
+                      name="calendar-outline"
+                      size={18}
+                      color={themeColors.textLight}
+                    />
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {showMonthlyDatePicker ? (
+                <View style={styles.dayPickerOverlay}>
+                  <TouchableOpacity
+                    style={styles.dayPickerBackdrop}
+                    onPress={() => setShowMonthlyDatePicker(false)}
+                    activeOpacity={1}
+                  />
+                  <View style={styles.dayPickerSheet}>
+                    <Text style={styles.dayPickerTitle}>Select day</Text>
+                    <View style={styles.dayPickerGrid}>
+                      {monthDays.map((day) => (
+                        <TouchableOpacity
+                          key={day}
+                          style={[
+                            styles.dayOption,
+                            monthlyDay === day && styles.dayOptionActive,
+                          ]}
+                          onPress={() => {
+                            setMonthlyDay(day);
+                            setShowMonthlyDatePicker(false);
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <Text
+                            style={[
+                              styles.dayOptionText,
+                              monthlyDay === day && styles.dayOptionTextActive,
+                            ]}
+                          >
+                            {day}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                </View>
+              ) : null}
+
+              <View style={styles.modalButtons}>
                 <TouchableOpacity
-                  key={day}
                   style={[
-                    styles.dayButton,
-                    selectedDays.includes(day) && styles.dayButtonActive,
+                    styles.modalButton,
+                    styles.secondaryButton,
+                    {
+                      backgroundColor: habitModal.secondaryBg,
+                      borderColor: habitModal.secondaryBorder,
+                    },
                   ]}
-                  onPress={() => toggleDay(day)}
+                  onPress={closeHabitModal}
+                  activeOpacity={0.8}
                 >
                   <Text
                     style={[
-                      styles.dayText,
-                      selectedDays.includes(day) && styles.dayTextActive,
+                      styles.secondaryButtonText,
+                      { color: habitModal.secondaryText },
                     ]}
                   >
-                    {day}
+                    Cancel
                   </Text>
                 </TouchableOpacity>
-              ))}
-            </View>
-
-            {habitRepeat === 'Weekly' ? (
-              <Text style={styles.helperText}>Choose one day for this weekly habit.</Text>
-            ) : null}
-          </View>
-        )}
-
-        {habitRepeat === 'Monthly' && (
-          <View style={styles.monthlySection}>
-            <Text style={styles.inputLabel}>Day of the month</Text>
-            <TouchableOpacity
-              style={styles.dateButton}
-              onPress={() => setShowMonthlyDatePicker(true)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.dateButtonText}>
-                Repeats on {formatOrdinal(monthlyDay)} of every month
-              </Text>
-              <Ionicons
-                name="calendar-outline"
-                size={18}
-                color={colors.textLight}
-              />
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {showMonthlyDatePicker ? (
-          <View style={styles.dayPickerOverlay}>
-            <TouchableOpacity
-              style={styles.dayPickerBackdrop}
-              onPress={() => setShowMonthlyDatePicker(false)}
-              activeOpacity={1}
-            />
-            <View style={styles.dayPickerSheet}>
-              <Text style={styles.dayPickerTitle}>Select day</Text>
-              <View style={styles.dayPickerGrid}>
-                {monthDays.map((day) => (
-                  <TouchableOpacity
-                    key={day}
-                    style={[
-                      styles.dayOption,
-                      monthlyDay === day && styles.dayOptionActive,
-                    ]}
-                    onPress={() => {
-                      setMonthlyDay(day);
-                      setShowMonthlyDatePicker(false);
-                    }}
-                    activeOpacity={0.8}
+                <TouchableOpacity
+                  style={[
+                    styles.modalButton,
+                    styles.primaryButton,
+                    !habitTitle.trim() && styles.primaryButtonDisabled,
+                  ]}
+                  onPress={handleSubmitHabit}
+                  disabled={!habitTitle.trim()}
+                  activeOpacity={0.85}
+                >
+                  <LinearGradient
+                    colors={habitModal.actionGradient}
+                    style={styles.primaryButtonInner}
                   >
-                    <Text
-                      style={[
-                        styles.dayOptionText,
-                        monthlyDay === day && styles.dayOptionTextActive,
-                      ]}
-                    >
-                      {day}
+                    <Text style={styles.primaryButtonText}>
+                      {isEditingHabit ? 'Save Changes' : 'Create Habit'}
                     </Text>
-                  </TouchableOpacity>
-                ))}
+                  </LinearGradient>
+                </TouchableOpacity>
               </View>
             </View>
           </View>
-        ) : null}
-
-        <View style={styles.modalButtons}>
-          <Button
-            title="Cancel"
-            variant="secondary"
-            onPress={() => {
-              setShowAddModal(false);
-              resetForm();
-            }}
-            style={styles.modalButton}
-          />
-          <Button
-            title={isEditingHabit ? 'Save Changes' : 'Create Habit'}
-            onPress={handleSubmitHabit}
-            disabled={!habitTitle.trim()}
-            style={styles.modalButton}
-          />
         </View>
       </Modal>
 
@@ -1244,7 +1407,7 @@ const createStyles = (themeColors) => StyleSheet.create({
   },
   helperText: {
     ...typography.bodySmall,
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
     marginTop: spacing.sm,
   },
   monthlySection: {
@@ -1256,11 +1419,14 @@ const createStyles = (themeColors) => StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
-    backgroundColor: colors.inputBackground,
-    borderRadius: borderRadius.md,
+    backgroundColor: themeColors.inputBackground,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: themeColors.border,
   },
   dateButtonText: {
     ...typography.body,
+    color: themeColors.text,
   },
   dayPickerOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -1275,13 +1441,14 @@ const createStyles = (themeColors) => StyleSheet.create({
   },
   dayPickerSheet: {
     width: '92%',
-    backgroundColor: colors.card,
+    backgroundColor: themeColors.card,
     borderRadius: borderRadius.xl,
     padding: spacing.lg,
     ...shadows.medium,
   },
   dayPickerTitle: {
     ...typography.h3,
+    color: themeColors.text,
     marginBottom: spacing.md,
   },
   dayPickerGrid: {
@@ -1293,30 +1460,145 @@ const createStyles = (themeColors) => StyleSheet.create({
     width: '18%',
     aspectRatio: 1,
     borderRadius: borderRadius.md,
-    backgroundColor: colors.inputBackground,
+    backgroundColor: themeColors.inputBackground,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.sm,
   },
   dayOptionActive: {
-    backgroundColor: colors.primary,
+    backgroundColor: themeColors.primary,
   },
   dayOptionText: {
     ...typography.body,
     fontWeight: '600',
-    color: colors.textSecondary,
+    color: themeColors.textSecondary,
   },
   dayOptionTextActive: {
     color: '#FFFFFF',
   },
+  modalScreen: {
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xl,
+  },
+  modalCard: {
+    borderRadius: borderRadius.xl,
+    overflow: 'hidden',
+    borderWidth: 1,
+    ...shadows.large,
+  },
+  modalHeader: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
+    minHeight: 96,
+    justifyContent: 'center',
+  },
+  modalHeaderContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  modalIconBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  modalHeaderText: {
+    flex: 1,
+  },
+  modalTitle: {
+    ...typography.h2,
+    color: '#FFFFFF',
+  },
+  modalSubtitle: {
+    ...typography.bodySmall,
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginTop: 2,
+  },
+  modalCloseButton: {
+    position: 'absolute',
+    top: spacing.md,
+    right: spacing.md,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalBody: {
+    padding: spacing.lg,
+  },
+  modalInputContainer: {
+    marginBottom: spacing.md,
+  },
+  modalInput: {
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    backgroundColor: themeColors.inputBackground,
+  },
+  modalInputText: {
+    color: themeColors.text,
+  },
+  quickLabel: {
+    ...typography.caption,
+    color: themeColors.textSecondary,
+    marginBottom: spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  quickGroup: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: spacing.lg,
+  },
+  quickChip: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    marginRight: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  quickChipText: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+  },
   modalButtons: {
     flexDirection: 'row',
-    marginTop: spacing.xl,
-    marginBottom: spacing.lg,
+    marginTop: spacing.lg,
   },
   modalButton: {
     flex: 1,
     marginHorizontal: spacing.xs,
+  },
+  secondaryButton: {
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  secondaryButtonText: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+  },
+  primaryButton: {
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+  },
+  primaryButtonInner: {
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryButtonText: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  primaryButtonDisabled: {
+    opacity: 0.6,
   },
   detailTitle: {
     ...typography.h2,

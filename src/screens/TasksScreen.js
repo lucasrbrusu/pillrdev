@@ -19,13 +19,13 @@ import {
   Modal,
   Button,
   Input,
-  ChipGroup,
   PlatformDatePicker,
   PlatformTimePicker,
   PlatformScrollView,
 } from '../components';
 import {
   colors,
+  shadows,
   borderRadius,
   spacing,
   typography,
@@ -39,6 +39,33 @@ const TIME_OPTIONS = Array.from({ length: 48 }).map((_, idx) => {
   const suffix = h < 12 ? 'AM' : 'PM';
   return `${hour12}:${m} ${suffix}`;
 });
+
+const TASK_QUICK_DATES = [
+  { label: 'Today', offset: 0 },
+  { label: 'Tomorrow', offset: 1 },
+  { label: 'Next Week', offset: 7 },
+];
+
+const TASK_QUICK_TIMES = ['09:00', '12:00', '15:00', '18:00', '20:00'];
+
+const getISODateWithOffset = (offset) => {
+  const date = new Date();
+  date.setDate(date.getDate() + offset);
+  return date.toISOString().split('T')[0];
+};
+
+const normalizeTimeValue = (value) => {
+  if (!value || typeof value !== 'string') return '';
+  const match = value.trim().match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?/i);
+  if (!match) return value;
+  let hour = parseInt(match[1], 10);
+  const minute = match[2] ?? '00';
+  const suffix = match[3]?.toUpperCase();
+  if (suffix === 'PM' && hour < 12) hour += 12;
+  if (suffix === 'AM' && hour === 12) hour = 0;
+  const paddedHour = hour.toString().padStart(2, '0');
+  return `${paddedHour}:${minute}`;
+};
 
 const TasksScreen = () => {
   const insets = useSafeAreaInsets();
@@ -69,6 +96,7 @@ const TasksScreen = () => {
     ensureNotesLoaded,
   } = useApp();
   const isDark = themeName === 'dark';
+  const modalTopPadding = Math.max(spacing.lg, insets.top);
   const tasksTheme = useMemo(
     () => ({
       background: isDark ? themeColors.background : '#FBF5FF',
@@ -116,6 +144,31 @@ const TasksScreen = () => {
     }),
     [isDark, themeColors]
   );
+  const taskModal = useMemo(
+    () => ({
+      gradient: isDark ? ['#0F172A', '#4F46E5'] : ['#6366F1', '#38BDF8'],
+      surface: isDark ? '#0B1025' : '#FFFFFF',
+      border: isDark ? 'rgba(99, 102, 241, 0.35)' : '#DDE3FF',
+      fieldBg: isDark ? '#11162E' : '#F5F7FF',
+      fieldBorder: isDark ? 'rgba(99, 102, 241, 0.35)' : '#C9D4FF',
+      headerText: '#FFFFFF',
+      headerSubText: 'rgba(255, 255, 255, 0.85)',
+      iconBg: 'rgba(255, 255, 255, 0.2)',
+      closeBg: 'rgba(255, 255, 255, 0.22)',
+      chipBg: isDark ? 'rgba(59, 130, 246, 0.18)' : '#DFE7FF',
+      chipBorder: isDark ? 'rgba(59, 130, 246, 0.35)' : '#C8D7FF',
+      chipText: isDark ? '#BFDBFE' : '#1E3A8A',
+      chipActiveBg: isDark ? '#3B82F6' : '#60A5FA',
+      chipActiveBorder: isDark ? '#60A5FA' : '#3B82F6',
+      chipActiveText: '#FFFFFF',
+      actionGradient: isDark ? ['#4F46E5', '#38BDF8'] : ['#6366F1', '#38BDF8'],
+      secondaryBg: isDark ? '#111827' : '#F3F4F6',
+      secondaryBorder: isDark ? '#1F2937' : '#E5E7EB',
+      secondaryText: themeColors.text,
+      accent: themeColors.tasks,
+    }),
+    [isDark, themeColors]
+  );
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
 
   const [activeTab, setActiveTab] = useState('All Tasks');
@@ -153,6 +206,10 @@ const TasksScreen = () => {
   const [taskPriority, setTaskPriority] = useState('medium');
   const [taskDate, setTaskDate] = useState(new Date().toISOString().split('T')[0]);
   const [taskTime, setTaskTime] = useState('');
+  const normalizedTaskTime = useMemo(
+    () => normalizeTimeValue(taskTime),
+    [taskTime]
+  );
 
   // Note form state
   const [noteTitle, setNoteTitle] = useState('');
@@ -218,6 +275,22 @@ const TasksScreen = () => {
     setTimePickerTarget(null);
     setInvitedFriendIds([]);
     setShowPeopleModal(false);
+  };
+
+  const closeTaskModal = () => {
+    setShowTaskModal(false);
+    resetTaskForm();
+  };
+
+  const handleQuickTaskDate = (offset) => {
+    setTaskDate(getISODateWithOffset(offset));
+    setShowDatePicker(false);
+  };
+
+  const handleQuickTaskTime = (value) => {
+    setTaskTime(value);
+    setShowTimePicker(false);
+    setTimePickerTarget(null);
   };
 
   const resetNoteForm = () => {
@@ -900,212 +973,404 @@ const TasksScreen = () => {
         {/* Add Task Modal */}
         <Modal
           visible={showTaskModal}
-          onClose={() => {
-            setShowTaskModal(false);
-            resetTaskForm();
-          }}
+          onClose={closeTaskModal}
           title={showPeopleModal ? 'People' : 'New Task'}
           fullScreen
+          hideHeader
+          showCloseButton={false}
         >
-        {showPeopleModal ? (
-          <PlatformScrollView contentContainerStyle={{ paddingBottom: spacing.xl }}>
-            <Text style={styles.peopleModalHint}>
-              Select friends to invite. Invites are sent when you create the task.
-            </Text>
+          <View style={[styles.taskModalScreen, { paddingTop: modalTopPadding }]}>
+            <View
+              style={[
+                styles.taskModalCard,
+                { backgroundColor: taskModal.surface, borderColor: taskModal.border },
+              ]}
+            >
+              <LinearGradient colors={taskModal.gradient} style={styles.taskModalHeader}>
+                <View style={styles.taskModalHeaderContent}>
+                  <View style={[styles.taskModalIconBadge, { backgroundColor: taskModal.iconBg }]}>
+                    <Ionicons
+                      name={showPeopleModal ? 'people' : 'checkbox'}
+                      size={18}
+                      color={taskModal.headerText}
+                    />
+                  </View>
+                  <View style={styles.taskModalHeaderText}>
+                    <Text style={[styles.taskModalTitle, { color: taskModal.headerText }]}>
+                      {showPeopleModal ? 'People' : 'New Task'}
+                    </Text>
+                    <Text
+                      style={[styles.taskModalSubtitle, { color: taskModal.headerSubText }]}
+                    >
+                      {showPeopleModal
+                        ? 'Invite friends to join this task'
+                        : 'Plan and share what matters today'}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={[styles.taskModalCloseButton, { backgroundColor: taskModal.closeBg }]}
+                  onPress={closeTaskModal}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={18} color={taskModal.headerText} />
+                </TouchableOpacity>
+              </LinearGradient>
+              <View style={styles.taskModalBody}>
+                {showPeopleModal ? (
+                  <>
+                    <Text style={styles.peopleModalHint}>
+                      Select friends to invite. Invites are sent when you create the task.
+                    </Text>
 
-            {friends.length === 0 ? (
-              <View style={styles.peopleEmpty}>
-                <Ionicons name="people-outline" size={22} color={themeColors.textSecondary} />
-                <Text style={styles.peopleEmptyText}>No friends yet.</Text>
-              </View>
-            ) : (
-              <Card style={styles.peopleCard}>
-                {friends.map((friend) => {
-                  const invited = invitedFriendIds.includes(friend.id);
-                  return (
-                    <View key={friend.id} style={styles.peopleRow}>
-                      <View style={styles.peopleRowText}>
-                        <Text style={styles.peopleName} numberOfLines={1}>
-                          {friend.name || friend.username || 'Friend'}
-                        </Text>
-                        <Text style={styles.peopleUsername} numberOfLines={1}>
-                          {friend.username ? `@${friend.username}` : ''}
-                        </Text>
+                    {friends.length === 0 ? (
+                      <View style={styles.peopleEmpty}>
+                        <Ionicons name="people-outline" size={22} color={themeColors.textSecondary} />
+                        <Text style={styles.peopleEmptyText}>No friends yet.</Text>
                       </View>
+                    ) : (
+                      <Card style={styles.peopleCard}>
+                        {friends.map((friend) => {
+                          const invited = invitedFriendIds.includes(friend.id);
+                          return (
+                            <View key={friend.id} style={styles.peopleRow}>
+                              <View style={styles.peopleRowText}>
+                                <Text style={styles.peopleName} numberOfLines={1}>
+                                  {friend.name || friend.username || 'Friend'}
+                                </Text>
+                                <Text style={styles.peopleUsername} numberOfLines={1}>
+                                  {friend.username ? `@${friend.username}` : ''}
+                                </Text>
+                              </View>
+                              <Button
+                                title={invited ? 'Invited' : 'Invite'}
+                                variant={invited ? 'outline' : 'primary'}
+                                size="small"
+                                fullWidth={false}
+                                disableTranslation
+                                onPress={() => toggleInvitedFriend(friend.id)}
+                              />
+                            </View>
+                          );
+                        })}
+                      </Card>
+                    )}
+
+                    <View style={styles.taskModalButtons}>
+                      <TouchableOpacity
+                        style={[
+                          styles.taskModalButton,
+                          styles.taskModalSecondaryButton,
+                          {
+                            backgroundColor: taskModal.secondaryBg,
+                            borderColor: taskModal.secondaryBorder,
+                          },
+                        ]}
+                        onPress={() => setShowPeopleModal(false)}
+                        activeOpacity={0.8}
+                      >
+                        <Text
+                          style={[
+                            styles.taskModalSecondaryText,
+                            { color: taskModal.secondaryText },
+                          ]}
+                        >
+                          Back
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.taskModalButton, styles.taskModalPrimaryButton]}
+                        onPress={() => setShowPeopleModal(false)}
+                        activeOpacity={0.85}
+                      >
+                        <LinearGradient
+                          colors={taskModal.actionGradient}
+                          style={styles.taskModalPrimaryInner}
+                        >
+                          <Text style={styles.taskModalPrimaryText}>Done</Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <Input
+                      label="Task Title"
+                      value={taskTitle}
+                      onChangeText={setTaskTitle}
+                      placeholder="e.g., Complete project proposal"
+                      containerStyle={styles.taskModalInputContainer}
+                      style={[
+                        styles.taskModalInput,
+                        {
+                          backgroundColor: taskModal.fieldBg,
+                          borderColor: taskModal.fieldBorder,
+                        },
+                      ]}
+                      inputStyle={styles.taskModalInputText}
+                    />
+
+                    <Input
+                      label="Description (Optional)"
+                      value={taskDescription}
+                      onChangeText={setTaskDescription}
+                      placeholder="Add more details..."
+                      multiline
+                      numberOfLines={3}
+                      containerStyle={styles.taskModalInputContainer}
+                      style={[
+                        styles.taskModalInput,
+                        {
+                          backgroundColor: taskModal.fieldBg,
+                          borderColor: taskModal.fieldBorder,
+                        },
+                      ]}
+                      inputStyle={styles.taskModalInputText}
+                    />
+
+                    <View style={styles.peopleButtonRow}>
                       <Button
-                        title={invited ? 'Invited' : 'Invite'}
-                        variant={invited ? 'outline' : 'primary'}
-                        size="small"
+                        title={
+                          invitedFriendIds.length ? `People (${invitedFriendIds.length})` : 'People'
+                        }
+                        variant="secondary"
+                        icon="people-outline"
                         fullWidth={false}
                         disableTranslation
-                        onPress={() => toggleInvitedFriend(friend.id)}
+                        onPress={() => setShowPeopleModal(true)}
                       />
+                      <Text style={styles.peopleHintText}>
+                        Invites are sent when you create the task.
+                      </Text>
                     </View>
-                  );
-                })}
-              </Card>
-            )}
 
-            <View style={styles.modalButtons}>
-              <Button
-                title="Back"
-                variant="secondary"
-                onPress={() => setShowPeopleModal(false)}
-                disableTranslation
-                style={styles.modalButton}
-              />
-              <Button
-                title="Done"
-                onPress={() => setShowPeopleModal(false)}
-                disableTranslation
-                style={styles.modalButton}
-              />
-            </View>
-          </PlatformScrollView>
-        ) : (
-          <PlatformScrollView contentContainerStyle={{ paddingBottom: spacing.xl }}>
-            <Input
-              label="Task Title"
-              value={taskTitle}
-              onChangeText={setTaskTitle}
-              placeholder="e.g., Complete project proposal"
-            />
+                    <Text style={styles.inputLabel}>Priority</Text>
+                    <View style={styles.priorityRow}>
+                      {priorityLevels.map((level) => (
+                        <TouchableOpacity
+                          key={level.value}
+                          style={[
+                            styles.priorityOption,
+                            taskPriority === level.value && styles.priorityOptionActive,
+                            taskPriority === level.value && {
+                              backgroundColor: level.color,
+                            },
+                          ]}
+                          onPress={() => setTaskPriority(level.value)}
+                        >
+                          <Text
+                            style={[
+                              styles.priorityOptionText,
+                              taskPriority === level.value && styles.priorityOptionTextActive,
+                            ]}
+                          >
+                            {level.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
 
-            <Input
-              label="Description (Optional)"
-              value={taskDescription}
-              onChangeText={setTaskDescription}
-              placeholder="Add more details..."
-              multiline
-              numberOfLines={3}
-            />
+                    <View style={styles.dateTimeRow}>
+                      <View style={styles.dateInput}>
+                        <Text style={styles.inputLabel}>Date</Text>
+                        <TouchableOpacity
+                          style={[
+                            styles.dateButton,
+                            {
+                              backgroundColor: taskModal.fieldBg,
+                              borderColor: taskModal.fieldBorder,
+                            },
+                          ]}
+                          onPress={openDatePicker}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={styles.dateButtonText}>{formatDate(taskDate)}</Text>
+                          <Ionicons
+                            name="calendar-outline"
+                            size={18}
+                            color={themeColors.textLight}
+                          />
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.timeInput}>
+                        <Text style={styles.inputLabel}>Time</Text>
+                        <TouchableOpacity
+                          style={[
+                            styles.dateButton,
+                            {
+                              backgroundColor: taskModal.fieldBg,
+                              borderColor: taskModal.fieldBorder,
+                            },
+                          ]}
+                          onPress={() => openTimePicker('task')}
+                          activeOpacity={0.8}
+                        >
+                          <Text
+                            style={[
+                              styles.dateButtonText,
+                              !taskTime && styles.placeholderText,
+                            ]}
+                          >
+                            {taskTime || 'Select time'}
+                          </Text>
+                          <Ionicons name="time-outline" size={18} color={themeColors.textLight} />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
 
-            <View style={styles.peopleButtonRow}>
-              <Button
-                title={
-                  invitedFriendIds.length ? `People (${invitedFriendIds.length})` : 'People'
-                }
-                variant="secondary"
-                icon="people-outline"
-                fullWidth={false}
-                disableTranslation
-                onPress={() => setShowPeopleModal(true)}
-              />
-              <Text style={styles.peopleHintText}>
-                Invites are sent when you create the task.
-              </Text>
-            </View>
+                    <Text style={styles.quickLabel}>Quick dates</Text>
+                    <View style={styles.quickGroup}>
+                      {TASK_QUICK_DATES.map((option) => {
+                        const quickDate = getISODateWithOffset(option.offset);
+                        const selected = taskDate === quickDate;
+                        return (
+                          <TouchableOpacity
+                            key={option.label}
+                            style={[
+                              styles.quickChip,
+                              {
+                                backgroundColor: selected
+                                  ? taskModal.chipActiveBg
+                                  : taskModal.chipBg,
+                                borderColor: selected
+                                  ? taskModal.chipActiveBorder
+                                  : taskModal.chipBorder,
+                              },
+                            ]}
+                            onPress={() => handleQuickTaskDate(option.offset)}
+                            activeOpacity={0.8}
+                          >
+                            <Text
+                              style={[
+                                styles.quickChipText,
+                                {
+                                  color: selected
+                                    ? taskModal.chipActiveText
+                                    : taskModal.chipText,
+                                },
+                              ]}
+                            >
+                              {option.label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
 
-            <Text style={styles.inputLabel}>Priority</Text>
-            <View style={styles.priorityRow}>
-              {priorityLevels.map((level) => (
-                <TouchableOpacity
-                  key={level.value}
-                  style={[
-                    styles.priorityOption,
-                    taskPriority === level.value && styles.priorityOptionActive,
-                    taskPriority === level.value && {
-                      backgroundColor: level.color,
-                    },
-                  ]}
-                  onPress={() => setTaskPriority(level.value)}
-                >
-                  <Text
-                    style={[
-                      styles.priorityOptionText,
-                      taskPriority === level.value && styles.priorityOptionTextActive,
-                    ]}
-                  >
-                    {level.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+                    <Text style={styles.quickLabel}>Quick times</Text>
+                    <View style={styles.quickGroup}>
+                      {TASK_QUICK_TIMES.map((time) => {
+                        const selected = normalizedTaskTime === time;
+                        return (
+                          <TouchableOpacity
+                            key={time}
+                            style={[
+                              styles.quickChip,
+                              {
+                                backgroundColor: selected
+                                  ? taskModal.chipActiveBg
+                                  : taskModal.chipBg,
+                                borderColor: selected
+                                  ? taskModal.chipActiveBorder
+                                  : taskModal.chipBorder,
+                              },
+                            ]}
+                            onPress={() => handleQuickTaskTime(time)}
+                            activeOpacity={0.8}
+                          >
+                            <Text
+                              style={[
+                                styles.quickChipText,
+                                {
+                                  color: selected
+                                    ? taskModal.chipActiveText
+                                    : taskModal.chipText,
+                                },
+                              ]}
+                            >
+                              {time}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
 
-            <View style={styles.dateTimeRow}>
-              <View style={styles.dateInput}>
-                <Text style={styles.inputLabel}>Date</Text>
-                <TouchableOpacity
-                  style={styles.dateButton}
-                  onPress={openDatePicker}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.dateButtonText}>{formatDate(taskDate)}</Text>
-                  <Ionicons
-                    name="calendar-outline"
-                    size={18}
-                    color={themeColors.textLight}
-                  />
-                </TouchableOpacity>
+                    <PlatformDatePicker
+                      visible={showDatePicker}
+                      value={taskDate}
+                      onChange={handleSelectDate}
+                      onClose={() => setShowDatePicker(false)}
+                      accentColor={taskModal.accent}
+                    />
+
+                    <PlatformTimePicker
+                      visible={showTimePicker}
+                      value={
+                        timePickerTarget === 'task'
+                          ? taskTime
+                          : timePickerTarget === 'sleep'
+                          ? todayHealth?.sleepTime
+                          : timePickerTarget === 'wake'
+                          ? todayHealth?.wakeTime
+                          : ''
+                      }
+                      onChange={handleSelectTime}
+                      onClose={() => {
+                        setShowTimePicker(false);
+                        setTimePickerTarget(null);
+                      }}
+                      options={timeOptions}
+                      accentColor={taskModal.accent}
+                    />
+
+                    <View style={styles.taskModalButtons}>
+                      <TouchableOpacity
+                        style={[
+                          styles.taskModalButton,
+                          styles.taskModalSecondaryButton,
+                          {
+                            backgroundColor: taskModal.secondaryBg,
+                            borderColor: taskModal.secondaryBorder,
+                          },
+                        ]}
+                        onPress={closeTaskModal}
+                        activeOpacity={0.8}
+                      >
+                        <Text
+                          style={[
+                            styles.taskModalSecondaryText,
+                            { color: taskModal.secondaryText },
+                          ]}
+                        >
+                          Cancel
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.taskModalButton,
+                          styles.taskModalPrimaryButton,
+                          (!taskTitle.trim() || !taskTime || invitingFriends) &&
+                            styles.taskModalPrimaryDisabled,
+                        ]}
+                        onPress={handleCreateTask}
+                        disabled={!taskTitle.trim() || !taskTime || invitingFriends}
+                        activeOpacity={0.85}
+                      >
+                        <LinearGradient
+                          colors={taskModal.actionGradient}
+                          style={styles.taskModalPrimaryInner}
+                        >
+                          <Text style={styles.taskModalPrimaryText}>
+                            {invitingFriends ? 'Creating...' : 'Create Task'}
+                          </Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
               </View>
-              <View style={styles.timeInput}>
-                <Text style={styles.inputLabel}>Time</Text>
-                <TouchableOpacity
-                  style={styles.dateButton}
-                  onPress={() => openTimePicker('task')}
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.dateButtonText,
-                      !taskTime && styles.placeholderText,
-                    ]}
-                  >
-                    {taskTime || 'Select time'}
-                  </Text>
-                  <Ionicons name="time-outline" size={18} color={themeColors.textLight} />
-                </TouchableOpacity>
-              </View>
             </View>
-
-            <PlatformDatePicker
-              visible={showDatePicker}
-              value={taskDate}
-              onChange={handleSelectDate}
-              onClose={() => setShowDatePicker(false)}
-              accentColor={themeColors.tasks}
-            />
-
-            <PlatformTimePicker
-              visible={showTimePicker}
-              value={
-                timePickerTarget === 'task'
-                  ? taskTime
-                  : timePickerTarget === 'sleep'
-                  ? todayHealth?.sleepTime
-                  : timePickerTarget === 'wake'
-                  ? todayHealth?.wakeTime
-                  : ''
-              }
-              onChange={handleSelectTime}
-              onClose={() => {
-                setShowTimePicker(false);
-                setTimePickerTarget(null);
-              }}
-              options={timeOptions}
-              accentColor={themeColors.tasks}
-            />
-
-            <View style={styles.modalButtons}>
-              <Button
-                title="Cancel"
-                variant="secondary"
-                onPress={() => {
-                  setShowTaskModal(false);
-                  resetTaskForm();
-                }}
-                style={styles.modalButton}
-              />
-              <Button
-                title="Create Task"
-                onPress={handleCreateTask}
-                disabled={!taskTitle.trim() || !taskTime || invitingFriends}
-                loading={invitingFriends}
-                style={styles.modalButton}
-              />
-            </View>
-          </PlatformScrollView>
-        )}
+          </View>
         </Modal>
 
       {/* Quick Note Modal */}
@@ -1787,7 +2052,7 @@ const createStyles = (themeColors) => {
     justifyContent: 'space-between',
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.lg,
     borderWidth: 1,
     borderColor: themeColors.border,
     backgroundColor: themeColors.inputBackground,
@@ -1798,6 +2063,130 @@ const createStyles = (themeColors) => {
   },
   placeholderText: {
     color: themeColors.placeholder,
+  },
+  taskModalScreen: {
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xl,
+  },
+  taskModalCard: {
+    borderRadius: borderRadius.xl,
+    overflow: 'hidden',
+    borderWidth: 1,
+    ...shadows.large,
+  },
+  taskModalHeader: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
+    minHeight: 96,
+    justifyContent: 'center',
+  },
+  taskModalHeaderContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  taskModalIconBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  taskModalHeaderText: {
+    flex: 1,
+  },
+  taskModalTitle: {
+    ...typography.h2,
+    color: '#FFFFFF',
+  },
+  taskModalSubtitle: {
+    ...typography.bodySmall,
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginTop: 2,
+  },
+  taskModalCloseButton: {
+    position: 'absolute',
+    top: spacing.md,
+    right: spacing.md,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  taskModalBody: {
+    padding: spacing.lg,
+  },
+  taskModalInputContainer: {
+    marginBottom: spacing.md,
+  },
+  taskModalInput: {
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    backgroundColor: themeColors.inputBackground,
+  },
+  taskModalInputText: {
+    color: themeColors.text,
+  },
+  quickLabel: {
+    ...typography.caption,
+    color: themeColors.textSecondary,
+    marginBottom: spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  quickGroup: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: spacing.lg,
+  },
+  quickChip: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    marginRight: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  quickChipText: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+  },
+  taskModalButtons: {
+    flexDirection: 'row',
+    marginTop: spacing.lg,
+  },
+  taskModalButton: {
+    flex: 1,
+    marginHorizontal: spacing.xs,
+  },
+  taskModalSecondaryButton: {
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  taskModalSecondaryText: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+  },
+  taskModalPrimaryButton: {
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+  },
+  taskModalPrimaryInner: {
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  taskModalPrimaryText: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  taskModalPrimaryDisabled: {
+    opacity: 0.6,
   },
   modalButtons: {
     flexDirection: 'row',
