@@ -9,11 +9,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useApp } from '../context/AppContext';
 import {
   Card,
   Modal,
-  Button,
   Input,
   ChipGroup,
   PlatformScrollView,
@@ -23,6 +23,7 @@ import {
 import { formatTimeFromDate } from '../utils/notifications';
 import {
   borderRadius,
+  shadows,
   spacing,
   typography,
 } from '../utils/theme';
@@ -34,6 +35,40 @@ const REMINDER_TIME_OPTIONS = Array.from({ length: 48 }).map((_, idx) => {
   const suffix = h < 12 ? 'AM' : 'PM';
   return `${hour12}:${m} ${suffix}`;
 });
+
+const CHORE_QUICK_OPTIONS = [
+  { label: 'Today', offset: 0 },
+  { label: 'Tomorrow', offset: 1 },
+  { label: 'Next Week', offset: 7 },
+];
+
+const REMINDER_QUICK_TIMES = ['09:00', '12:00', '15:00', '18:00', '20:00'];
+
+const ROUTINE_SUGGESTIONS = [
+  'Morning Routine',
+  'Night Routine',
+  'Workout Flow',
+  'Study Session',
+];
+
+const getISODateWithOffset = (offset) => {
+  const date = new Date();
+  date.setDate(date.getDate() + offset);
+  return date.toISOString().split('T')[0];
+};
+
+const normalizeTimeValue = (value) => {
+  if (!value || typeof value !== 'string') return '';
+  const match = value.trim().match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?/i);
+  if (!match) return value;
+  let hour = parseInt(match[1], 10);
+  const minute = match[2] ?? '00';
+  const suffix = match[3]?.toUpperCase();
+  if (suffix === 'PM' && hour < 12) hour += 12;
+  if (suffix === 'AM' && hour === 12) hour = 0;
+  const paddedHour = hour.toString().padStart(2, '0');
+  return `${paddedHour}:${minute}`;
+};
 
 const RoutineScreen = () => {
   const insets = useSafeAreaInsets();
@@ -64,6 +99,7 @@ const RoutineScreen = () => {
       ensureGroceriesLoaded,
     } = useApp();
     const isDark = themeName === 'dark';
+    const modalTopPadding = Math.max(spacing.lg, insets.top);
     const sectionThemes = useMemo(
       () => ({
         routine: isDark
@@ -198,6 +234,80 @@ const RoutineScreen = () => {
       }),
       [isDark, themeColors]
     );
+    const modalThemes = useMemo(
+      () => ({
+        chore: {
+          gradient: isDark ? ['#0F172A', '#1D4ED8'] : ['#38BDF8', '#2563EB'],
+          surface: isDark ? '#0B1220' : '#FFFFFF',
+          border: isDark ? 'rgba(59, 130, 246, 0.4)' : '#CFE7FF',
+          fieldBg: isDark ? '#0F172A' : '#EFF6FF',
+          fieldBorder: isDark ? 'rgba(59, 130, 246, 0.4)' : '#BBDDFE',
+          headerText: '#FFFFFF',
+          headerSubText: 'rgba(255, 255, 255, 0.85)',
+          iconBg: 'rgba(255, 255, 255, 0.2)',
+          closeBg: 'rgba(255, 255, 255, 0.22)',
+          chipBg: isDark ? 'rgba(59, 130, 246, 0.16)' : '#DBEDFF',
+          chipBorder: isDark ? 'rgba(59, 130, 246, 0.35)' : '#C1DDFF',
+          chipText: isDark ? '#BFDBFE' : '#1E3A8A',
+          chipActiveBg: isDark ? '#2563EB' : '#60A5FA',
+          chipActiveBorder: isDark ? '#3B82F6' : '#3B82F6',
+          chipActiveText: '#FFFFFF',
+          actionGradient: isDark ? ['#2563EB', '#38BDF8'] : ['#60A5FA', '#38BDF8'],
+          secondaryBg: isDark ? '#0F172A' : '#F3F4F6',
+          secondaryBorder: isDark ? '#1F2937' : '#E5E7EB',
+          secondaryText: themeColors.text,
+          accent: themeColors.info,
+        },
+        reminder: {
+          gradient: isDark ? ['#7C2D12', '#BE185D'] : ['#FB923C', '#F43F5E'],
+          surface: isDark ? '#1B0B12' : '#FFFFFF',
+          border: isDark ? 'rgba(236, 72, 153, 0.4)' : '#F9C6D9',
+          fieldBg: isDark ? '#2A0E1B' : '#FFF5F2',
+          fieldBorder: isDark ? 'rgba(236, 72, 153, 0.4)' : '#F6C1D4',
+          headerText: '#FFFFFF',
+          headerSubText: 'rgba(255, 255, 255, 0.85)',
+          iconBg: 'rgba(255, 255, 255, 0.2)',
+          closeBg: 'rgba(255, 255, 255, 0.22)',
+          chipBg: isDark ? 'rgba(249, 115, 22, 0.2)' : '#FFE7D5',
+          chipBorder: isDark ? 'rgba(249, 115, 22, 0.35)' : '#FFD5B5',
+          chipText: isDark ? '#FDBA74' : '#C2410C',
+          chipActiveBg: isDark ? '#F97316' : '#FB923C',
+          chipActiveBorder: isDark ? '#FDBA74' : '#FB923C',
+          chipActiveText: '#FFFFFF',
+          actionGradient: isDark ? ['#F97316', '#EC4899'] : ['#FB923C', '#F472B6'],
+          secondaryBg: isDark ? '#1F1419' : '#F3F4F6',
+          secondaryBorder: isDark ? '#2D1B22' : '#E5E7EB',
+          secondaryText: themeColors.text,
+          accent: themeColors.health,
+        },
+        routine: {
+          gradient: isDark ? ['#4C1D95', '#DB2777'] : ['#A855F7', '#EC4899'],
+          surface: isDark ? '#1C1330' : '#FFFFFF',
+          border: isDark ? 'rgba(168, 85, 247, 0.4)' : '#E8D5FF',
+          fieldBg: isDark ? '#2A1B3D' : '#F7F0FF',
+          fieldBorder: isDark ? 'rgba(168, 85, 247, 0.4)' : '#E0C7FF',
+          headerText: '#FFFFFF',
+          headerSubText: 'rgba(255, 255, 255, 0.85)',
+          iconBg: 'rgba(255, 255, 255, 0.2)',
+          closeBg: 'rgba(255, 255, 255, 0.22)',
+          chipBg: isDark ? 'rgba(168, 85, 247, 0.18)' : '#F0DBFF',
+          chipBorder: isDark ? 'rgba(168, 85, 247, 0.35)' : '#E6C6FF',
+          chipText: isDark ? '#E9D5FF' : '#6D28D9',
+          chipActiveBg: isDark ? '#A855F7' : '#C084FC',
+          chipActiveBorder: isDark ? '#C084FC' : '#A855F7',
+          chipActiveText: '#FFFFFF',
+          actionGradient: isDark ? ['#A855F7', '#EC4899'] : ['#C084FC', '#F472B6'],
+          secondaryBg: isDark ? '#201727' : '#F3F4F6',
+          secondaryBorder: isDark ? '#302236' : '#E5E7EB',
+          secondaryText: themeColors.text,
+          accent: themeColors.primary,
+        },
+      }),
+      [isDark, themeColors]
+    );
+    const routineModal = modalThemes.routine;
+    const choreModal = modalThemes.chore;
+    const reminderModal = modalThemes.reminder;
     const styles = useMemo(() => createStyles(themeColors), [themeColors]);
 
     useEffect(() => {
@@ -224,6 +334,10 @@ const RoutineScreen = () => {
   const [showReminderDatePicker, setShowReminderDatePicker] = useState(false);
   const [showReminderTimePicker, setShowReminderTimePicker] = useState(false);
   const [groceryInput, setGroceryInput] = useState('');
+  const normalizedReminderTime = useMemo(
+    () => normalizeTimeValue(reminderTime),
+    [reminderTime]
+  );
 
   const groupNameMap = useMemo(() => {
     const map = new Map();
@@ -271,6 +385,39 @@ const RoutineScreen = () => {
     setShowReminderDatePicker(false);
     setShowReminderTimePicker(false);
     setShowReminderModal(false);
+  };
+
+  const closeRoutineModal = () => {
+    setShowRoutineModal(false);
+    setRoutineName('');
+  };
+
+  const closeChoreModal = () => {
+    setShowChoreModal(false);
+    setChoreName('');
+    setShowChoreDatePicker(false);
+  };
+
+  const closeReminderModal = () => {
+    setShowReminderModal(false);
+    setReminderName('');
+    setReminderDescription('');
+    setShowReminderDatePicker(false);
+    setShowReminderTimePicker(false);
+  };
+
+  const handleQuickChoreDate = (offset) => {
+    setChoreDate(getISODateWithOffset(offset));
+    setShowChoreDatePicker(false);
+  };
+
+  const handleQuickReminderTime = (value) => {
+    setReminderTime(value);
+    setShowReminderTimePicker(false);
+  };
+
+  const handleRoutineSuggestion = (label) => {
+    setRoutineName(label);
   };
 
   const handleAddGroceryItem = async () => {
@@ -839,101 +986,312 @@ const RoutineScreen = () => {
         {/* Create Routine Modal */}
         <Modal
           visible={showRoutineModal}
-          onClose={() => {
-            setShowRoutineModal(false);
-            setRoutineName('');
-          }}
+          onClose={closeRoutineModal}
           title="Create Routine"
           fullScreen
+          hideHeader
+          showCloseButton={false}
         >
-          <Input
-            label="Routine Name"
-            value={routineName}
-            onChangeText={setRoutineName}
-            placeholder="e.g., Morning Routine"
-          />
-          {groups.length > 0 ? (
-            <>
-              <Text style={styles.inputLabel}>Share with group</Text>
-              <ChipGroup
-                options={[
-                  { label: 'Personal', value: null },
-                  ...groups.map((g) => ({ label: g.name, value: g.id })),
-                ]}
-                selectedValue={routineGroupId}
-                onSelect={setRoutineGroupId}
-                style={styles.chipGroup}
-              />
-            </>
-          ) : null}
-          <View style={styles.modalButtons}>
-            <Button
-              title="Cancel"
-              variant="secondary"
-              onPress={() => {
-                setShowRoutineModal(false);
-                setRoutineName('');
-              }}
-              style={styles.modalButton}
-            />
-            <Button
-              title="Create"
-              onPress={handleCreateRoutine}
-              disabled={!routineName.trim()}
-              style={styles.modalButton}
-            />
+          <View style={[styles.modalScreen, { paddingTop: modalTopPadding }]}>
+            <View
+              style={[
+                styles.modalCard,
+                { backgroundColor: routineModal.surface, borderColor: routineModal.border },
+              ]}
+            >
+              <LinearGradient colors={routineModal.gradient} style={styles.modalHeader}>
+                <View style={styles.modalHeaderContent}>
+                  <View style={[styles.modalIconBadge, { backgroundColor: routineModal.iconBg }]}>
+                    <Ionicons name="sparkles" size={18} color={routineModal.headerText} />
+                  </View>
+                  <View style={styles.modalHeaderText}>
+                    <Text style={[styles.modalTitle, { color: routineModal.headerText }]}>
+                      Create Routine
+                    </Text>
+                    <Text style={[styles.modalSubtitle, { color: routineModal.headerSubText }]}>
+                      Build your perfect daily flow
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={[styles.modalCloseButton, { backgroundColor: routineModal.closeBg }]}
+                  onPress={closeRoutineModal}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={18} color={routineModal.headerText} />
+                </TouchableOpacity>
+              </LinearGradient>
+              <View style={styles.modalBody}>
+                <Input
+                  label="Routine Name"
+                  value={routineName}
+                  onChangeText={setRoutineName}
+                  placeholder="e.g., Morning Routine"
+                  containerStyle={styles.modalInputContainer}
+                  style={[
+                    styles.modalInput,
+                    {
+                      backgroundColor: routineModal.fieldBg,
+                      borderColor: routineModal.fieldBorder,
+                    },
+                  ]}
+                  inputStyle={styles.modalInputText}
+                />
+                <Text style={styles.quickLabel}>Quick suggestions</Text>
+                <View style={styles.quickGroup}>
+                  {ROUTINE_SUGGESTIONS.map((label) => {
+                    const selected = routineName.trim() === label;
+                    return (
+                      <TouchableOpacity
+                        key={label}
+                        style={[
+                          styles.quickChip,
+                          {
+                            backgroundColor: selected
+                              ? routineModal.chipActiveBg
+                              : routineModal.chipBg,
+                            borderColor: selected
+                              ? routineModal.chipActiveBorder
+                              : routineModal.chipBorder,
+                          },
+                        ]}
+                        onPress={() => handleRoutineSuggestion(label)}
+                        activeOpacity={0.8}
+                      >
+                        <Text
+                          style={[
+                            styles.quickChipText,
+                            {
+                              color: selected
+                                ? routineModal.chipActiveText
+                                : routineModal.chipText,
+                            },
+                          ]}
+                        >
+                          {label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                {groups.length > 0 ? (
+                  <>
+                    <Text style={styles.inputLabel}>Share with group</Text>
+                    <ChipGroup
+                      options={[
+                        { label: 'Personal', value: null },
+                        ...groups.map((g) => ({ label: g.name, value: g.id })),
+                      ]}
+                      selectedValue={routineGroupId}
+                      onSelect={setRoutineGroupId}
+                      style={styles.chipGroup}
+                      color={routineModal.chipActiveBg}
+                    />
+                  </>
+                ) : null}
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[
+                      styles.modalButton,
+                      styles.secondaryButton,
+                      {
+                        backgroundColor: routineModal.secondaryBg,
+                        borderColor: routineModal.secondaryBorder,
+                      },
+                    ]}
+                    onPress={closeRoutineModal}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        styles.secondaryButtonText,
+                        { color: routineModal.secondaryText },
+                      ]}
+                    >
+                      Cancel
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.modalButton,
+                      styles.primaryButton,
+                      !routineName.trim() && styles.primaryButtonDisabled,
+                    ]}
+                    onPress={handleCreateRoutine}
+                    disabled={!routineName.trim()}
+                    activeOpacity={0.85}
+                  >
+                    <LinearGradient
+                      colors={routineModal.actionGradient}
+                      style={styles.primaryButtonInner}
+                    >
+                      <Text style={styles.primaryButtonText}>Create</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
           </View>
         </Modal>
 
         {/* Add Chore Modal */}
         <Modal
           visible={showChoreModal}
-          onClose={() => {
-            setShowChoreModal(false);
-            setChoreName('');
-            setShowChoreDatePicker(false);
-          }}
+          onClose={closeChoreModal}
           title="Add Chore"
           fullScreen
+          hideHeader
+          showCloseButton={false}
         >
-          <Input
-            label="Chore Name"
-            value={choreName}
-            onChangeText={setChoreName}
-            placeholder="e.g., Clean bathroom"
-          />
-          <Text style={styles.inputLabel}>Date</Text>
-          <TouchableOpacity style={styles.dateButton} onPress={openChoreDatePicker}>
-            <Text style={styles.dateButtonText}>{formatDate(choreDate)}</Text>
-            <Ionicons name="calendar-outline" size={18} color={themeColors.textLight} />
-          </TouchableOpacity>
-          <View style={styles.modalButtons}>
-            <Button
-              title="Cancel"
-              variant="secondary"
-              onPress={() => {
-                setShowChoreModal(false);
-                setChoreName('');
-                setShowChoreDatePicker(false);
-              }}
-              style={styles.modalButton}
-            />
-            <Button
-              title="Add"
-              onPress={handleCreateChore}
-              disabled={!choreName.trim()}
-              style={styles.modalButton}
-            />
+          <View style={[styles.modalScreen, { paddingTop: modalTopPadding }]}>
+            <View
+              style={[
+                styles.modalCard,
+                { backgroundColor: choreModal.surface, borderColor: choreModal.border },
+              ]}
+            >
+              <LinearGradient colors={choreModal.gradient} style={styles.modalHeader}>
+                <View style={styles.modalHeaderContent}>
+                  <View style={[styles.modalIconBadge, { backgroundColor: choreModal.iconBg }]}>
+                    <Ionicons name="list" size={18} color={choreModal.headerText} />
+                  </View>
+                  <View style={styles.modalHeaderText}>
+                    <Text style={[styles.modalTitle, { color: choreModal.headerText }]}>
+                      Add Chore
+                    </Text>
+                    <Text style={[styles.modalSubtitle, { color: choreModal.headerSubText }]}>
+                      Stay on top of your tasks
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={[styles.modalCloseButton, { backgroundColor: choreModal.closeBg }]}
+                  onPress={closeChoreModal}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={18} color={choreModal.headerText} />
+                </TouchableOpacity>
+              </LinearGradient>
+              <View style={styles.modalBody}>
+                <Input
+                  label="Chore Name"
+                  value={choreName}
+                  onChangeText={setChoreName}
+                  placeholder="e.g., Clean bathroom"
+                  containerStyle={styles.modalInputContainer}
+                  style={[
+                    styles.modalInput,
+                    {
+                      backgroundColor: choreModal.fieldBg,
+                      borderColor: choreModal.fieldBorder,
+                    },
+                  ]}
+                  inputStyle={styles.modalInputText}
+                />
+                <Text style={styles.inputLabel}>Due Date</Text>
+                <TouchableOpacity
+                  style={[
+                    styles.dateButton,
+                    {
+                      backgroundColor: choreModal.fieldBg,
+                      borderColor: choreModal.fieldBorder,
+                    },
+                  ]}
+                  onPress={openChoreDatePicker}
+                >
+                  <Text style={styles.dateButtonText}>{formatDate(choreDate)}</Text>
+                  <Ionicons name="calendar-outline" size={18} color={themeColors.textLight} />
+                </TouchableOpacity>
+                <Text style={styles.quickLabel}>Quick select</Text>
+                <View style={styles.quickGroup}>
+                  {CHORE_QUICK_OPTIONS.map((option) => {
+                    const quickDate = getISODateWithOffset(option.offset);
+                    const selected = choreDate === quickDate;
+                    return (
+                      <TouchableOpacity
+                        key={option.label}
+                        style={[
+                          styles.quickChip,
+                          {
+                            backgroundColor: selected
+                              ? choreModal.chipActiveBg
+                              : choreModal.chipBg,
+                            borderColor: selected
+                              ? choreModal.chipActiveBorder
+                              : choreModal.chipBorder,
+                          },
+                        ]}
+                        onPress={() => handleQuickChoreDate(option.offset)}
+                        activeOpacity={0.8}
+                      >
+                        <Text
+                          style={[
+                            styles.quickChipText,
+                            {
+                              color: selected
+                                ? choreModal.chipActiveText
+                                : choreModal.chipText,
+                            },
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[
+                      styles.modalButton,
+                      styles.secondaryButton,
+                      {
+                        backgroundColor: choreModal.secondaryBg,
+                        borderColor: choreModal.secondaryBorder,
+                      },
+                    ]}
+                    onPress={closeChoreModal}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        styles.secondaryButtonText,
+                        { color: choreModal.secondaryText },
+                      ]}
+                    >
+                      Cancel
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.modalButton,
+                      styles.primaryButton,
+                      !choreName.trim() && styles.primaryButtonDisabled,
+                    ]}
+                    onPress={handleCreateChore}
+                    disabled={!choreName.trim()}
+                    activeOpacity={0.85}
+                  >
+                    <LinearGradient
+                      colors={choreModal.actionGradient}
+                      style={styles.primaryButtonInner}
+                    >
+                      <Text style={styles.primaryButtonText}>Add Chore</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
           </View>
 
-      <PlatformDatePicker
-        visible={showChoreDatePicker}
-        value={choreDate}
-        onChange={handleSelectChoreDate}
-        onClose={() => setShowChoreDatePicker(false)}
-        accentColor={themeColors.routine}
-      />
-    </Modal>
+          <PlatformDatePicker
+            visible={showChoreDatePicker}
+            value={choreDate}
+            onChange={handleSelectChoreDate}
+            onClose={() => setShowChoreDatePicker(false)}
+            accentColor={choreModal.accent}
+          />
+        </Modal>
 
       {/* Grocery Fullscreen Modal */}
       <Modal
@@ -979,75 +1337,197 @@ const RoutineScreen = () => {
       {/* Add Reminder Modal */}
       <Modal
         visible={showReminderModal}
-        onClose={() => {
-          setShowReminderModal(false);
-          setReminderName('');
-          setReminderDescription('');
-          setShowReminderDatePicker(false);
-          setShowReminderTimePicker(false);
-        }}
+        onClose={closeReminderModal}
         title="Add Reminder"
         fullScreen
+        hideHeader
+        showCloseButton={false}
       >
-        <Input
-          label="Reminder Name"
-          value={reminderName}
-          onChangeText={setReminderName}
-          placeholder="e.g., Call mom"
-        />
-        <Input
-          label="Description (Optional)"
-          value={reminderDescription}
-          onChangeText={setReminderDescription}
-          placeholder="Add details..."
-          multiline
-          numberOfLines={2}
-        />
-          <View style={styles.dateTimeRow}>
-            <View style={styles.dateInput}>
-              <Text style={styles.inputLabel}>Date</Text>
-              <TouchableOpacity style={styles.dateButton} onPress={openReminderDatePicker}>
-                <Text style={styles.dateButtonText}>{formatDate(reminderDate)}</Text>
-                <Ionicons name="calendar-outline" size={18} color={themeColors.textLight} />
+        <View style={[styles.modalScreen, { paddingTop: modalTopPadding }]}>
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: reminderModal.surface, borderColor: reminderModal.border },
+            ]}
+          >
+            <LinearGradient colors={reminderModal.gradient} style={styles.modalHeader}>
+              <View style={styles.modalHeaderContent}>
+                <View style={[styles.modalIconBadge, { backgroundColor: reminderModal.iconBg }]}>
+                  <Ionicons name="notifications" size={18} color={reminderModal.headerText} />
+                </View>
+                <View style={styles.modalHeaderText}>
+                  <Text style={[styles.modalTitle, { color: reminderModal.headerText }]}>
+                    Add Reminder
+                  </Text>
+                  <Text style={[styles.modalSubtitle, { color: reminderModal.headerSubText }]}>
+                    Never forget important things
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={[styles.modalCloseButton, { backgroundColor: reminderModal.closeBg }]}
+                onPress={closeReminderModal}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={18} color={reminderModal.headerText} />
               </TouchableOpacity>
-            </View>
-            <View style={styles.timeInput}>
-              <Text style={styles.inputLabel}>Time</Text>
-              <TouchableOpacity style={styles.dateButton} onPress={openReminderTimePicker}>
-                <Text style={[styles.dateButtonText, !reminderTime && styles.placeholderText]}>
-                  {reminderTime || '--:--'}
-                </Text>
-                <Ionicons name="time-outline" size={18} color={themeColors.textLight} />
-              </TouchableOpacity>
+            </LinearGradient>
+            <View style={styles.modalBody}>
+              <Input
+                label="Reminder Name"
+                value={reminderName}
+                onChangeText={setReminderName}
+                placeholder="e.g., Call mom"
+                containerStyle={styles.modalInputContainer}
+                style={[
+                  styles.modalInput,
+                  {
+                    backgroundColor: reminderModal.fieldBg,
+                    borderColor: reminderModal.fieldBorder,
+                  },
+                ]}
+                inputStyle={styles.modalInputText}
+              />
+              <Input
+                label="Description (Optional)"
+                value={reminderDescription}
+                onChangeText={setReminderDescription}
+                placeholder="Add details..."
+                multiline
+                numberOfLines={2}
+                containerStyle={styles.modalInputContainer}
+                style={[
+                  styles.modalInput,
+                  {
+                    backgroundColor: reminderModal.fieldBg,
+                    borderColor: reminderModal.fieldBorder,
+                  },
+                ]}
+                inputStyle={styles.modalInputText}
+              />
+              <View style={styles.dateTimeRow}>
+                <View style={styles.dateInput}>
+                  <Text style={styles.inputLabel}>Date</Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.dateButton,
+                      {
+                        backgroundColor: reminderModal.fieldBg,
+                        borderColor: reminderModal.fieldBorder,
+                      },
+                    ]}
+                    onPress={openReminderDatePicker}
+                  >
+                    <Text style={styles.dateButtonText}>{formatDate(reminderDate)}</Text>
+                    <Ionicons name="calendar-outline" size={18} color={themeColors.textLight} />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.timeInput}>
+                  <Text style={styles.inputLabel}>Time</Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.dateButton,
+                      {
+                        backgroundColor: reminderModal.fieldBg,
+                        borderColor: reminderModal.fieldBorder,
+                      },
+                    ]}
+                    onPress={openReminderTimePicker}
+                  >
+                    <Text style={[styles.dateButtonText, !reminderTime && styles.placeholderText]}>
+                      {reminderTime || '--:--'}
+                    </Text>
+                    <Ionicons name="time-outline" size={18} color={themeColors.textLight} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <Text style={styles.quickLabel}>Quick times</Text>
+              <View style={styles.quickGroup}>
+                {REMINDER_QUICK_TIMES.map((time) => {
+                  const selected = normalizedReminderTime === time;
+                  return (
+                    <TouchableOpacity
+                      key={time}
+                      style={[
+                        styles.quickChip,
+                        {
+                          backgroundColor: selected
+                            ? reminderModal.chipActiveBg
+                            : reminderModal.chipBg,
+                          borderColor: selected
+                            ? reminderModal.chipActiveBorder
+                            : reminderModal.chipBorder,
+                        },
+                      ]}
+                      onPress={() => handleQuickReminderTime(time)}
+                      activeOpacity={0.8}
+                    >
+                      <Text
+                        style={[
+                          styles.quickChipText,
+                          {
+                            color: selected
+                              ? reminderModal.chipActiveText
+                              : reminderModal.chipText,
+                          },
+                        ]}
+                      >
+                        {time}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[
+                    styles.modalButton,
+                    styles.secondaryButton,
+                    {
+                      backgroundColor: reminderModal.secondaryBg,
+                      borderColor: reminderModal.secondaryBorder,
+                    },
+                  ]}
+                  onPress={closeReminderModal}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.secondaryButtonText,
+                      { color: reminderModal.secondaryText },
+                    ]}
+                  >
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.modalButton,
+                    styles.primaryButton,
+                    !reminderName.trim() && styles.primaryButtonDisabled,
+                  ]}
+                  onPress={handleCreateReminder}
+                  disabled={!reminderName.trim()}
+                  activeOpacity={0.85}
+                >
+                  <LinearGradient
+                    colors={reminderModal.actionGradient}
+                    style={styles.primaryButtonInner}
+                  >
+                    <Text style={styles.primaryButtonText}>Add Reminder</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-          <View style={styles.modalButtons}>
-            <Button
-              title="Cancel"
-              variant="secondary"
-              onPress={() => {
-                setShowReminderModal(false);
-                setReminderName('');
-                setReminderDescription('');
-                setShowReminderDatePicker(false);
-                setShowReminderTimePicker(false);
-              }}
-              style={styles.modalButton}
-            />
-          <Button
-            title="Add"
-            onPress={handleCreateReminder}
-              disabled={!reminderName.trim()}
-              style={styles.modalButton}
-            />
-          </View>
+        </View>
 
         <PlatformDatePicker
           visible={showReminderDatePicker}
           value={reminderDate}
           onChange={handleSelectReminderDate}
           onClose={() => setShowReminderDatePicker(false)}
-          accentColor={themeColors.routine}
+          accentColor={reminderModal.accent}
         />
 
         <PlatformTimePicker
@@ -1056,7 +1536,7 @@ const RoutineScreen = () => {
           onChange={handleSelectReminderTime}
           onClose={() => setShowReminderTimePicker(false)}
           options={reminderTimeOptions}
-          accentColor={themeColors.routine}
+          accentColor={reminderModal.accent}
         />
       </Modal>
 
@@ -1375,14 +1855,129 @@ const createStyles = (themeColors) => StyleSheet.create({
     ...typography.bodySmall,
     color: themeColors.danger,
   },
+  modalScreen: {
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xl,
+  },
+  modalCard: {
+    borderRadius: borderRadius.xl,
+    overflow: 'hidden',
+    borderWidth: 1,
+    ...shadows.large,
+  },
+  modalHeader: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
+    minHeight: 96,
+    justifyContent: 'center',
+  },
+  modalHeaderContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  modalIconBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  modalHeaderText: {
+    flex: 1,
+  },
+  modalTitle: {
+    ...typography.h2,
+    color: '#FFFFFF',
+  },
+  modalSubtitle: {
+    ...typography.bodySmall,
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginTop: 2,
+  },
+  modalCloseButton: {
+    position: 'absolute',
+    top: spacing.md,
+    right: spacing.md,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalBody: {
+    padding: spacing.lg,
+  },
+  modalInputContainer: {
+    marginBottom: spacing.md,
+  },
+  modalInput: {
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    backgroundColor: themeColors.inputBackground,
+  },
+  modalInputText: {
+    color: themeColors.text,
+  },
+  quickLabel: {
+    ...typography.caption,
+    color: themeColors.textSecondary,
+    marginBottom: spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  quickGroup: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: spacing.lg,
+  },
+  quickChip: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    marginRight: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  quickChipText: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+  },
   modalButtons: {
     flexDirection: 'row',
-    marginTop: spacing.xl,
-    marginBottom: spacing.lg,
+    marginTop: spacing.lg,
   },
   modalButton: {
     flex: 1,
     marginHorizontal: spacing.xs,
+  },
+  secondaryButton: {
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  secondaryButtonText: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+  },
+  primaryButton: {
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+  },
+  primaryButtonInner: {
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryButtonText: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  primaryButtonDisabled: {
+    opacity: 0.6,
   },
   inputLabel: {
     ...typography.label,
@@ -1398,11 +1993,11 @@ const createStyles = (themeColors) => StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.lg,
     borderWidth: 1,
     borderColor: themeColors.border,
     backgroundColor: themeColors.inputBackground,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   dateButtonText: {
     ...typography.body,

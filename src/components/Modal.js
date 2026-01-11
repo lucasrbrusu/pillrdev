@@ -24,6 +24,7 @@ const Modal = ({
   title,
   children,
   showCloseButton = true,
+  hideHeader = false,
   fullScreen = false,
   swipeToCloseEnabled = true,
   containerStyle,
@@ -86,23 +87,25 @@ const Modal = ({
           ]}
           {...(panResponder ? panResponder.panHandlers : {})}
         >
-          <View
-            style={[
-              styles.header,
-              fullScreen && { marginTop: headerTopOffset },
-            ]}
-          >
-            <Text style={styles.title}>{title}</Text>
-            {showCloseButton && (
-              <TouchableOpacity
-                style={styles.closeButton}
-                onPress={onClose}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name="close" size={24} color={colors.textSecondary} />
-              </TouchableOpacity>
-            )}
-          </View>
+          {!hideHeader && (
+            <View
+              style={[
+                styles.header,
+                fullScreen && { marginTop: headerTopOffset },
+              ]}
+            >
+              <Text style={styles.title}>{title}</Text>
+              {showCloseButton && (
+                <TouchableOpacity
+                  style={styles.closeButton}
+                  onPress={onClose}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close" size={24} color={colors.textSecondary} />
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
           {fullScreen ? (
             <ScrollView
               style={[styles.content, styles.fullScreenContent]}
