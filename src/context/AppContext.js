@@ -100,7 +100,8 @@ const defaultUserSettings = {
 
 const DEFAULT_EVENT_TIME = { hour: 9, minute: 0 };
 const HABIT_REMINDER_TIME = { hour: 8, minute: 0 };
-const ROUTINE_REMINDER_TIME = { hour: 7, minute: 30 };
+const HEALTH_REMINDER_TIME = { hour: 20, minute: 0 };
+const STREAK_FREEZE_REMINDER_TIME = { hour: 9, minute: 0 };
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
 // Poll less frequently to reduce Supabase egress (friend/user status checks).
 const STATUS_POLL_INTERVAL_MS = 5 * 60 * 1000;
@@ -5564,29 +5565,19 @@ const mapProfileRow = (row) => ({
 
       if (!scheduledAt) continue;
 
-      const baseBody = `Due ${formatFriendlyDateTime(scheduledAt)}`;
-      const oneDayBefore = new Date(scheduledAt.getTime() - 24 * 60 * 60 * 1000);
-      if (oneDayBefore.getTime() > now) {
-        await scheduleLocalNotificationAsync({
-          title: `Tomorrow: ${task.title}`,
-          body: baseBody,
-          data: { type: 'task', id: task.id },
-          trigger: oneDayBefore,
-        });
-      }
-
       const thirtyBefore = new Date(scheduledAt.getTime() - 30 * 60 * 1000);
       const triggerTime =
         thirtyBefore.getTime() > now ? thirtyBefore : scheduledAt;
 
-      if (triggerTime.getTime() > now) {
-        await scheduleLocalNotificationAsync({
-          title: 'Upcoming task',
-          body: `${task.title} • ${formatFriendlyDateTime(scheduledAt)}`,
-          data: { type: 'task', id: task.id },
-          trigger: triggerTime,
-        });
-      }
+      if (triggerTime.getTime() <= now) continue;
+
+      const taskTitle = task.title || 'Task';
+      await scheduleLocalNotificationAsync({
+        title: 'Upcoming task',
+        body: `${taskTitle} - Due ${formatFriendlyDateTime(scheduledAt)}`,
+        data: { type: 'task', id: task.id },
+        trigger: triggerTime,
+      });
     }
   };
 
@@ -5611,6 +5602,30 @@ const mapProfileRow = (row) => ({
     }
   };
 
+  const scheduleChoreNotifications = async () => {
+    const now = Date.now();
+    const pendingChores = (chores || []).filter((c) => c.date && !c.completed);
+
+    for (const chore of pendingChores) {
+      const scheduledAt = buildDateWithTime(
+        chore.date,
+        null,
+        DEFAULT_EVENT_TIME.hour,
+        DEFAULT_EVENT_TIME.minute
+      );
+
+      if (!scheduledAt || scheduledAt.getTime() <= now) continue;
+
+      const choreTitle = chore.title || 'Chore';
+      await scheduleLocalNotificationAsync({
+        title: 'Upcoming chore',
+        body: `${choreTitle} - Due ${formatFriendlyDateTime(scheduledAt)}`,
+        data: { type: 'chore', id: chore.id },
+        trigger: scheduledAt,
+      });
+    }
+  };
+
   const weekdayMap = {
     Sun: 1,
     Mon: 2,
@@ -5623,63 +5638,104 @@ const mapProfileRow = (row) => ({
 
   const scheduleHabitNotifications = async () => {
     const habitsToSchedule = habits || [];
+    if (!habitsToSchedule.length) return;
+
+    let scheduleDaily = false;
+    const weekdaysToSchedule = new Set();
 
     for (const habit of habitsToSchedule) {
-      const days =
-        Array.isArray(habit.days) && habit.days.length
-          ? habit.days
-          : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-      const content = {
-        title: habit.title ? `Habit: ${habit.title}` : 'Habit reminder',
-        body: 'Time to check in on your habit progress for today.',
-        data: { type: 'habit', id: habit.id },
-      };
-
-      if (habit.repeat === 'Daily' || days.length === 7) {
-        await scheduleLocalNotificationAsync({
-          ...content,
-          trigger: {
-            hour: HABIT_REMINDER_TIME.hour,
-            minute: HABIT_REMINDER_TIME.minute,
-            repeats: true,
-          },
-        });
-        continue;
+      const days = Array.isArray(habit.days) && habit.days.length ? habit.days : [];
+      if (habit.repeat === 'Daily' || days.length === 0 || days.length === 7) {
+        scheduleDaily = true;
+        break;
       }
 
-      for (const day of days) {
+      days.forEach((day) => {
         const weekday = weekdayMap[day] || weekdayMap[day?.slice(0, 3)];
-        if (!weekday) continue;
-
-        await scheduleLocalNotificationAsync({
-          ...content,
-          trigger: {
-            weekday,
-            hour: HABIT_REMINDER_TIME.hour,
-            minute: HABIT_REMINDER_TIME.minute,
-            repeats: true,
-          },
-        });
-      }
+        if (weekday) weekdaysToSchedule.add(weekday);
+      });
     }
-  };
 
-  const scheduleRoutineNotifications = async () => {
-    const routineList = routines || [];
+    const content = {
+      title: 'Habit check-in',
+      body: 'Keep your streak going. Check in on your habits today.',
+      data: { type: 'habit' },
+    };
 
-    for (const routine of routineList) {
+    if (scheduleDaily || weekdaysToSchedule.size === 0 || weekdaysToSchedule.size === 7) {
       await scheduleLocalNotificationAsync({
-        title: routine.name ? `Routine: ${routine.name}` : 'Routine check-in',
-        body: 'Review your routine tasks for today.',
-        data: { type: 'routine', id: routine.id },
+        ...content,
         trigger: {
-          hour: ROUTINE_REMINDER_TIME.hour,
-          minute: ROUTINE_REMINDER_TIME.minute,
+          hour: HABIT_REMINDER_TIME.hour,
+          minute: HABIT_REMINDER_TIME.minute,
+          repeats: true,
+        },
+      });
+      return;
+    }
+
+    for (const weekday of weekdaysToSchedule) {
+      await scheduleLocalNotificationAsync({
+        ...content,
+        trigger: {
+          weekday,
+          hour: HABIT_REMINDER_TIME.hour,
+          minute: HABIT_REMINDER_TIME.minute,
           repeats: true,
         },
       });
     }
+  };
+
+  const scheduleHealthNotifications = async () => {
+    const now = new Date();
+    const hasMood = Number.isFinite(todayHealth?.mood);
+    const scheduledAt = new Date(now);
+    scheduledAt.setHours(
+      HEALTH_REMINDER_TIME.hour,
+      HEALTH_REMINDER_TIME.minute,
+      0,
+      0
+    );
+
+    if (hasMood || scheduledAt.getTime() <= now.getTime()) {
+      scheduledAt.setDate(scheduledAt.getDate() + 1);
+    }
+
+    await scheduleLocalNotificationAsync({
+      title: 'Mood check-in',
+      body: 'Take a moment to log your mood for today.',
+      data: { type: 'health', id: 'mood' },
+      trigger: scheduledAt,
+    });
+  };
+
+  const scheduleStreakFreezeNotification = async () => {
+    if (!authUser?.id || !isPremiumUser || streakFrozen) return;
+    const hasAnyStreak = habits.some((h) => (h.streak || 0) > 0);
+    if (!hasAnyStreak) return;
+
+    const lastActive = await readLastActive(authUser.id);
+    if (!lastActive) return;
+
+    const scheduledAt = new Date(lastActive);
+    scheduledAt.setHours(0, 0, 0, 0);
+    scheduledAt.setDate(scheduledAt.getDate() + 1);
+    scheduledAt.setHours(
+      STREAK_FREEZE_REMINDER_TIME.hour,
+      STREAK_FREEZE_REMINDER_TIME.minute,
+      0,
+      0
+    );
+
+    if (scheduledAt.getTime() <= Date.now()) return;
+
+    await scheduleLocalNotificationAsync({
+      title: 'Streak frozen',
+      body: 'Complete a habit today to unfreeze your streak.',
+      data: { type: 'streak_freeze' },
+      trigger: scheduledAt,
+    });
   };
 
   const rescheduleAllNotifications = useCallback(async () => {
@@ -5692,22 +5748,30 @@ const mapProfileRow = (row) => ({
 
     if (userSettings.taskRemindersEnabled) {
       await scheduleTaskNotifications();
+      await scheduleChoreNotifications();
+      await scheduleReminderNotifications();
     }
     if (userSettings.habitRemindersEnabled) {
       await scheduleHabitNotifications();
+      await scheduleStreakFreezeNotification();
     }
-    await scheduleRoutineNotifications();
-    await scheduleReminderNotifications();
+    if (userSettings.healthRemindersEnabled) {
+      await scheduleHealthNotifications();
+    }
   }, [
     authUser,
     hasNotificationPermission,
+    chores,
+    todayHealth?.mood,
     reminders,
-    routines,
     tasks,
     habits,
+    isPremiumUser,
+    streakFrozen,
     userSettings.notificationsEnabled,
     userSettings.taskRemindersEnabled,
     userSettings.habitRemindersEnabled,
+    userSettings.healthRemindersEnabled,
   ]);
 
   useEffect(() => {
@@ -5737,11 +5801,13 @@ const mapProfileRow = (row) => ({
     rescheduleAllNotifications,
     tasks,
     habits,
-    routines,
+    chores,
     reminders,
+    todayHealth?.mood,
     userSettings.notificationsEnabled,
     userSettings.taskRemindersEnabled,
     userSettings.habitRemindersEnabled,
+    userSettings.healthRemindersEnabled,
     hasNotificationPermission,
   ]);
 
