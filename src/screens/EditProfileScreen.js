@@ -167,18 +167,6 @@ const EditProfileScreen = () => {
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Edit Profile</Text>
           <View style={styles.headerActions}>
-            <TouchableOpacity
-              style={[
-                styles.cancelButton,
-                {
-                  backgroundColor: profileTheme.secondaryBg,
-                  borderColor: profileTheme.secondaryBorder,
-                },
-              ]}
-              onPress={() => navigation.goBack()}
-            >
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
             <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
               <LinearGradient
                 colors={profileTheme.buttonGradient}
@@ -478,31 +466,19 @@ const createStyles = (themeColorsParam = colors) => {
     headerActions: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.sm,
-    },
-    cancelButton: {
-      paddingVertical: spacing.xs,
-      paddingHorizontal: spacing.md,
-      borderRadius: borderRadius.full,
-      borderWidth: 1,
-    },
-    cancelText: {
-      ...typography.bodySmall,
-      color: baseText,
-      fontWeight: '600',
     },
     saveButton: {
       borderRadius: borderRadius.full,
       overflow: 'hidden',
     },
     saveButtonInner: {
-      paddingVertical: spacing.xs,
-      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.xl,
       alignItems: 'center',
       justifyContent: 'center',
     },
     saveText: {
-      ...typography.bodySmall,
+      ...typography.body,
       color: '#FFFFFF',
       fontWeight: '700',
     },
