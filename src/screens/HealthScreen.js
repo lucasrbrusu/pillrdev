@@ -15,6 +15,8 @@ import {
   typography,
 } from '../utils/theme';
 import { formatTimeFromDate } from '../utils/notifications';
+import { lookupFoodByBarcode } from '../utils/foodBarcodeLookup';
+
 
 const MOOD_OPTIONS = [
   { label: 'Depressed', emoji: '😞' },
@@ -216,6 +218,7 @@ const HealthScreen = () => {
     ensureHealthLoaded();
   }, [ensureHealthLoaded]);
 
+  const [isLookingUpBarcode, setIsLookingUpBarcode] = useState(false);
   const [showFoodModal, setShowFoodModal] = useState(false);
   const [foodName, setFoodName] = useState('');
   const [foodCalories, setFoodCalories] = useState('');
@@ -400,19 +403,46 @@ const HealthScreen = () => {
     return null;
   };
 
-  const handleBarCodeScanned = ({ data }) => {
-    setHasScanned(true);
-    const match = lookupFoodByBarcode(data);
+  const handleBarCodeScanned = async ({ data, type }) => {
+  if (isLookingUpBarcode) return;
+
+  setHasScanned(true);
+  setIsLookingUpBarcode(true);
+  setScannerMessage('Looking up product…');
+
+  try {
+    const match = await lookupFoodByBarcode(data, { localMap: BARCODE_FOOD_MAP });
+
     if (match) {
       applyScannedFood(match);
-      setScannerMessage('Food details added from barcode.');
+
+      // Optional: show whether values are per serving or per 100g
+      const basisNote =
+        match.source === 'openfoodfacts'
+          ? ` (per ${match.basis}${match.servingSize ? ` • ${match.servingSize}` : ''})`
+          : '';
+
+      setScannerMessage(`Food details added${basisNote}.`);
       setShowScannerModal(false);
+
+      // reset scan lock for next time
       setHasScanned(false);
       return;
     }
-    setScannerMessage('No saved match for that code. Fill manually or update BARCODE_FOOD_MAP.');
+
+    setScannerMessage(
+      'No product found for that barcode. Try another item or fill manually.'
+    );
     setTimeout(() => setHasScanned(false), 1200);
-  };
+  } catch (err) {
+    console.log('Barcode lookup error:', err);
+    setScannerMessage('Lookup failed (network/API). Please try again.');
+    setTimeout(() => setHasScanned(false), 1200);
+  } finally {
+    setIsLookingUpBarcode(false);
+  }
+};
+
 
   const handleOpenScanner = async () => {
     setScannerMessage('');
@@ -1214,7 +1244,7 @@ const HealthScreen = () => {
             <View style={styles.scannerFrame}>
               <CameraView
                 style={StyleSheet.absoluteFillObject}
-                onBarcodeScanned={hasScanned ? undefined : handleBarCodeScanned}
+                onBarcodeScanned={(hasScanned || isLookingUpBarcode) ? undefined : handleBarCodeScanned}
                 barcodeScannerSettings={{
                   barcodeTypes: ['qr', 'ean13', 'ean8', 'upc_a', 'upc_e', 'code39', 'code128'],
                 }}
