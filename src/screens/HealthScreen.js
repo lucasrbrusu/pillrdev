@@ -225,6 +225,8 @@ const HealthScreen = () => {
   const [foodProtein, setFoodProtein] = useState('');
   const [foodCarbs, setFoodCarbs] = useState('');
   const [foodFat, setFoodFat] = useState('');
+  const [foodGramsEaten, setFoodGramsEaten] = useState('');
+  const [foodBasis, setFoodBasis] = useState(null);
   const [showScannerModal, setShowScannerModal] = useState(false);
   const [hasScanned, setHasScanned] = useState(false);
   const [scannerMessage, setScannerMessage] = useState('');
@@ -234,6 +236,7 @@ const HealthScreen = () => {
   const moodButtonScalesRef = useRef(
     MOOD_OPTIONS.map(() => new Animated.Value(1))
   );
+  const restoreFoodModalRef = useRef(false);
   const lastMoodIndexRef = useRef(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [waterInput, setWaterInput] = useState('');
@@ -331,12 +334,34 @@ const HealthScreen = () => {
       return Number.isFinite(parsed) ? parsed : null;
     };
 
+    const gramsEaten = toNumberOrNull(foodGramsEaten);
+    const caloriesValue = toNumberOrNull(foodCalories);
+    const proteinValue = toNumberOrNull(foodProtein);
+    const carbsValue = toNumberOrNull(foodCarbs);
+    const fatValue = toNumberOrNull(foodFat);
+
+    const shouldScale =
+      foodBasis === '100g' && Number.isFinite(gramsEaten) && gramsEaten > 0;
+    const scale = shouldScale ? gramsEaten / 100 : 1;
+
+    const scaleMacro = (value) => {
+      if (value === null || value === undefined) return null;
+      if (!shouldScale) return value;
+      const scaled = value * scale;
+      return Number.isFinite(scaled) ? Math.round(scaled * 10) / 10 : null;
+    };
+
+    const caloriesNumber = caloriesValue ?? 0;
+    const scaledCalories = shouldScale
+      ? Math.round(caloriesNumber * scale)
+      : caloriesNumber;
+
     await addFoodEntryForDate(selectedDateISO, {
       name: foodName.trim(),
-      calories: parseInt(foodCalories) || 0,
-      proteinGrams: toNumberOrNull(foodProtein),
-      carbsGrams: toNumberOrNull(foodCarbs),
-      fatGrams: toNumberOrNull(foodFat),
+      calories: scaledCalories,
+      proteinGrams: scaleMacro(proteinValue),
+      carbsGrams: scaleMacro(carbsValue),
+      fatGrams: scaleMacro(fatValue),
     });
 
     setFoodName('');
@@ -344,11 +369,15 @@ const HealthScreen = () => {
     setFoodProtein('');
     setFoodCarbs('');
     setFoodFat('');
+    setFoodGramsEaten('');
+    setFoodBasis(null);
     setShowFoodModal(false);
   };
 
   const applyScannedFood = (payload) => {
     if (!payload) return;
+    setFoodBasis(payload.basis || null);
+    setFoodGramsEaten('');
     if (payload.name) setFoodName(payload.name);
     if (payload.calories !== undefined && payload.calories !== null) {
       setFoodCalories(String(payload.calories));
@@ -362,45 +391,6 @@ const HealthScreen = () => {
     if (payload.fatGrams !== undefined && payload.fatGrams !== null) {
       setFoodFat(String(payload.fatGrams));
     }
-  };
-
-  const lookupFoodByBarcode = (rawData) => {
-    const code = (rawData || '').trim();
-    if (!code) return null;
-    if (BARCODE_FOOD_MAP[code]) return BARCODE_FOOD_MAP[code];
-
-    try {
-      const parsed = JSON.parse(code);
-      if (parsed && parsed.name) {
-        return {
-          name: parsed.name,
-          calories: parsed.calories ?? null,
-          proteinGrams: parsed.protein ?? parsed.proteinGrams ?? null,
-          carbsGrams: parsed.carbs ?? parsed.carbsGrams ?? null,
-          fatGrams: parsed.fat ?? parsed.fatGrams ?? null,
-        };
-      }
-    } catch (err) {
-      // Not JSON, continue to next strategy
-    }
-
-    const parts = code.split('|').map((p) => p.trim());
-    if (parts.length >= 5) {
-      const [namePart, calPart, proteinPart, carbPart, fatPart] = parts;
-      const toNum = (v) => {
-        const n = Number(v);
-        return Number.isFinite(n) ? n : null;
-      };
-      return {
-        name: namePart || undefined,
-        calories: toNum(calPart),
-        proteinGrams: toNum(proteinPart),
-        carbsGrams: toNum(carbPart),
-        fatGrams: toNum(fatPart),
-      };
-    }
-
-    return null;
   };
 
   const handleBarCodeScanned = async ({ data, type }) => {
@@ -424,6 +414,10 @@ const HealthScreen = () => {
 
       setScannerMessage(`Food details added${basisNote}.`);
       setShowScannerModal(false);
+      if (restoreFoodModalRef.current) {
+        restoreFoodModalRef.current = false;
+        setTimeout(() => setShowFoodModal(true), 0);
+      }
 
       // reset scan lock for next time
       setHasScanned(false);
@@ -447,9 +441,13 @@ const HealthScreen = () => {
   const handleOpenScanner = async () => {
     setScannerMessage('');
     setHasScanned(false);
-    // Close the Log Food modal first so the scanner modal can render immediately on top
-    setShowFoodModal(false);
-    setTimeout(() => setShowScannerModal(true), 0);
+    restoreFoodModalRef.current = showFoodModal;
+    if (showFoodModal) {
+      setShowFoodModal(false);
+      setTimeout(() => setShowScannerModal(true), 0);
+    } else {
+      setShowScannerModal(true);
+    }
     if (!CameraView) {
       Alert.alert(
         'Scanner unavailable',
@@ -481,8 +479,10 @@ const HealthScreen = () => {
     setShowScannerModal(false);
     setHasScanned(false);
     setScannerMessage('');
-    // Return to the Log Food modal when closing scanner
-    setTimeout(() => setShowFoodModal(true), 0);
+    if (restoreFoodModalRef.current) {
+      restoreFoodModalRef.current = false;
+      setTimeout(() => setShowFoodModal(true), 0);
+    }
   };
 
   const selectedDateISO = selectedDate.toISOString().slice(0, 10);
@@ -1127,6 +1127,8 @@ const HealthScreen = () => {
           setFoodProtein('');
           setFoodCarbs('');
           setFoodFat('');
+          setFoodGramsEaten('');
+          setFoodBasis(null);
         }}
         title="Log Food"
       >
@@ -1142,6 +1144,14 @@ const HealthScreen = () => {
           value={foodCalories}
           onChangeText={setFoodCalories}
           placeholder="e.g., 350"
+          keyboardType="numeric"
+        />
+
+        <Input
+          label="Grams eaten (optional)"
+          value={foodGramsEaten}
+          onChangeText={setFoodGramsEaten}
+          placeholder="e.g., 75"
           keyboardType="numeric"
         />
 
@@ -1193,6 +1203,8 @@ const HealthScreen = () => {
               setFoodProtein('');
               setFoodCarbs('');
               setFoodFat('');
+              setFoodGramsEaten('');
+              setFoodBasis(null);
             }}
             style={styles.modalButton}
           />
@@ -1913,4 +1925,3 @@ const createStyles = (themeColors) => StyleSheet.create({
 });
 
 export default HealthScreen;
-
