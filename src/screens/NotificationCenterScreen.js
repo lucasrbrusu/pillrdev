@@ -8,6 +8,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { colors, spacing, typography, borderRadius, shadows } from '../utils/theme';
@@ -74,6 +75,16 @@ const groupNotifications = (items) => {
   return ordered;
 };
 
+const CLEAR_NOTIFICATIONS_KEY = '@pillarup_notification_center_cleared_at';
+
+const isAfterClearCutoff = (timestamp, cutoff) => {
+  if (!cutoff) return true;
+  if (!timestamp) return true;
+  const ms = new Date(timestamp).getTime();
+  if (Number.isNaN(ms)) return true;
+  return ms > cutoff;
+};
+
 const NotificationCenterScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -88,16 +99,49 @@ const NotificationCenterScreen = () => {
     ensureFriendDataLoaded,
     ensureTaskInvitesLoaded,
     ensureGroupInvitesLoaded,
+    authUser,
   } = useApp();
   const [respondingMap, setRespondingMap] = React.useState({});
   const [respondingTaskMap, setRespondingTaskMap] = React.useState({});
   const [respondingGroupMap, setRespondingGroupMap] = React.useState({});
+  const [clearCutoff, setClearCutoff] = React.useState(null);
   const pendingRequests = friendRequests?.incoming || [];
   const responseNotifications = friendRequests?.responses || [];
   const pendingTaskInvites = taskInvites?.incoming || [];
   const taskInviteResponses = taskInvites?.responses || [];
   const pendingGroupInvites = groupInvites?.incoming || [];
   const groupInviteResponses = groupInvites?.responses || [];
+
+  const storageKey = React.useMemo(
+    () =>
+      authUser?.id
+        ? `${CLEAR_NOTIFICATIONS_KEY}_${authUser.id}`
+        : CLEAR_NOTIFICATIONS_KEY,
+    [authUser?.id]
+  );
+
+  React.useEffect(() => {
+    let isMounted = true;
+    const loadClearCutoff = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(storageKey);
+        if (!isMounted) return;
+        if (!stored) {
+          setClearCutoff(null);
+          return;
+        }
+        const parsed = Number(stored);
+        setClearCutoff(Number.isFinite(parsed) ? parsed : null);
+      } catch (err) {
+        if (isMounted) setClearCutoff(null);
+      }
+    };
+
+    loadClearCutoff();
+    return () => {
+      isMounted = false;
+    };
+  }, [storageKey]);
 
   React.useEffect(() => {
     ensureFriendDataLoaded();
@@ -140,8 +184,73 @@ const NotificationCenterScreen = () => {
     }
   };
 
+  const filteredPendingRequests = React.useMemo(
+    () => pendingRequests.filter((item) => isAfterClearCutoff(item?.created_at, clearCutoff)),
+    [pendingRequests, clearCutoff]
+  );
+  const filteredResponseNotifications = React.useMemo(
+    () =>
+      responseNotifications.filter((item) =>
+        isAfterClearCutoff(item?.responded_at || item?.updated_at || item?.created_at, clearCutoff)
+      ),
+    [responseNotifications, clearCutoff]
+  );
+  const filteredPendingTaskInvites = React.useMemo(
+    () => pendingTaskInvites.filter((item) => isAfterClearCutoff(item?.created_at, clearCutoff)),
+    [pendingTaskInvites, clearCutoff]
+  );
+  const filteredTaskInviteResponses = React.useMemo(
+    () =>
+      taskInviteResponses.filter((item) =>
+        isAfterClearCutoff(item?.responded_at || item?.updated_at || item?.created_at, clearCutoff)
+      ),
+    [taskInviteResponses, clearCutoff]
+  );
+  const filteredPendingGroupInvites = React.useMemo(
+    () => pendingGroupInvites.filter((item) => isAfterClearCutoff(item?.created_at, clearCutoff)),
+    [pendingGroupInvites, clearCutoff]
+  );
+  const filteredGroupInviteResponses = React.useMemo(
+    () =>
+      groupInviteResponses.filter((item) =>
+        isAfterClearCutoff(item?.responded_at || item?.updated_at || item?.created_at, clearCutoff)
+      ),
+    [groupInviteResponses, clearCutoff]
+  );
+
+  const totalNotifications =
+    filteredPendingRequests.length +
+    filteredResponseNotifications.length +
+    filteredPendingTaskInvites.length +
+    filteredTaskInviteResponses.length +
+    filteredPendingGroupInvites.length +
+    filteredGroupInviteResponses.length;
+
+  const handleClearAll = React.useCallback(() => {
+    if (!totalNotifications) return;
+    Alert.alert(
+      'Clear notifications',
+      'This will hide all current notifications in your centre.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            const now = Date.now();
+            setClearCutoff(now);
+            try {
+              await AsyncStorage.setItem(storageKey, String(now));
+            } catch (err) {
+            }
+          },
+        },
+      ]
+    );
+  }, [storageKey, totalNotifications]);
+
   const groupedPending = React.useMemo(() => {
-    const items = (pendingRequests || []).map((item) => ({
+    const items = (filteredPendingRequests || []).map((item) => ({
       key: `pending-${item.id}`,
       component: (
         <View key={item.id} style={themedStyles.card}>
@@ -186,10 +295,10 @@ const NotificationCenterScreen = () => {
       timestamp: item.created_at,
     }));
     return groupNotifications(items);
-  }, [pendingRequests, themedStyles, respondingMap]);
+  }, [filteredPendingRequests, themedStyles, respondingMap]);
 
   const groupedResponses = React.useMemo(() => {
-    const items = (responseNotifications || []).map((item) => ({
+    const items = (filteredResponseNotifications || []).map((item) => ({
       key: `response-${item.id}`,
       component: (
         <View key={item.id} style={themedStyles.card}>
@@ -211,10 +320,10 @@ const NotificationCenterScreen = () => {
       timestamp: item.responded_at || item.updated_at || item.created_at,
     }));
     return groupNotifications(items);
-  }, [responseNotifications, themedStyles]);
+  }, [filteredResponseNotifications, themedStyles]);
 
   const groupedTaskInvites = React.useMemo(() => {
-    const items = (pendingTaskInvites || []).map((item) => ({
+    const items = (filteredPendingTaskInvites || []).map((item) => ({
       key: `task-invite-${item.id}`,
       component: (
         <View key={item.id} style={themedStyles.card}>
@@ -259,10 +368,10 @@ const NotificationCenterScreen = () => {
       timestamp: item.created_at,
     }));
     return groupNotifications(items);
-  }, [pendingTaskInvites, themedStyles, respondingTaskMap]);
+  }, [filteredPendingTaskInvites, themedStyles, respondingTaskMap]);
 
   const groupedTaskResponses = React.useMemo(() => {
-    const items = (taskInviteResponses || []).map((item) => ({
+    const items = (filteredTaskInviteResponses || []).map((item) => ({
       key: `task-response-${item.id}`,
       component: (
         <View key={item.id} style={themedStyles.card}>
@@ -284,10 +393,10 @@ const NotificationCenterScreen = () => {
       timestamp: item.responded_at || item.updated_at || item.created_at,
     }));
     return groupNotifications(items);
-  }, [taskInviteResponses, themedStyles]);
+  }, [filteredTaskInviteResponses, themedStyles]);
 
   const groupedGroupInvites = React.useMemo(() => {
-    const items = (pendingGroupInvites || []).map((item) => ({
+    const items = (filteredPendingGroupInvites || []).map((item) => ({
       key: `group-invite-${item.id}`,
       component: (
         <View key={item.id} style={themedStyles.card}>
@@ -330,10 +439,10 @@ const NotificationCenterScreen = () => {
       timestamp: item.created_at,
     }));
     return groupNotifications(items);
-  }, [pendingGroupInvites, themedStyles, respondingGroupMap]);
+  }, [filteredPendingGroupInvites, themedStyles, respondingGroupMap]);
 
   const groupedGroupResponses = React.useMemo(() => {
-    const items = (groupInviteResponses || []).map((item) => ({
+    const items = (filteredGroupInviteResponses || []).map((item) => ({
       key: `group-response-${item.id}`,
       component: (
         <View key={item.id} style={themedStyles.card}>
@@ -352,7 +461,7 @@ const NotificationCenterScreen = () => {
       timestamp: item.responded_at || item.updated_at || item.created_at,
     }));
     return groupNotifications(items);
-  }, [groupInviteResponses, themedStyles]);
+  }, [filteredGroupInviteResponses, themedStyles]);
 
   return (
     <View style={[themedStyles.container, { paddingTop: insets.top || spacing.lg }]}>
@@ -364,7 +473,17 @@ const NotificationCenterScreen = () => {
           <Ionicons name="chevron-back" size={22} color={themedStyles.iconColor} />
         </TouchableOpacity>
         <Text style={themedStyles.title}>Notification Centre</Text>
-        <View style={{ width: 44 }} />
+        <TouchableOpacity
+          style={[
+            themedStyles.clearButton,
+            totalNotifications === 0 && themedStyles.clearButtonDisabled,
+          ]}
+          onPress={handleClearAll}
+          disabled={totalNotifications === 0}
+          accessibilityLabel="Clear notifications"
+        >
+          <Ionicons name="trash-outline" size={20} color={themedStyles.iconColor} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -373,7 +492,7 @@ const NotificationCenterScreen = () => {
         showsVerticalScrollIndicator={false}
       >
         <Text style={themedStyles.sectionLabel}>Friend requests</Text>
-        {pendingRequests.length === 0 ? (
+        {filteredPendingRequests.length === 0 ? (
           <View style={themedStyles.placeholderBox}>
             <Ionicons name="notifications-outline" size={20} color={themedStyles.subduedText} />
             <Text style={themedStyles.placeholderText}>
@@ -390,7 +509,7 @@ const NotificationCenterScreen = () => {
         )}
 
         <Text style={[themedStyles.sectionLabel, { marginTop: spacing.lg }]}>Task invites</Text>
-        {pendingTaskInvites.length === 0 ? (
+        {filteredPendingTaskInvites.length === 0 ? (
           <View style={themedStyles.placeholderBox}>
             <Feather name="clipboard" size={20} color={themedStyles.subduedText} />
             <Text style={themedStyles.placeholderText}>
@@ -407,7 +526,7 @@ const NotificationCenterScreen = () => {
         )}
 
         <Text style={[themedStyles.sectionLabel, { marginTop: spacing.lg }]}>Group invites</Text>
-        {pendingGroupInvites.length === 0 ? (
+        {filteredPendingGroupInvites.length === 0 ? (
           <View style={themedStyles.placeholderBox}>
             <Ionicons name="people-outline" size={20} color={themedStyles.subduedText} />
             <Text style={themedStyles.placeholderText}>No group invites right now.</Text>
@@ -422,7 +541,7 @@ const NotificationCenterScreen = () => {
         )}
 
         <Text style={[themedStyles.sectionLabel, { marginTop: spacing.lg }]}>Updates</Text>
-        {responseNotifications.length === 0 ? (
+        {filteredResponseNotifications.length === 0 ? (
           <View style={themedStyles.placeholderBox}>
             <Ionicons name="information-circle-outline" size={20} color={themedStyles.subduedText} />
             <Text style={themedStyles.placeholderText}>
@@ -439,7 +558,7 @@ const NotificationCenterScreen = () => {
         )}
 
         <Text style={[themedStyles.sectionLabel, { marginTop: spacing.lg }]}>Task updates</Text>
-        {taskInviteResponses.length === 0 ? (
+        {filteredTaskInviteResponses.length === 0 ? (
           <View style={themedStyles.placeholderBox}>
             <Ionicons name="information-circle-outline" size={20} color={themedStyles.subduedText} />
             <Text style={themedStyles.placeholderText}>
@@ -456,7 +575,7 @@ const NotificationCenterScreen = () => {
         )}
 
         <Text style={[themedStyles.sectionLabel, { marginTop: spacing.lg }]}>Group updates</Text>
-        {groupInviteResponses.length === 0 ? (
+        {filteredGroupInviteResponses.length === 0 ? (
           <View style={themedStyles.placeholderBox}>
             <Ionicons name="information-circle-outline" size={20} color={themedStyles.subduedText} />
             <Text style={themedStyles.placeholderText}>
@@ -580,6 +699,17 @@ const createStyles = (themeColors) => {
       ...typography.body,
       color: '#ffffff',
       fontWeight: '700',
+    },
+    clearButton: {
+      width: 44,
+      height: 44,
+      borderRadius: borderRadius.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: themeColors?.inputBackground || colors.inputBackground,
+    },
+    clearButtonDisabled: {
+      opacity: 0.4,
     },
     secondaryButtonText: {
       ...typography.body,
