@@ -93,10 +93,17 @@ function getProposalSummary(payload: any) {
 }
 
 export default function ChatScreen() {
-  const { profile, themeColors, themeName } = useApp();
+  const { profile, themeColors, themeName, isPremium, isPremiumUser } = useApp();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const isPremium = !!profile?.isPremium;
+  const isPremiumActive = Boolean(
+    isPremiumUser ||
+      isPremium ||
+      profile?.isPremium ||
+      profile?.plan === "premium" ||
+      profile?.plan === "pro" ||
+      profile?.plan === "paid"
+  );
   const isDark = themeName === "dark";
   const palette = themeColors || colors;
   const bottomInset = Math.max(insets.bottom, 12);
@@ -179,7 +186,7 @@ export default function ChatScreen() {
   const pendingItems = pendingProposals.filter((p) => p.status === "pending");
 
   async function onSend() {
-    if (!isPremium) return;
+    if (!isPremiumActive) return;
     const text = input.trim();
     if (!text || sending) return;
 
@@ -273,7 +280,7 @@ export default function ChatScreen() {
     }
   }
 
-  if (!isPremium) {
+  if (!isPremiumActive) {
     return (
       <SafeAreaView edges={["top"]} style={styles.screen}>
         <View style={styles.header}>

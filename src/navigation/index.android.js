@@ -193,10 +193,10 @@ const MainWithChatButton = ({ styles, isPremium }) => {
 
   const handleChatPress = () => {
     if (isPremium) {
-      navigation.navigate('Paywall', { source: 'chat' });
+      navigation.navigate('Chat');
       return;
     }
-    navigation.navigate('Chat');
+    navigation.navigate('Paywall', { source: 'chat' });
   };
 
   return (
@@ -214,9 +214,16 @@ const MainWithChatButton = ({ styles, isPremium }) => {
 };
 
 const Navigation = () => {
-  const { isLoading, authUser, hasOnboarded, themeColors, profile } = useApp();
+  const { isLoading, authUser, hasOnboarded, themeColors, profile, isPremiumUser, isPremium } = useApp();
   const styles = React.useMemo(() => createStyles(), [themeColors]);
-  const isPremium = !!profile?.isPremium;
+  const isPremiumActive = Boolean(
+    isPremiumUser ||
+      isPremium ||
+      profile?.isPremium ||
+      profile?.plan === 'premium' ||
+      profile?.plan === 'pro' ||
+      profile?.plan === 'paid'
+  );
 
   const navTheme = React.useMemo(
     () => ({
@@ -249,7 +256,7 @@ const Navigation = () => {
           }}
         >
           <Stack.Screen name="Main">
-            {() => <MainWithChatButton styles={styles} isPremium={isPremium} />}
+            {() => <MainWithChatButton styles={styles} isPremium={isPremiumActive} />}
           </Stack.Screen>
           <Stack.Screen name="Profile" component={ProfileScreen} />
           <Stack.Screen name="Paywall" component={PaywallScreen} />

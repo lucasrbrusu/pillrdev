@@ -5545,9 +5545,16 @@ const mapProfileRow = (row) => ({
       throw new Error(error.message || 'Unable to sign in.');
     }
 
-    const { user } = data;
-    await setActiveUser(user);
-    return user;
+    const { user, session } = data || {};
+    let activeSession = session;
+    if (!activeSession?.access_token || !activeSession?.refresh_token) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      activeSession = sessionData?.session || activeSession;
+    }
+    if (user) {
+      await setActiveUser(user);
+    }
+    return { user, session: activeSession };
   };
 
   const signUp = async ({ fullName, username, email, password }) => {
@@ -5572,14 +5579,55 @@ const mapProfileRow = (row) => ({
       throw new Error(error.message || 'Unable to create account.');
     }
 
-    const { user } = data;
+    const { user, session } = data || {};
+    let activeSession = session;
+    if (!activeSession?.access_token || !activeSession?.refresh_token) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      activeSession = sessionData?.session || activeSession;
+    }
 
     // Depending on email confirmation settings, user may be null until they confirm
     if (user) {
       await setActiveUser(user);
     }
 
-    return user;
+    return { user, session: activeSession };
+  };
+
+  const signInWithSession = async ({ accessToken, refreshToken }) => {
+    if (!refreshToken && !accessToken) {
+      throw new Error('Saved session is missing. Please sign in again.');
+    }
+
+    let data;
+    let error;
+
+    if (refreshToken && accessToken) {
+      const response = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+      data = response?.data;
+      error = response?.error;
+    } else if (refreshToken) {
+      const response = await supabase.auth.refreshSession({
+        refresh_token: refreshToken,
+      });
+      data = response?.data;
+      error = response?.error;
+    } else {
+      throw new Error('Saved session is missing. Please sign in again.');
+    }
+
+    if (error) {
+      throw new Error(error.message || 'Unable to restore your session.');
+    }
+
+    const { user, session } = data || {};
+    if (user) {
+      await setActiveUser(user);
+    }
+    return { user, session };
   };
 
   const signOut = async () => {
@@ -6121,6 +6169,7 @@ const mapProfileRow = (row) => ({
     hasOnboarded,
     signIn,
     signUp,
+    signInWithSession,
     signOut,
     deleteAccount,
     persistOnboarding,

@@ -9,12 +9,14 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Input from '../components/Input';
 import { useApp } from '../context/AppContext';
 import { colors, borderRadius, spacing, typography, shadows } from '../utils/theme';
+import { supabase } from '../utils/supabaseClient';
 
 const getPasswordError = (password) => {
   if (!password || password.length < 6) {
@@ -65,9 +67,47 @@ const badges = [
   },
 ];
 
+const SAVED_ACCOUNTS_KEY = '@pillarup_auth_users';
+const MAX_SAVED_ACCOUNTS = 5;
+
+const getInitials = (name, email) => {
+  const source = (name || email || '').trim();
+  if (!source) return 'U';
+  const parts = source.split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+};
+
+const normalizeEmail = (value) => (value || '').trim().toLowerCase();
+
+const buildNextAccounts = (list, account) => {
+  if (!account?.email) return list;
+  const safeList = Array.isArray(list) ? list : [];
+  const normalizedEmail = normalizeEmail(account.email);
+  if (!normalizedEmail) return safeList;
+  const existing = safeList.find(
+    (item) => normalizeEmail(item?.email) === normalizedEmail
+  );
+  const merged = {
+    ...existing,
+    ...account,
+    email: normalizedEmail,
+    name: account.name || existing?.name || '',
+    username: account.username || existing?.username || '',
+    avatarUrl: account.avatarUrl || existing?.avatarUrl || null,
+    accessToken: account.accessToken || existing?.accessToken || null,
+    refreshToken: account.refreshToken || existing?.refreshToken || null,
+    lastUsedAt: Date.now(),
+  };
+  const remaining = safeList.filter(
+    (item) => normalizeEmail(item?.email) !== normalizedEmail
+  );
+  return [merged, ...remaining].slice(0, MAX_SAVED_ACCOUNTS);
+};
+
 const AuthScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
-  const { signIn, signUp, hasOnboarded, themeColors, themeName } = useApp();
+  const { signIn, signUp, signInWithSession, hasOnboarded, themeColors, themeName } = useApp();
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
   const isDark = themeName === 'dark';
 
@@ -75,6 +115,7 @@ const AuthScreen = ({ navigation }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
+  const [savedAccounts, setSavedAccounts] = useState([]);
   const [form, setForm] = useState({
     fullName: '',
     username: '',
@@ -83,6 +124,25 @@ const AuthScreen = ({ navigation }) => {
     confirmPassword: '',
     identifier: '',
   });
+
+  React.useEffect(() => {
+    const loadSavedAccounts = async () => {
+      try {
+        const raw = await AsyncStorage.getItem(SAVED_ACCOUNTS_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const sorted = [...parsed].sort(
+            (a, b) => (b?.lastUsedAt || 0) - (a?.lastUsedAt || 0)
+          );
+          setSavedAccounts(sorted);
+        }
+      } catch (loadError) {
+        console.log('Unable to load saved accounts', loadError);
+      }
+    };
+    loadSavedAccounts();
+  }, []);
 
   const authTheme = useMemo(
     () => ({
@@ -106,6 +166,91 @@ const AuthScreen = ({ navigation }) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const resolveSessionTokens = async (session) => {
+    if (session?.access_token && session?.refresh_token) {
+      return {
+        accessToken: session.access_token,
+        refreshToken: session.refresh_token,
+      };
+    }
+
+    try {
+      const { data } = await supabase.auth.getSession();
+      const activeSession = data?.session;
+      return {
+        accessToken: activeSession?.access_token || null,
+        refreshToken: activeSession?.refresh_token || null,
+      };
+    } catch (sessionError) {
+      console.log('Unable to resolve auth session', sessionError);
+      return { accessToken: null, refreshToken: null };
+    }
+  };
+
+  const persistSavedAccounts = async (nextList) => {
+    try {
+      await AsyncStorage.setItem(SAVED_ACCOUNTS_KEY, JSON.stringify(nextList));
+    } catch (persistError) {
+      console.log('Unable to save accounts', persistError);
+    }
+  };
+
+  const saveAccount = async (account) => {
+    const nextList = buildNextAccounts(savedAccounts, account);
+    setSavedAccounts(nextList);
+    await persistSavedAccounts(nextList);
+  };
+
+  const handleSelectAccount = async (account) => {
+    setMode('login');
+    setError('');
+    const hasRefreshToken =
+      typeof account?.refreshToken === 'string' && account.refreshToken.length > 10;
+    const hasAccessToken =
+      typeof account?.accessToken === 'string' && account.accessToken.length > 10;
+    if (!hasRefreshToken) {
+      updateField('identifier', account?.email || '');
+      updateField('password', '');
+      setError('Saved session expired. Please enter your password.');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const { user, session } = await signInWithSession({
+        accessToken: hasAccessToken ? account.accessToken : null,
+        refreshToken: account.refreshToken,
+      });
+      const tokens = await resolveSessionTokens(session);
+      await saveAccount({
+        id: user?.id || account.id || normalizeEmail(account.email),
+        email: user?.email || account.email,
+        name:
+          user?.user_metadata?.full_name ||
+          user?.user_metadata?.name ||
+          account.name ||
+          '',
+        username: user?.user_metadata?.username || account.username || '',
+        accessToken: tokens.accessToken || account.accessToken,
+        refreshToken: tokens.refreshToken || account.refreshToken,
+      });
+    } catch (submitError) {
+      updateField('identifier', account?.email || '');
+      updateField('password', '');
+      setError(submitError?.message || 'Saved session expired. Please sign in again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleRemoveAccount = async (account) => {
+    const nextList = savedAccounts.filter(
+      (item) => normalizeEmail(item?.email) !== normalizeEmail(account?.email)
+    );
+    setSavedAccounts(nextList);
+    await persistSavedAccounts(nextList);
+  };
+
   const handleSubmit = async () => {
     try {
       setIsSubmitting(true);
@@ -116,9 +261,22 @@ const AuthScreen = ({ navigation }) => {
           setError('Please enter your email and password.');
           return;
         }
-        await signIn({
+        const { user, session } = await signIn({
           identifier: form.identifier,
           password: form.password,
+        });
+        const tokens = await resolveSessionTokens(session);
+        await saveAccount({
+          id: user?.id || normalizeEmail(form.identifier),
+          email: user?.email || form.identifier,
+          name:
+            user?.user_metadata?.full_name ||
+            user?.user_metadata?.name ||
+            user?.user_metadata?.username ||
+            '',
+          username: user?.user_metadata?.username || '',
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
         });
       } else {
         if (!form.fullName || !form.username || !form.email || !form.password) {
@@ -138,11 +296,24 @@ const AuthScreen = ({ navigation }) => {
           setError('Please acknowledge the terms to create an account.');
           return;
         }
-        await signUp({
+        const { user, session } = await signUp({
           fullName: form.fullName,
           username: form.username,
           email: form.email,
           password: form.password,
+        });
+        const tokens = await resolveSessionTokens(session);
+        await saveAccount({
+          id: user?.id || normalizeEmail(form.email),
+          email: user?.email || form.email,
+          name:
+            user?.user_metadata?.full_name ||
+            user?.user_metadata?.name ||
+            form.fullName ||
+            '',
+          username: user?.user_metadata?.username || form.username || '',
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
         });
       }
     } catch (submitError) {
@@ -331,6 +502,7 @@ const AuthScreen = ({ navigation }) => {
                   Forgot password?
                 </Text>
               </TouchableOpacity>
+
             </>
           ) : (
             <>
@@ -457,6 +629,52 @@ const AuthScreen = ({ navigation }) => {
               )}
             </LinearGradient>
           </TouchableOpacity>
+
+          {mode === 'login' && savedAccounts.length > 0 && (
+            <View style={styles.savedSection}>
+              <Text style={styles.savedTitle}>Saved Accounts</Text>
+              <View style={styles.savedList}>
+                {savedAccounts.map((account) => (
+                  <TouchableOpacity
+                    key={account.email}
+                    style={[
+                      styles.savedCard,
+                      {
+                        backgroundColor: authTheme.cardBg,
+                        borderColor: authTheme.cardBorder,
+                      },
+                    ]}
+                    onPress={() => handleSelectAccount(account)}
+                    activeOpacity={0.85}
+                  >
+                    <LinearGradient
+                      colors={authTheme.buttonGradient}
+                      style={styles.savedAvatar}
+                    >
+                      <Text style={styles.savedInitials}>
+                        {getInitials(account.name, account.email)}
+                      </Text>
+                    </LinearGradient>
+                    <View style={styles.savedInfo}>
+                      <Text style={styles.savedName} numberOfLines={1}>
+                        {account.name || account.email}
+                      </Text>
+                      <Text style={styles.savedEmail} numberOfLines={1}>
+                        {account.email}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.savedRemove}
+                      onPress={() => handleRemoveAccount(account)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="close" size={14} color={authTheme.muted} />
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
         </View>
       </ScrollView>
     </LinearGradient>
@@ -564,6 +782,60 @@ const createStyles = (themeColorsParam = colors) => {
     tabTextActive: {
       color: baseText,
       fontWeight: '700',
+    },
+    savedSection: {
+      marginTop: spacing.lg,
+    },
+    savedTitle: {
+      ...typography.bodySmall,
+      color: mutedText,
+      fontWeight: '600',
+      marginBottom: spacing.sm,
+    },
+    savedList: {},
+    savedCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.sm,
+      marginBottom: spacing.sm,
+      ...shadows.small,
+    },
+    savedAvatar: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.sm,
+    },
+    savedInitials: {
+      color: '#FFFFFF',
+      fontWeight: '700',
+      fontSize: 14,
+    },
+    savedInfo: {
+      flex: 1,
+    },
+    savedName: {
+      ...typography.bodySmall,
+      color: baseText,
+      fontWeight: '600',
+    },
+    savedEmail: {
+      ...typography.caption,
+      color: mutedText,
+    },
+    savedRemove: {
+      width: 24,
+      height: 24,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: themeColorsParam?.divider || colors.divider,
+      marginLeft: spacing.sm,
     },
     inputGroup: {
       marginBottom: spacing.md,
