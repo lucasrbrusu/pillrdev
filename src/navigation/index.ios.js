@@ -40,6 +40,9 @@ import PaywallScreen from '../screens/PaywallScreen';
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 const FRIENDS_GESTURE_DISTANCE = Math.round(Dimensions.get('window').width);
+const CHAT_BUTTON_SIZE = 60;
+const CHAT_BUTTON_LIFT = 20;
+const CHAT_BUTTON_SPACER = CHAT_BUTTON_SIZE;
 
 const TabBarIcon = ({ name, type, focused, color, size }) => {
   if (type === 'ionicons') {
@@ -54,6 +57,7 @@ const TabBarIcon = ({ name, type, focused, color, size }) => {
 
 const CustomTabBar = ({ state, descriptors, navigation, styles }) => {
   const insets = useSafeAreaInsets();
+  const gapIndex = Math.floor((state.routes.length - 1) / 2);
 
   return (
     <View
@@ -116,30 +120,34 @@ const CustomTabBar = ({ state, descriptors, navigation, styles }) => {
           }
 
           return (
-            <TouchableOpacity
-              key={route.key}
-              onPress={onPress}
-              style={[
-                styles.tabItem,
-                isFocused && styles.tabItemFocused,
-              ]}
-              activeOpacity={0.9}
-            >
-              <View
+            <React.Fragment key={route.key}>
+              <TouchableOpacity
+                onPress={onPress}
                 style={[
-                  styles.tabIconContainer,
-                  isFocused && { backgroundColor: `${iconColor}15` },
+                  styles.tabItem,
+                  isFocused && styles.tabItemFocused,
                 ]}
+                activeOpacity={0.9}
               >
-                <TabBarIcon
-                  name={iconName}
-                  type={iconType}
-                  focused={isFocused}
-                  color={iconColor}
-                  size={24}
-                />
-              </View>
-            </TouchableOpacity>
+                <View
+                  style={[
+                    styles.tabIconContainer,
+                    isFocused && { backgroundColor: `${iconColor}15` },
+                  ]}
+                >
+                  <TabBarIcon
+                    name={iconName}
+                    type={iconType}
+                    focused={isFocused}
+                    color={iconColor}
+                    size={24}
+                  />
+                </View>
+              </TouchableOpacity>
+              {index === gapIndex && (
+                <View style={styles.chatSpacer} pointerEvents="none" />
+              )}
+            </React.Fragment>
           );
         })}
       </View>
@@ -176,9 +184,9 @@ const MainWithChatButton = ({ styles, isPremium }) => {
         <TouchableOpacity
           activeOpacity={0.9}
           onPress={() => navigation.navigate('Chat')}
-          style={[styles.chatButton, { bottom: (insets.bottom || 0) + 86 }]}
+          style={[styles.chatButton, { bottom: (insets.bottom || 0) + 12 }]}
         >
-          <Ionicons name="chatbubbles-outline" size={24} color="#FFFFFF" />
+          <Ionicons name="sparkles" size={24} color="#FFFFFF" />
         </TouchableOpacity>
       )}
     </View>
@@ -280,15 +288,15 @@ const createStyles = () =>
       right: 0,
       alignItems: 'center',
       paddingHorizontal: 20,
-      paddingTop: 8,
+      paddingTop: 12,
       backgroundColor: 'transparent',
     },
     tabBar: {
       flexDirection: 'row',
       backgroundColor: colors.navBackground,
       borderRadius: borderRadius.xxl,
-      paddingVertical: 8,
-      paddingHorizontal: 12,
+      paddingVertical: 10,
+      paddingHorizontal: 16,
       ...shadows.medium,
       borderWidth: 1,
       borderColor: 'rgba(0,0,0,0.04)',
@@ -307,6 +315,10 @@ const createStyles = () =>
       alignItems: 'center',
       justifyContent: 'center',
     },
+    chatSpacer: {
+      width: CHAT_BUTTON_SPACER,
+      height: '100%',
+    },
     loadingContainer: {
       flex: 1,
       alignItems: 'center',
@@ -315,14 +327,21 @@ const createStyles = () =>
     },
     chatButton: {
       position: 'absolute',
-      right: 24,
-      width: 56,
-      height: 56,
-      borderRadius: borderRadius.full,
+      left: '50%',
+      width: CHAT_BUTTON_SIZE,
+      height: CHAT_BUTTON_SIZE,
+      borderRadius: CHAT_BUTTON_SIZE / 2,
       backgroundColor: '#4da6ff',
       alignItems: 'center',
       justifyContent: 'center',
+      borderWidth: 4,
+      borderColor: colors.navBackground,
       ...shadows.medium,
+      zIndex: 2,
+      transform: [
+        { translateX: -CHAT_BUTTON_SIZE / 2 },
+        { translateY: -CHAT_BUTTON_LIFT },
+      ],
     },
   });
 

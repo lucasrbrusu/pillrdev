@@ -37,6 +37,32 @@ const getInitial = (name, username) => {
   return (source[0] || '?').toUpperCase();
 };
 
+const GROUP_GRADIENTS = [
+  ['#C026D3', '#7C3AED'],
+  ['#38BDF8', '#2563EB'],
+  ['#22C55E', '#16A34A'],
+  ['#F97316', '#F43F5E'],
+];
+
+const ACTIVITY_GRADIENTS = {
+  light: [
+    ['#EEF2FF', '#F8FAFF'],
+    ['#F1F5FF', '#F5F7FF'],
+    ['#EEF2FF', '#F8FAFF'],
+  ],
+  dark: [
+    ['#111827', '#0B1120'],
+    ['#0F172A', '#0B1222'],
+    ['#111827', '#0B1120'],
+  ],
+};
+
+const DEFAULT_MUTUAL_ACTIVITIES = [
+  { id: 'meditation', title: 'Morning meditation', type: 'Habit', streak: 5 },
+  { id: 'meeting-prep', title: 'Team meeting prep', type: 'Task', streak: 3 },
+  { id: 'workout', title: 'Workout routine', type: 'Habit', streak: 7 },
+];
+
 const FriendProfileScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
@@ -92,6 +118,18 @@ const FriendProfileScreen = () => {
       reportGradient: isDark ? ['#7C2D12', '#DC2626'] : ['#FB923C', '#EF4444'],
       fieldBg: isDark ? '#111827' : '#F9FAFB',
       fieldBorder: isDark ? '#1F2937' : '#E5E7EB',
+      groupItemBg: isDark ? '#111827' : '#F7F4FF',
+      groupItemBorder: isDark ? '#1F2937' : '#EDE9FE',
+      groupMetaText: isDark ? '#94A3B8' : '#64748B',
+      groupDot: isDark ? '#A855F7' : '#8B5CF6',
+      activityItemBorder: isDark ? '#1F2937' : '#E0E7FF',
+      activityTypeText: isDark ? '#A5B4FC' : '#6366F1',
+      activityBadgeBg: isDark ? '#1F2937' : '#FFE7D1',
+      activityBadgeBorder: isDark ? '#374151' : '#FED7AA',
+      activityBadgeText: isDark ? '#FDBA74' : '#EA580C',
+      sectionActionText: isDark ? '#93C5FD' : '#4F46E5',
+      countPillBg: isDark ? 'rgba(129, 140, 248, 0.15)' : '#EDE9FE',
+      countPillText: isDark ? '#C7D2FE' : '#6D28D9',
     }),
     [isDark, themeColors]
   );
@@ -127,6 +165,11 @@ const FriendProfileScreen = () => {
       ),
     [groups, friendId]
   );
+  const mutualActivities =
+    profileData?.mutualActivities?.length > 0
+      ? profileData.mutualActivities
+      : DEFAULT_MUTUAL_ACTIVITIES;
+  const activityGradients = isDark ? ACTIVITY_GRADIENTS.dark : ACTIVITY_GRADIENTS.light;
 
   useEffect(() => {
     let isMounted = true;
@@ -457,29 +500,162 @@ const FriendProfileScreen = () => {
             <Card
               style={[
                 themedStyles.sectionCard,
+                themedStyles.mutualCard,
                 { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder },
               ]}
             >
-              <View style={themedStyles.sectionHeaderRow}>
-                <View
-                  style={[
-                    themedStyles.sectionIcon,
-                    { backgroundColor: profileTheme.statusBg },
-                  ]}
-                >
-                  <Ionicons name="people" size={16} color={profileTheme.statusText} />
+              <View style={themedStyles.sectionHeaderSplit}>
+                <View style={[themedStyles.sectionHeaderRow, themedStyles.sectionHeaderRowTight]}>
+                  <View
+                    style={[
+                      themedStyles.sectionIcon,
+                      { backgroundColor: profileTheme.statusBg },
+                    ]}
+                  >
+                    <Ionicons name="people" size={16} color={profileTheme.statusText} />
+                  </View>
+                  <Text style={themedStyles.sectionTitle}>Mutual groups</Text>
                 </View>
-                <Text style={themedStyles.sectionTitle}>Mutual groups</Text>
+                {mutualGroups.length > 0 ? (
+                  <View
+                    style={[
+                      themedStyles.sectionCountPill,
+                      { backgroundColor: profileTheme.countPillBg },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        themedStyles.sectionCountText,
+                        { color: profileTheme.countPillText },
+                      ]}
+                    >
+                      {mutualGroups.length}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
               {mutualGroups.length === 0 ? (
                 <Text style={themedStyles.emptyText}>No mutual groups yet.</Text>
               ) : (
-                mutualGroups.map((group) => (
-                  <View key={group.id} style={themedStyles.detailRow}>
-                    <Text style={themedStyles.detailLabel}>{group.name}</Text>
-                    <Text style={themedStyles.detailValue}>{group.members?.length || 0} members</Text>
+                <View style={themedStyles.groupsList}>
+                  {mutualGroups.map((group, index) => (
+                    <View
+                      key={group.id}
+                      style={[
+                        themedStyles.groupRow,
+                        {
+                          backgroundColor: profileTheme.groupItemBg,
+                          borderColor: profileTheme.groupItemBorder,
+                        },
+                      ]}
+                    >
+                      <LinearGradient
+                        colors={GROUP_GRADIENTS[index % GROUP_GRADIENTS.length]}
+                        style={themedStyles.groupIcon}
+                      >
+                        <Ionicons name="people" size={18} color="#FFFFFF" />
+                      </LinearGradient>
+                      <View style={themedStyles.groupInfo}>
+                        <Text style={themedStyles.groupName}>{group.name}</Text>
+                        <Text
+                          style={[
+                            themedStyles.groupMeta,
+                            { color: profileTheme.groupMetaText },
+                          ]}
+                        >
+                          {group.members?.length || 0} members
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          themedStyles.groupDot,
+                          { backgroundColor: profileTheme.groupDot },
+                        ]}
+                      />
+                    </View>
+                  ))}
+                </View>
+              )}
+            </Card>
+
+            <Card
+              style={[
+                themedStyles.sectionCard,
+                themedStyles.mutualCard,
+                { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder },
+              ]}
+            >
+              <View style={themedStyles.sectionHeaderSplit}>
+                <View style={[themedStyles.sectionHeaderRow, themedStyles.sectionHeaderRowTight]}>
+                  <View
+                    style={[
+                      themedStyles.sectionIcon,
+                      { backgroundColor: profileTheme.statusBg },
+                    ]}
+                  >
+                    <Ionicons name="flame" size={16} color={profileTheme.statusText} />
                   </View>
-                ))
+                  <Text style={themedStyles.sectionTitle}>Shared activities</Text>
+                </View>
+                <Text
+                  style={[
+                    themedStyles.sectionActionText,
+                    { color: profileTheme.sectionActionText },
+                  ]}
+                >
+                  View all
+                </Text>
+              </View>
+              {mutualActivities.length === 0 ? (
+                <Text style={themedStyles.emptyText}>No shared activities yet.</Text>
+              ) : (
+                <View style={themedStyles.activitiesList}>
+                  {mutualActivities.map((activity, index) => (
+                    <LinearGradient
+                      key={activity.id}
+                      colors={activityGradients[index % activityGradients.length]}
+                      style={[
+                        themedStyles.activityRow,
+                        { borderColor: profileTheme.activityItemBorder },
+                      ]}
+                    >
+                      <View style={themedStyles.activityInfo}>
+                        <Text style={themedStyles.activityTitle}>{activity.title}</Text>
+                        <Text
+                          style={[
+                            themedStyles.activityType,
+                            { color: profileTheme.activityTypeText },
+                          ]}
+                        >
+                          {activity.type}
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          themedStyles.activityBadge,
+                          {
+                            backgroundColor: profileTheme.activityBadgeBg,
+                            borderColor: profileTheme.activityBadgeBorder,
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name="flame"
+                          size={12}
+                          color={profileTheme.activityBadgeText}
+                        />
+                        <Text
+                          style={[
+                            themedStyles.activityBadgeText,
+                            { color: profileTheme.activityBadgeText },
+                          ]}
+                        >
+                          {activity.streak}
+                        </Text>
+                      </View>
+                    </LinearGradient>
+                  ))}
+                </View>
               )}
             </Card>
 
@@ -540,7 +716,7 @@ const FriendProfileScreen = () => {
                   </TouchableOpacity>
                 ) : (
                   <TouchableOpacity
-                    style={[themedStyles.gradientButton, themedStyles.actionButton]}
+                    style={[themedStyles.actionButton, themedStyles.gradientButton]}
                     disabled={blocking}
                     onPress={handleBlockToggle}
                   >
@@ -561,7 +737,7 @@ const FriendProfileScreen = () => {
                 )}
 
                 <TouchableOpacity
-                  style={[themedStyles.gradientButton, themedStyles.actionButton]}
+                  style={[themedStyles.actionButton, themedStyles.gradientButton]}
                   disabled={deleting}
                   onPress={handleDeleteFriend}
                 >
@@ -828,6 +1004,15 @@ const createStyles = (themeColorsParam = colors) => {
       alignItems: 'center',
       marginBottom: spacing.sm,
     },
+    sectionHeaderRowTight: {
+      marginBottom: 0,
+    },
+    sectionHeaderSplit: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: spacing.sm,
+    },
     sectionIcon: {
       width: 30,
       height: 30,
@@ -835,6 +1020,26 @@ const createStyles = (themeColorsParam = colors) => {
       alignItems: 'center',
       justifyContent: 'center',
       marginRight: spacing.sm,
+    },
+    sectionCountPill: {
+      minWidth: 24,
+      height: 24,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: spacing.xs,
+    },
+    sectionCountText: {
+      ...typography.caption,
+      fontWeight: '700',
+    },
+    sectionActionText: {
+      ...typography.caption,
+      fontWeight: '600',
+    },
+    mutualCard: {
+      paddingTop: spacing.lg,
+      paddingBottom: spacing.lg,
     },
     nameRow: {
       flexDirection: 'row',
@@ -888,6 +1093,81 @@ const createStyles = (themeColorsParam = colors) => {
       flexShrink: 1,
       textAlign: 'right',
       marginLeft: spacing.sm,
+    },
+    groupsList: {
+      gap: spacing.sm,
+    },
+    groupRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: spacing.md,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+    },
+    groupIcon: {
+      width: 42,
+      height: 42,
+      borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.md,
+    },
+    groupInfo: {
+      flex: 1,
+    },
+    groupName: {
+      ...typography.body,
+      color: baseText,
+      fontWeight: '600',
+    },
+    groupMeta: {
+      ...typography.caption,
+      marginTop: 2,
+    },
+    groupDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      marginLeft: spacing.sm,
+    },
+    activitiesList: {
+      gap: spacing.sm,
+    },
+    activityRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      overflow: 'hidden',
+    },
+    activityInfo: {
+      flex: 1,
+      marginRight: spacing.md,
+    },
+    activityTitle: {
+      ...typography.body,
+      color: baseText,
+      fontWeight: '600',
+    },
+    activityType: {
+      ...typography.caption,
+      marginTop: 2,
+    },
+    activityBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      borderRadius: borderRadius.full,
+      borderWidth: 1,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 4,
+    },
+    activityBadgeText: {
+      ...typography.caption,
+      fontWeight: '700',
     },
     emptyText: {
       ...typography.body,
@@ -945,6 +1225,7 @@ const createStyles = (themeColorsParam = colors) => {
       gap: spacing.xs,
       paddingVertical: spacing.md,
       paddingHorizontal: spacing.lg,
+      borderRadius: borderRadius.lg,
     },
     gradientButtonText: {
       ...typography.body,
