@@ -225,6 +225,12 @@ const HealthScreen = () => {
   const [foodProtein, setFoodProtein] = useState('');
   const [foodCarbs, setFoodCarbs] = useState('');
   const [foodFat, setFoodFat] = useState('');
+  const [calorieGoalInput, setCalorieGoalInput] = useState('');
+  const [proteinGoalInput, setProteinGoalInput] = useState('');
+  const [carbsGoalInput, setCarbsGoalInput] = useState('');
+  const [fatGoalInput, setFatGoalInput] = useState('');
+  const [isSavingGoals, setIsSavingGoals] = useState(false);
+  const [showGoalModal, setShowGoalModal] = useState(false);
   const [foodGramsEaten, setFoodGramsEaten] = useState('');
   const [foodBasis, setFoodBasis] = useState(null);
   const [showScannerModal, setShowScannerModal] = useState(false);
@@ -321,6 +327,94 @@ const HealthScreen = () => {
     } finally {
       setIsSavingSleep(false);
     }
+  };
+
+  const parseGoalValue = (value, allowFloat = false) => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = allowFloat ? parseFloat(trimmed) : parseInt(trimmed, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return NaN;
+    return parsed;
+  };
+
+  const handleSaveNutritionGoals = async () => {
+    const caloriesGoal = parseGoalValue(calorieGoalInput, false);
+    if (Number.isNaN(caloriesGoal)) {
+      Alert.alert('Enter calories', 'Please enter a positive number.');
+      return;
+    }
+
+    const proteinGoal = parseGoalValue(proteinGoalInput, true);
+    if (Number.isNaN(proteinGoal)) {
+      Alert.alert('Enter protein', 'Please enter a positive number.');
+      return;
+    }
+
+    const carbsGoal = parseGoalValue(carbsGoalInput, true);
+    if (Number.isNaN(carbsGoal)) {
+      Alert.alert('Enter carbs', 'Please enter a positive number.');
+      return;
+    }
+
+    const fatGoal = parseGoalValue(fatGoalInput, true);
+    if (Number.isNaN(fatGoal)) {
+      Alert.alert('Enter fat', 'Please enter a positive number.');
+      return;
+    }
+
+    try {
+      setIsSavingGoals(true);
+      await updateHealthForDate(selectedDateISO, {
+        calorieGoal: caloriesGoal,
+        proteinGoal,
+        carbsGoal,
+        fatGoal,
+      });
+      setShowGoalModal(false);
+    } catch (err) {
+      console.log('Error updating nutrition goals', err);
+      Alert.alert('Unable to update goals', 'Please try again.');
+    } finally {
+      setIsSavingGoals(false);
+    }
+  };
+
+  const handleClearNutritionGoals = async () => {
+    try {
+      setIsSavingGoals(true);
+      await updateHealthForDate(selectedDateISO, {
+        calorieGoal: null,
+        proteinGoal: null,
+        carbsGoal: null,
+        fatGoal: null,
+      });
+      setShowGoalModal(false);
+    } catch (err) {
+      console.log('Error resetting nutrition goals', err);
+      Alert.alert('Unable to reset goals', 'Please try again.');
+    } finally {
+      setIsSavingGoals(false);
+    }
+  };
+
+  const handleCancelNutritionGoals = () => {
+    const goal = Number.isFinite(selectedHealth.calorieGoal)
+      ? selectedHealth.calorieGoal
+      : defaultCalorieGoal;
+    const proteinGoal = Number.isFinite(selectedHealth.proteinGoal)
+      ? selectedHealth.proteinGoal
+      : null;
+    const carbsGoal = Number.isFinite(selectedHealth.carbsGoal)
+      ? selectedHealth.carbsGoal
+      : null;
+    const fatGoal = Number.isFinite(selectedHealth.fatGoal)
+      ? selectedHealth.fatGoal
+      : null;
+    setCalorieGoalInput(goal ? String(goal) : '');
+    setProteinGoalInput(proteinGoal !== null ? String(proteinGoal) : '');
+    setCarbsGoalInput(carbsGoal !== null ? String(carbsGoal) : '');
+    setFatGoalInput(fatGoal !== null ? String(fatGoal) : '');
+    setShowGoalModal(false);
   };
 
   const handleLogFood = async () => {
@@ -493,6 +587,10 @@ const HealthScreen = () => {
     sleepTime: null,
     wakeTime: null,
     sleepQuality: null,
+    calorieGoal: null,
+    proteinGoal: null,
+    carbsGoal: null,
+    fatGoal: null,
     calories: 0,
     foods: [],
   };
@@ -502,6 +600,10 @@ const HealthScreen = () => {
     ...selectedHealthRaw,
     foods: Array.isArray(selectedHealthRaw.foods) ? selectedHealthRaw.foods : [],
   };
+  const defaultCalorieGoal = Math.max(0, Number(profile.dailyCalorieGoal) || 0);
+  const dailyCalorieGoal = Number.isFinite(selectedHealth.calorieGoal)
+    ? selectedHealth.calorieGoal
+    : defaultCalorieGoal;
 
   useEffect(() => {
     setSleepForm({
@@ -515,6 +617,36 @@ const HealthScreen = () => {
     selectedHealth.wakeTime,
     selectedHealth.sleepQuality,
   ]);
+
+  useEffect(() => {
+    const goal = Number.isFinite(selectedHealth.calorieGoal)
+      ? selectedHealth.calorieGoal
+      : defaultCalorieGoal;
+    setCalorieGoalInput(goal ? String(goal) : '');
+    const proteinGoal = Number.isFinite(selectedHealth.proteinGoal)
+      ? selectedHealth.proteinGoal
+      : null;
+    const carbsGoal = Number.isFinite(selectedHealth.carbsGoal)
+      ? selectedHealth.carbsGoal
+      : null;
+    const fatGoal = Number.isFinite(selectedHealth.fatGoal)
+      ? selectedHealth.fatGoal
+      : null;
+    setProteinGoalInput(proteinGoal !== null ? String(proteinGoal) : '');
+    setCarbsGoalInput(carbsGoal !== null ? String(carbsGoal) : '');
+    setFatGoalInput(fatGoal !== null ? String(fatGoal) : '');
+  }, [
+    selectedDateKey,
+    selectedHealth.calorieGoal,
+    selectedHealth.proteinGoal,
+    selectedHealth.carbsGoal,
+    selectedHealth.fatGoal,
+    defaultCalorieGoal,
+  ]);
+
+  useEffect(() => {
+    setShowGoalModal(false);
+  }, [selectedDateKey]);
 
   const parseTimeToMinutes = (timeStr) => {
     if (!timeStr) return null;
@@ -549,9 +681,9 @@ const HealthScreen = () => {
   const waterValueColor = healthTheme.stats.water.value;
   const sleepValueColor = healthTheme.stats.sleep.value;
   const caloriesConsumed = selectedHealth.calories || 0;
-  const caloriesRemaining = profile.dailyCalorieGoal - caloriesConsumed;
-  const remainingRatio = profile.dailyCalorieGoal
-    ? Math.max(0, caloriesRemaining) / profile.dailyCalorieGoal
+  const caloriesRemaining = dailyCalorieGoal - caloriesConsumed;
+  const remainingRatio = dailyCalorieGoal
+    ? Math.max(0, caloriesRemaining) / dailyCalorieGoal
     : 1;
   const calorieCircleSize = 120;
   const getRemainingColor = () => {
@@ -652,6 +784,22 @@ const HealthScreen = () => {
   const formatMacroValue = (value) => {
     if (value === null || value === undefined) return 'N/A';
     return `${value}g`;
+  };
+
+  const formatMacroGoals = (health) => {
+    const proteinGoal = Number.isFinite(health.proteinGoal) ? health.proteinGoal : null;
+    const carbsGoal = Number.isFinite(health.carbsGoal) ? health.carbsGoal : null;
+    const fatGoal = Number.isFinite(health.fatGoal) ? health.fatGoal : null;
+    const hasAnyGoal = [proteinGoal, carbsGoal, fatGoal].some((g) => g !== null);
+    if (!hasAnyGoal) return 'Not set';
+
+    const formatGoal = (value, label) =>
+      `${label} ${Number.isFinite(value) ? `${value}g` : '--'}`;
+    return [
+      formatGoal(proteinGoal, 'P'),
+      formatGoal(carbsGoal, 'C'),
+      formatGoal(fatGoal, 'F'),
+    ].join(' • ');
   };
 
   const formatWaterLitres = (value) => {
@@ -769,9 +917,29 @@ const HealthScreen = () => {
             },
           ]}
         >
-          <Text style={[styles.sectionTitle, { color: healthTheme.calorie.title }]}>
-            Calorie Tracker
-          </Text>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: healthTheme.calorie.title }]}>
+              Calorie Tracker
+            </Text>
+            <TouchableOpacity
+              onPress={() => setShowGoalModal(true)}
+              style={[
+                styles.calorieEditButton,
+                { backgroundColor: healthTheme.calorie.ringBg },
+              ]}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons
+                name="create-outline"
+                size={16}
+                color={healthTheme.calorie.title}
+                style={styles.calorieEditIcon}
+              />
+              <Text style={[styles.calorieEditText, { color: healthTheme.calorie.title }]}>
+                Edit
+              </Text>
+            </TouchableOpacity>
+          </View>
           <View style={styles.calorieRow}>
             <View style={styles.calorieLeft}>
               <View style={styles.calorieStat}>
@@ -779,7 +947,7 @@ const HealthScreen = () => {
                   Daily Goal
                 </Text>
                 <Text style={[styles.calorieValue, { color: healthTheme.calorie.goal }]}>
-                  {profile.dailyCalorieGoal} cal
+                  {dailyCalorieGoal} cal
                 </Text>
               </View>
               <View style={styles.calorieStat}>
@@ -816,6 +984,14 @@ const HealthScreen = () => {
                 </Text>
               </View>
             </View>
+          </View>
+          <View style={styles.macroGoalSummary}>
+            <Text style={[styles.calorieLabel, { color: healthTheme.calorie.label }]}>
+              Macro goals
+            </Text>
+            <Text style={[styles.calorieValue, { color: healthTheme.calorie.goal }]}>
+              {formatMacroGoals(selectedHealth)}
+            </Text>
           </View>
         </Card>
 
@@ -1116,6 +1292,71 @@ const HealthScreen = () => {
           </View>
         </Card>
       </PlatformScrollView>
+
+      {/* Daily Goals Modal */}
+      <Modal
+        visible={showGoalModal}
+        onClose={handleCancelNutritionGoals}
+        title="Daily Goals"
+        fullScreen
+      >
+        <Input
+          label="Calories (cal)"
+          value={calorieGoalInput}
+          onChangeText={setCalorieGoalInput}
+          placeholder={`${defaultCalorieGoal}`}
+          keyboardType="numeric"
+          containerStyle={styles.goalModalInput}
+        />
+        <Input
+          label="Protein (g)"
+          value={proteinGoalInput}
+          onChangeText={setProteinGoalInput}
+          placeholder="e.g., 120"
+          keyboardType="decimal-pad"
+          containerStyle={styles.goalModalInput}
+        />
+        <Input
+          label="Carbs (g)"
+          value={carbsGoalInput}
+          onChangeText={setCarbsGoalInput}
+          placeholder="e.g., 200"
+          keyboardType="decimal-pad"
+          containerStyle={styles.goalModalInput}
+        />
+        <Input
+          label="Fat (g)"
+          value={fatGoalInput}
+          onChangeText={setFatGoalInput}
+          placeholder="e.g., 60"
+          keyboardType="decimal-pad"
+          containerStyle={styles.goalModalInput}
+        />
+        <View style={styles.modalButtons}>
+          <Button
+            title="Cancel"
+            variant="secondary"
+            onPress={handleCancelNutritionGoals}
+            disabled={isSavingGoals}
+            style={styles.modalButton}
+          />
+          <Button
+            title="Save Goals"
+            onPress={handleSaveNutritionGoals}
+            disabled={isSavingGoals}
+            style={styles.modalButton}
+          />
+        </View>
+        <TouchableOpacity
+          onPress={handleClearNutritionGoals}
+          disabled={isSavingGoals}
+          style={styles.goalClearButton}
+        >
+          <Text style={[styles.goalClearText, { color: themeColors.textSecondary }]}>
+            Clear goals
+          </Text>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Log Food Modal */}
       <Modal
@@ -1446,6 +1687,20 @@ const createStyles = (themeColors) => StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.md,
   },
+  calorieEditButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.full,
+  },
+  calorieEditIcon: {
+    marginRight: spacing.xs,
+  },
+  calorieEditText: {
+    ...typography.caption,
+    fontWeight: '600',
+  },
   moodRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1636,6 +1891,19 @@ const createStyles = (themeColors) => StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.lg,
+  },
+  macroGoalSummary: {
+    marginTop: spacing.sm,
+  },
+  goalModalInput: {
+    marginBottom: spacing.md,
+  },
+  goalClearButton: {
+    alignSelf: 'center',
+    marginTop: spacing.sm,
+  },
+  goalClearText: {
+    ...typography.caption,
   },
   calorieLeft: {
     flex: 1,
