@@ -189,18 +189,24 @@ const MainWithChatButton = ({ styles, isPremium }) => {
   const navigation = useNavigation();
   const bottomPadding = useBottomOffset();
 
+  const handleChatPress = () => {
+    if (isPremium) {
+      navigation.navigate('Paywall', { source: 'chat' });
+      return;
+    }
+    navigation.navigate('Chat');
+  };
+
   return (
     <View style={{ flex: 1 }}>
       <TabNavigator styles={styles} />
-      {isPremium && (
-        <Pressable
-          onPress={() => navigation.navigate('Chat')}
-          android_ripple={{ color: '#FFFFFF33', borderless: true }}
-          style={[styles.chatButton, { bottom: bottomPadding + 10 }]}
-        >
-          <Ionicons name="sparkles" size={24} color="#FFFFFF" />
-        </Pressable>
-      )}
+      <Pressable
+        onPress={handleChatPress}
+        android_ripple={{ color: '#FFFFFF33', borderless: true }}
+        style={[styles.chatButton, { bottom: bottomPadding + 10 }]}
+      >
+        <Ionicons name="sparkles" size={24} color="#FFFFFF" />
+      </Pressable>
     </View>
   );
 };

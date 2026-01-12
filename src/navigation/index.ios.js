@@ -177,18 +177,24 @@ const MainWithChatButton = ({ styles, isPremium }) => {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
 
+  const handleChatPress = () => {
+    if (isPremium) {
+      navigation.navigate('Paywall', { source: 'chat' });
+      return;
+    }
+    navigation.navigate('Chat');
+  };
+
   return (
     <View style={{ flex: 1 }}>
       <TabNavigator styles={styles} />
-      {isPremium && (
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPress={() => navigation.navigate('Chat')}
-          style={[styles.chatButton, { bottom: (insets.bottom || 0) + 12 }]}
-        >
-          <Ionicons name="sparkles" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-      )}
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={handleChatPress}
+        style={[styles.chatButton, { bottom: (insets.bottom || 0) + 12 }]}
+      >
+        <Ionicons name="sparkles" size={24} color="#FFFFFF" />
+      </TouchableOpacity>
     </View>
   );
 };
