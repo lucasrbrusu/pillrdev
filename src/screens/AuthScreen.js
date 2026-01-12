@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
   Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -230,7 +229,7 @@ const AuthScreen = ({ navigation }) => {
 
             <TouchableOpacity
               style={styles.forgotPassword}
-              onPress={() => Alert.alert('Forgot Password', 'Password reset is coming soon.')}
+              onPress={() => navigation.navigate('ForgotPassword')}
             >
               <Text style={styles.linkText}>Forgot password?</Text>
             </TouchableOpacity>

@@ -118,7 +118,7 @@ const EditProfileScreen = () => {
   };
 
   const handleChangePassword = () => {
-    Alert.alert('Change Password', 'Password change flow would start here');
+    navigation.navigate('ChangePassword');
   };
 
   const handleExportData = () => {

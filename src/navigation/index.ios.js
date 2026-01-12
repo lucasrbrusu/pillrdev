@@ -19,9 +19,11 @@ import RoutineDetailScreen from '../screens/RoutineDetailScreen';
 import FinanceScreen from '../screens/FinanceScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
+import ChangePasswordScreen from '../screens/ChangePasswordScreen';
 import CalendarScreen from '../screens/CalendarScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import AuthScreen from '../screens/AuthScreen';
+import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
 import AppearanceScreen from '../screens/AppearanceScreen';
 import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';
 import NotificationCenterScreen from '../screens/NotificationCenterScreen';
@@ -240,6 +242,7 @@ const Navigation = () => {
           <Stack.Screen name="Profile" component={ProfileScreen} />
           <Stack.Screen name="Paywall" component={PaywallScreen} />
           <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+          <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
           <Stack.Screen name="Finance" component={FinanceScreen} />
           <Stack.Screen name="PrivacySecurity" component={PrivacySecurityScreen} />
           <Stack.Screen
@@ -279,6 +282,7 @@ const Navigation = () => {
             <Stack.Screen name="Onboarding" component={OnboardingScreen} />
           )}
           <Stack.Screen name="Auth" component={AuthScreen} />
+          <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
         </Stack.Navigator>
       )}
     </NavigationContainer>
