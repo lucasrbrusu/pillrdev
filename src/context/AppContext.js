@@ -308,6 +308,9 @@ const dedupeById = (items = []) => {
   });
 };
 
+const normalizeAuthEmail = (value) => (value || '').trim().toLowerCase();
+const MAX_SAVED_ACCOUNTS = 5;
+
 
 export const AppProvider = ({ children }) => {
   // Habits State
@@ -529,6 +532,21 @@ const profileCacheRef = useRef({});
     setIsLoading(false);
   }
 };
+
+  useEffect(() => {
+    const { data: subscription } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (!session) return;
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+          await updateSavedAccountTokens(session);
+        }
+      }
+    );
+
+    return () => {
+      subscription?.subscription?.unsubscribe();
+    };
+  }, [updateSavedAccountTokens]);
 
 const loadUserDataFromSupabase = async (userId) => {
   try {
@@ -809,6 +827,75 @@ const markDataLoaded = useCallback((key) => {
       console.error('Error saving data:', error);
     }
   };
+
+  const readSavedAccounts = async () => {
+    try {
+      const raw = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_USERS);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      console.log('Error reading saved accounts', error);
+      return [];
+    }
+  };
+
+  const writeSavedAccounts = async (list) => {
+    await saveToStorage(STORAGE_KEYS.AUTH_USERS, list);
+  };
+
+  const updateSavedAccountTokens = useCallback(
+    async (session) => {
+      const user = session?.user;
+      const email = normalizeAuthEmail(user?.email);
+      if (!email) return;
+
+      const savedAccounts = await readSavedAccounts();
+      const existing = savedAccounts.find(
+        (item) => normalizeAuthEmail(item?.email) === email
+      );
+
+      const nextAccount = {
+        ...existing,
+        id: user?.id || existing?.id,
+        email,
+        name:
+          user?.user_metadata?.full_name ||
+          user?.user_metadata?.name ||
+          existing?.name ||
+          '',
+        username: user?.user_metadata?.username || existing?.username || '',
+        accessToken: session?.access_token || existing?.accessToken || null,
+        refreshToken: session?.refresh_token || existing?.refreshToken || null,
+        lastUsedAt: Date.now(),
+      };
+
+      const nextList = [
+        nextAccount,
+        ...savedAccounts.filter(
+          (item) => normalizeAuthEmail(item?.email) !== email
+        ),
+      ].slice(0, MAX_SAVED_ACCOUNTS);
+
+      await writeSavedAccounts(nextList);
+    },
+    []
+  );
+
+  const clearSavedAccountTokens = useCallback(async (email) => {
+    const normalized = normalizeAuthEmail(email);
+    if (!normalized) return;
+    const savedAccounts = await readSavedAccounts();
+    const nextList = savedAccounts.map((item) => {
+      if (normalizeAuthEmail(item?.email) !== normalized) return item;
+      return {
+        ...item,
+        accessToken: null,
+        refreshToken: null,
+      };
+    });
+    await writeSavedAccounts(nextList);
+  }, []);
 
   const cacheThemeLocally = async (name) => {
     try {
@@ -5609,6 +5696,13 @@ const mapProfileRow = (row) => ({
       });
       data = response?.data;
       error = response?.error;
+      if (error) {
+        const fallback = await supabase.auth.refreshSession({
+          refresh_token: refreshToken,
+        });
+        data = fallback?.data || data;
+        error = fallback?.error || error;
+      }
     } else if (refreshToken) {
       const response = await supabase.auth.refreshSession({
         refresh_token: refreshToken,
@@ -5631,11 +5725,16 @@ const mapProfileRow = (row) => ({
   };
 
   const signOut = async () => {
+    const signedOutEmail = authUser?.email;
     await supabase.auth.signOut();
     await clearCachedSession();
     dataLoadTimestampsRef.current = {};
     lastPresenceUpdateRef.current = 0;
     setAuthUser(null);
+
+    if (signedOutEmail) {
+      await clearSavedAccountTokens(signedOutEmail);
+    }
 
     setHasOnboarded(false);
     setProfile(defaultProfile);

@@ -174,17 +174,23 @@ const AuthScreen = ({ navigation }) => {
       };
     }
 
-    try {
-      const { data } = await supabase.auth.getSession();
-      const activeSession = data?.session;
-      return {
-        accessToken: activeSession?.access_token || null,
-        refreshToken: activeSession?.refresh_token || null,
-      };
-    } catch (sessionError) {
-      console.log('Unable to resolve auth session', sessionError);
-      return { accessToken: null, refreshToken: null };
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const activeSession = data?.session;
+        if (activeSession?.access_token && activeSession?.refresh_token) {
+          return {
+            accessToken: activeSession.access_token,
+            refreshToken: activeSession.refresh_token,
+          };
+        }
+      } catch (sessionError) {
+        console.log('Unable to resolve auth session', sessionError);
+      }
+      await wait(150 * (attempt + 1));
     }
+    return { accessToken: null, refreshToken: null };
   };
 
   const persistSavedAccounts = async (nextList) => {
@@ -237,7 +243,13 @@ const AuthScreen = ({ navigation }) => {
     } catch (submitError) {
       updateField('identifier', account?.email || '');
       updateField('password', '');
-      setError(submitError?.message || 'Saved session expired. Please sign in again.');
+      const rawMessage = submitError?.message || '';
+      const normalized = rawMessage.toLowerCase();
+      if (normalized.includes('auth session missing') || normalized.includes('refresh token')) {
+        setError('Saved session expired. Please sign in again.');
+      } else {
+        setError(rawMessage || 'Saved session expired. Please sign in again.');
+      }
     } finally {
       setIsSubmitting(false);
     }
