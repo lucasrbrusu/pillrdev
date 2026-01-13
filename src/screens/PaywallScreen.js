@@ -54,7 +54,7 @@ const PaywallScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const route = useRoute();
-  const { themeColors, isPremium, refreshRevenueCatPremium } = useApp();
+  const { themeColors, isPremium, refreshRevenueCatPremium, authUser } = useApp();
   const [loading, setLoading] = useState(true);
   const [loadingError, setLoadingError] = useState('');
   const [monthlyPackage, setMonthlyPackage] = useState(null);
@@ -97,7 +97,7 @@ const PaywallScreen = () => {
     const syncEntitlement = async () => {
       try {
         const { isActive, entitlement } =
-          (await refreshRevenueCatPremium()) || (await getPremiumEntitlementStatus());
+          (await refreshRevenueCatPremium()) || (await getPremiumEntitlementStatus(authUser?.id));
         if (!active) return;
         setEntitled(!!isActive || !!isPremium);
         setEntitlementLabel(entitlement?.productIdentifier || '');
@@ -138,7 +138,7 @@ const PaywallScreen = () => {
     try {
       await purchaseRevenueCatPackage(pkg);
       const status =
-        (await refreshRevenueCatPremium()) || (await getPremiumEntitlementStatus());
+        (await refreshRevenueCatPremium()) || (await getPremiumEntitlementStatus(authUser?.id));
       setEntitled(!!status?.isActive || !!isPremium);
       navigation.goBack();
     } catch (err) {
@@ -156,7 +156,7 @@ const PaywallScreen = () => {
     try {
       await restoreRevenueCatPurchases();
       const status =
-        (await refreshRevenueCatPremium()) || (await getPremiumEntitlementStatus());
+        (await refreshRevenueCatPremium()) || (await getPremiumEntitlementStatus(authUser?.id));
       setEntitled(!!status?.isActive || !!isPremium);
       navigation.goBack();
     } catch (err) {

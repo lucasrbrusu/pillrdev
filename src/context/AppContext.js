@@ -22,7 +22,7 @@ import {
   formatTimeFromDate,
 } from '../utils/notifications';
 import uuid from 'react-native-uuid';
-import { getPremiumEntitlementStatus } from '../../RevenueCat';
+import { getPremiumEntitlementStatus, setRevenueCatUserId } from '../../RevenueCat';
 
 const AppContext = createContext();
 
@@ -50,7 +50,6 @@ const STORAGE_KEYS = {
   PROFILE: '@pillarup_profile',
   THEME: '@pillarup_theme',
   AUTH_USER: '@pillarup_auth_user',
-  AUTH_USERS: '@pillarup_auth_users',
   ONBOARDING: '@pillarup_onboarding_complete',
   STREAK_FROZEN_PREFIX: '@pillarup_streak_frozen_',
   LAST_ACTIVE_PREFIX: '@pillarup_last_active_',
@@ -308,9 +307,6 @@ const dedupeById = (items = []) => {
   });
 };
 
-const normalizeAuthEmail = (value) => (value || '').trim().toLowerCase();
-const MAX_SAVED_ACCOUNTS = 5;
-
 
 export const AppProvider = ({ children }) => {
   // Habits State
@@ -370,19 +366,8 @@ const profileCacheRef = useRef({});
     isActive: false,
     expiration: null,
     entitlementId: null,
+    appUserId: null,
   });
-  const isPremiumUser = useMemo(
-    () => {
-      const rcIsPremium =
-        revenueCatPremium.isActive && computeIsPremium('premium', revenueCatPremium.expiration);
-      return (
-        rcIsPremium ||
-        profile?.isPremium ||
-        computeIsPremium(profile?.plan, profile?.premiumExpiresAt || profile?.premium_expires_at)
-      );
-    },
-    [profile, revenueCatPremium]
-  );
 
   // Auth State
   const [authUser, setAuthUser] = useState(null);
@@ -390,6 +375,23 @@ const profileCacheRef = useRef({});
   const [themeName, setThemeName] = useState('default');
   const [themeColors, setThemeColors] = useState({ ...colors });
   const [themeReady, setThemeReady] = useState(false);
+  const isPremiumUser = useMemo(
+    () => {
+      const rcMatchesUser =
+        revenueCatPremium.isActive &&
+        revenueCatPremium.appUserId &&
+        authUser?.id &&
+        revenueCatPremium.appUserId === String(authUser.id);
+      const rcIsPremium =
+        rcMatchesUser && computeIsPremium('premium', revenueCatPremium.expiration);
+      return (
+        rcIsPremium ||
+        profile?.isPremium ||
+        computeIsPremium(profile?.plan, profile?.premiumExpiresAt || profile?.premium_expires_at)
+      );
+    },
+    [authUser?.id, profile, revenueCatPremium]
+  );
 
   // Loading State
   const [isLoading, setIsLoading] = useState(true);
@@ -433,7 +435,34 @@ const profileCacheRef = useRef({});
 
   const refreshRevenueCatPremium = useCallback(
     async (shouldAbort) => {
+      const activeUserId = authUser?.id ? String(authUser.id) : null;
       try {
+        if (!activeUserId) {
+          await setRevenueCatUserId(null);
+          if (!shouldAbort?.()) {
+            setRevenueCatPremium({
+              isActive: false,
+              expiration: null,
+              entitlementId: null,
+              appUserId: null,
+            });
+          }
+          return { entitlement: null, isActive: false, expiration: null, appUserId: null };
+        }
+
+        const configured = await setRevenueCatUserId(activeUserId);
+        if (!configured) {
+          if (!shouldAbort?.()) {
+            setRevenueCatPremium({
+              isActive: false,
+              expiration: null,
+              entitlementId: null,
+              appUserId: activeUserId,
+            });
+          }
+          return { entitlement: null, isActive: false, expiration: null, appUserId: activeUserId };
+        }
+
         const { entitlement, isActive, expiration } = await getPremiumEntitlementStatus();
         if (shouldAbort?.()) return null;
 
@@ -442,9 +471,10 @@ const profileCacheRef = useRef({});
           isActive: !!isActive,
           expiration: normalizedExpiration,
           entitlementId: entitlement?.identifier || null,
+          appUserId: activeUserId,
         });
 
-        if (isActive) {
+        if (isActive && authUser?.id && String(authUser.id) === activeUserId) {
           setProfile((prev) => {
             if (shouldAbort?.()) return prev;
             const premiumExpiresAt =
@@ -459,13 +489,18 @@ const profileCacheRef = useRef({});
           });
         }
 
-        return { entitlement, isActive: !!isActive, expiration: normalizedExpiration };
+        return {
+          entitlement,
+          isActive: !!isActive,
+          expiration: normalizedExpiration,
+          appUserId: activeUserId,
+        };
       } catch (error) {
         console.log('Error syncing RevenueCat entitlement:', error);
         return null;
       }
     },
-    [setProfile, setRevenueCatPremium]
+    [authUser?.id, setProfile, setRevenueCatPremium]
   );
 
   // Load basic cached data and restore Supabase session on mount
@@ -533,21 +568,6 @@ const profileCacheRef = useRef({});
   }
 };
 
-  useEffect(() => {
-    const { data: subscription } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (!session) return;
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-          await updateSavedAccountTokens(session);
-        }
-      }
-    );
-
-    return () => {
-      subscription?.subscription?.unsubscribe();
-    };
-  }, [updateSavedAccountTokens]);
-
 const loadUserDataFromSupabase = async (userId) => {
   try {
     await Promise.all([
@@ -591,7 +611,12 @@ const loadUserDataFromSupabase = async (userId) => {
       setProfile(defaultProfile);
       setProfileLoaded(false);
       setUserSettings(defaultUserSettings);
-      setRevenueCatPremium({ isActive: false, expiration: null, entitlementId: null });
+      setRevenueCatPremium({
+        isActive: false,
+        expiration: null,
+        entitlementId: null,
+        appUserId: null,
+      });
       setHasOnboarded(false);
       setThemeName('default');
       applyTheme('default');
@@ -827,75 +852,6 @@ const markDataLoaded = useCallback((key) => {
       console.error('Error saving data:', error);
     }
   };
-
-  const readSavedAccounts = async () => {
-    try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_USERS);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (error) {
-      console.log('Error reading saved accounts', error);
-      return [];
-    }
-  };
-
-  const writeSavedAccounts = async (list) => {
-    await saveToStorage(STORAGE_KEYS.AUTH_USERS, list);
-  };
-
-  const updateSavedAccountTokens = useCallback(
-    async (session) => {
-      const user = session?.user;
-      const email = normalizeAuthEmail(user?.email);
-      if (!email) return;
-
-      const savedAccounts = await readSavedAccounts();
-      const existing = savedAccounts.find(
-        (item) => normalizeAuthEmail(item?.email) === email
-      );
-
-      const nextAccount = {
-        ...existing,
-        id: user?.id || existing?.id,
-        email,
-        name:
-          user?.user_metadata?.full_name ||
-          user?.user_metadata?.name ||
-          existing?.name ||
-          '',
-        username: user?.user_metadata?.username || existing?.username || '',
-        accessToken: session?.access_token || existing?.accessToken || null,
-        refreshToken: session?.refresh_token || existing?.refreshToken || null,
-        lastUsedAt: Date.now(),
-      };
-
-      const nextList = [
-        nextAccount,
-        ...savedAccounts.filter(
-          (item) => normalizeAuthEmail(item?.email) !== email
-        ),
-      ].slice(0, MAX_SAVED_ACCOUNTS);
-
-      await writeSavedAccounts(nextList);
-    },
-    []
-  );
-
-  const clearSavedAccountTokens = useCallback(async (email) => {
-    const normalized = normalizeAuthEmail(email);
-    if (!normalized) return;
-    const savedAccounts = await readSavedAccounts();
-    const nextList = savedAccounts.map((item) => {
-      if (normalizeAuthEmail(item?.email) !== normalized) return item;
-      return {
-        ...item,
-        accessToken: null,
-        refreshToken: null,
-      };
-    });
-    await writeSavedAccounts(nextList);
-  }, []);
 
   const cacheThemeLocally = async (name) => {
     try {
@@ -5681,61 +5637,13 @@ const mapProfileRow = (row) => ({
     return { user, session: activeSession };
   };
 
-  const signInWithSession = async ({ accessToken, refreshToken }) => {
-    if (!refreshToken && !accessToken) {
-      throw new Error('Saved session is missing. Please sign in again.');
-    }
-
-    let data;
-    let error;
-
-    if (refreshToken && accessToken) {
-      const response = await supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken,
-      });
-      data = response?.data;
-      error = response?.error;
-      if (error) {
-        const fallback = await supabase.auth.refreshSession({
-          refresh_token: refreshToken,
-        });
-        data = fallback?.data || data;
-        error = fallback?.error || error;
-      }
-    } else if (refreshToken) {
-      const response = await supabase.auth.refreshSession({
-        refresh_token: refreshToken,
-      });
-      data = response?.data;
-      error = response?.error;
-    } else {
-      throw new Error('Saved session is missing. Please sign in again.');
-    }
-
-    if (error) {
-      throw new Error(error.message || 'Unable to restore your session.');
-    }
-
-    const { user, session } = data || {};
-    if (user) {
-      await setActiveUser(user);
-    }
-    return { user, session };
-  };
-
   const signOut = async () => {
-    const signedOutEmail = authUser?.email;
     await supabase.auth.signOut();
     await clearCachedSession();
+    await setRevenueCatUserId(null);
     dataLoadTimestampsRef.current = {};
     lastPresenceUpdateRef.current = 0;
     setAuthUser(null);
-
-    if (signedOutEmail) {
-      await clearSavedAccountTokens(signedOutEmail);
-    }
-
     setHasOnboarded(false);
     setProfile(defaultProfile);
     setUserSettings(defaultUserSettings);
@@ -6081,16 +5989,21 @@ const mapProfileRow = (row) => ({
       authUser?.user_metadata?.username ||
       '';
 
-    const rcExpiration = revenueCatPremium.expiration || null;
-    const plan =
-      (revenueCatPremium.isActive ? 'premium' : profile.plan) || defaultProfile.plan;
+    const rcMatchesUser =
+      revenueCatPremium.appUserId &&
+      authUser?.id &&
+      revenueCatPremium.appUserId === String(authUser.id);
+    const rcIsPremium =
+      rcMatchesUser &&
+      revenueCatPremium.isActive &&
+      computeIsPremium('premium', revenueCatPremium.expiration);
+    const rcExpiration = rcMatchesUser ? revenueCatPremium.expiration || null : null;
+    const plan = (rcIsPremium ? 'premium' : profile.plan) || defaultProfile.plan;
     const premiumExpiresAt =
       rcExpiration ||
       profile.premiumExpiresAt ||
       profile.premium_expires_at ||
       defaultProfile.premiumExpiresAt;
-    const rcIsPremium =
-      revenueCatPremium.isActive && computeIsPremium('premium', premiumExpiresAt);
     const isPremium = rcIsPremium || computeIsPremium(plan, premiumExpiresAt);
 
     return {
@@ -6268,7 +6181,6 @@ const mapProfileRow = (row) => ({
     hasOnboarded,
     signIn,
     signUp,
-    signInWithSession,
     signOut,
     deleteAccount,
     persistOnboarding,

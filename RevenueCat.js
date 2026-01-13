@@ -20,13 +20,14 @@ const DEFAULT_OFFERING_ID = 'default';
 const globalKey = '__PILLARUP_REVENUECAT__';
 const globalState = (() => {
   if (!globalThis[globalKey]) {
-    globalThis[globalKey] = { configured: false, configurePromise: null };
+    globalThis[globalKey] = { configured: false, configurePromise: null, appUserId: null };
   }
   return globalThis[globalKey];
 })();
 
 let configured = globalState.configured || false;
 let configurePromise = globalState.configurePromise || null;
+let currentAppUserId = globalState.appUserId || null;
 
 export const configureRevenueCat = async () => {
   if (configured) return true;
@@ -52,6 +53,51 @@ export const configureRevenueCat = async () => {
   })();
 
   return configurePromise;
+};
+
+const normalizeAppUserId = (value) => {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  return trimmed ? trimmed : null;
+};
+
+export const setRevenueCatUserId = async (userId) => {
+  const ok = await configureRevenueCat();
+  if (!ok) return false;
+
+  const nextUserId = normalizeAppUserId(userId);
+  if (!nextUserId) {
+    if (currentAppUserId) {
+      try {
+        await Purchases.logOut();
+      } catch (error) {
+        console.warn('RevenueCat logOut failed', error);
+      }
+      currentAppUserId = null;
+      globalState.appUserId = null;
+    }
+    return true;
+  }
+
+  if (currentAppUserId && currentAppUserId !== nextUserId) {
+    try {
+      await Purchases.logOut();
+    } catch (error) {
+      console.warn('RevenueCat logOut failed', error);
+    }
+  }
+
+  if (currentAppUserId === nextUserId) return true;
+
+  try {
+    await Purchases.logIn(nextUserId);
+    currentAppUserId = nextUserId;
+    globalState.appUserId = nextUserId;
+    return true;
+  } catch (error) {
+    console.warn('RevenueCat logIn failed', error);
+    return false;
+  }
 };
 
 const matchPackage = (currentOffering, type) => {
@@ -120,8 +166,9 @@ export const restoreRevenueCatPurchases = async () => {
   return Purchases.restorePurchases();
 };
 
-export const getPremiumEntitlementStatus = async () => {
-  const ok = await configureRevenueCat();
+export const getPremiumEntitlementStatus = async (appUserId) => {
+  const ok =
+    appUserId === undefined ? await configureRevenueCat() : await setRevenueCatUserId(appUserId);
   if (!ok) return { entitlement: null, isActive: false, info: null, expiration: null };
   const info = await Purchases.getCustomerInfo();
   const activeEntitlements = info?.entitlements?.active || {};
@@ -157,4 +204,5 @@ export default {
   purchaseRevenueCatPackage,
   restoreRevenueCatPurchases,
   getPremiumEntitlementStatus,
+  setRevenueCatUserId,
 };
