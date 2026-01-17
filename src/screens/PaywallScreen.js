@@ -6,14 +6,15 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons, Feather } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
+import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Text as SvgText } from 'react-native-svg';
 
-import { colors, borderRadius, spacing, typography, shadows } from '../utils/theme';
-import { Button, Card } from '../components';
+import { borderRadius, spacing, typography, shadows } from '../utils/theme';
 import { useApp } from '../context/AppContext';
 import {
   configureRevenueCat,
@@ -25,28 +26,60 @@ import {
 
 const featureList = [
   {
-    title: 'PillarUp AI agent',
-    subtitle: 'Chat with your personal planner to create tasks, habits, and reminders instantly.',
+    title: 'AI agent',
+    icon: 'sparkles-outline',
+    iconBg: '#EFE9FF',
+    iconColor: '#6D5EEA',
+    subtitle: 'Get personalized planning help and smart summaries.',
+  },
+  {
+    title: 'Weekly & Monthly Insights',
+    icon: 'bulb-outline',
+    iconBg: '#EAF7FF',
+    iconColor: '#38BDF8',
+    subtitle: 'See highlights and trends across your pillars.',
   },
   {
     title: 'Groups & collaboration',
-    subtitle: 'Create groups, invite friends, and run shared habits and routines together.',
+    icon: 'people-outline',
+    iconBg: '#E7F0FF',
+    iconColor: '#4F80FF',
+    subtitle: 'Build routines with friends and keep each other on track.',
+  },
+  {
+    title: 'Advanced analytics',
+    icon: 'analytics-outline',
+    iconBg: '#E6FBF2',
+    iconColor: '#22C55E',
+    subtitle: 'Track patterns across health, focus, and habits.',
   },
   {
     title: 'Finance insights & budgets',
-    subtitle: 'Unlock spending breakdowns, recurring payment tracking, and budget groups.',
-  },
-  {
-    title: 'Weekly & monthly reports',
-    subtitle: 'Dive into insights across focus, health, tasks, and more in one place.',
+    icon: 'wallet-outline',
+    iconBg: '#ECFDF3',
+    iconColor: '#10B981',
+    subtitle: 'Track spending, recurring payments, and budgets.',
   },
   {
     title: 'Streak protection',
-    subtitle: "Premium users get extra cushion so missing a day won't instantly break your streaks.",
+    icon: 'time-outline',
+    iconBg: '#FFF7E8',
+    iconColor: '#F97316',
+    subtitle: "Extra cushion so a missed day won't reset your streak.",
   },
   {
     title: 'Premium badge',
-    subtitle: 'Show off your premium status across PillarUp.',
+    icon: 'ribbon-outline',
+    iconBg: '#FFE7EF',
+    iconColor: '#FB7185',
+    subtitle: 'Stand out with a premium badge on your profile.',
+  },
+  {
+    title: 'Priority support',
+    icon: 'shield-checkmark-outline',
+    iconBg: '#F2EAFF',
+    iconColor: '#8B5CF6',
+    subtitle: 'Get faster answers from the PillarUp team.',
   },
 ];
 
@@ -54,7 +87,7 @@ const PaywallScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const route = useRoute();
-  const { themeColors, isPremium, refreshRevenueCatPremium, authUser } = useApp();
+  const { isPremium, refreshRevenueCatPremium, authUser, themeName, themeColors } = useApp();
   const [loading, setLoading] = useState(true);
   const [loadingError, setLoadingError] = useState('');
   const [monthlyPackage, setMonthlyPackage] = useState(null);
@@ -63,9 +96,15 @@ const PaywallScreen = () => {
   const [restoring, setRestoring] = useState(false);
   const [entitled, setEntitled] = useState(!!isPremium);
   const [entitlementLabel, setEntitlementLabel] = useState('');
+  const [selectedPlan, setSelectedPlan] = useState('monthly');
 
-  const palette = themeColors || colors;
-  const styles = useMemo(() => createStyles(palette), [palette]);
+  const isDark = themeName === 'dark';
+  const accentColor = isDark ? '#c4b5fd' : '#9b5cff';
+  const backIconColor = isDark ? '#e5e7eb' : '#3f3f46';
+  const styles = useMemo(
+    () => createStyles({ isDark, themeColors, accentColor }),
+    [isDark, themeColors, accentColor]
+  );
   const source = route.params?.source || '';
 
   useEffect(() => {
@@ -111,20 +150,19 @@ const PaywallScreen = () => {
     };
   }, [isPremium, refreshRevenueCatPremium]);
 
-  const formatPrice = (pkg, cadence) => {
-    const suffix = cadence === 'yearly' ? '/year' : '/month';
+  const formatPrice = (pkg) => {
     const product = pkg?.product;
     if (!product) {
-      return 'Price updates after RevenueCat is connected';
+      return 'Price via RevenueCat';
     }
     if (product.priceString) {
-      return `${product.priceString}${suffix}`;
+      return product.priceString;
     }
     if (product.price && product.currencyCode) {
       const formatted = Number(product.price).toFixed(2);
-      return `${product.currencyCode} ${formatted}${suffix}`;
+      return `${product.currencyCode} ${formatted}`;
     }
-    return 'Price updates after RevenueCat is connected';
+    return 'Price via RevenueCat';
   };
 
   const handlePurchase = async (pkg) => {
@@ -166,128 +204,173 @@ const PaywallScreen = () => {
     }
   };
 
+  const handlePlanPress = (planKey, pkg) => {
+    if (purchasingId || entitled) return;
+    setSelectedPlan(planKey);
+    handlePurchase(pkg);
+  };
+
+  const getPlanFooterLabel = (planKey, pkg) => {
+    if (purchasingId === pkg?.identifier) return 'Processing...';
+    if (selectedPlan === planKey) {
+      return entitled ? 'Current plan' : 'Selected';
+    }
+    if (entitled) return 'Premium active';
+    return 'Tap to select';
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <LinearGradient
-        colors={['#0b0f1a', '#121b2f']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.hero}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: insets.bottom + spacing.xxxl },
+        ]}
+        showsVerticalScrollIndicator={false}
       >
         <View style={styles.headerRow}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Ionicons name="chevron-back" size={22} color="#f8f3d7" />
+            <Ionicons name="chevron-back" size={22} color={backIconColor} />
           </TouchableOpacity>
-          <Text style={styles.tagline}>Upgrade your PillarUp experience</Text>
-          <View style={{ width: 32 }} />
         </View>
 
-        <Text style={styles.title}>PillarUp Premium</Text>
-        <Text style={styles.subtitle}>
-          Unlock the AI agent, richer insights, and all the premium tools built to keep you on track.
-        </Text>
-        {source ? <Text style={styles.sourceNote}>Opened from: {source}</Text> : null}
-        {entitled && (
-          <View style={styles.entitlementPill}>
-            <Ionicons name="checkmark-circle" size={18} color="#0fcb81" />
-            <Text style={styles.entitlementText}>
-              Active: {entitlementLabel || 'PillarUp Premium'}
-            </Text>
+        <View style={styles.hero}>
+          <Image
+            source={require('../../assets/adaptive-icon.png')}
+            style={styles.heroIcon}
+            resizeMode="contain"
+          />
+          <View style={styles.titleRow}>
+            <View style={styles.titleSide}>
+              <Text style={styles.titleText}>PillarUp</Text>
+            </View>
+            <View style={[styles.titleSide, styles.titleSideRight]}>
+              <Svg width={110} height={28} style={styles.titleGradient}>
+              <Defs>
+                <SvgLinearGradient id="premiumGold" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <Stop offset="0%" stopColor="#F9E7A3" />
+                  <Stop offset="50%" stopColor="#E6B85C" />
+                  <Stop offset="100%" stopColor="#C9922E" />
+                </SvgLinearGradient>
+              </Defs>
+              <SvgText
+                x="0"
+                y="22"
+                fill="url(#premiumGold)"
+                fontSize="22"
+                fontWeight="700"
+              >
+                Premium
+              </SvgText>
+              </Svg>
+            </View>
           </View>
-        )}
-      </LinearGradient>
-
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={{ paddingBottom: insets.bottom + spacing.xxxl }}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>What you get</Text>
+          <Text style={styles.subtitle}>Unlock all premium features</Text>
+          {source ? <Text style={styles.sourceNote}>Opened from: {source}</Text> : null}
+          {entitled && (
+            <View style={styles.entitlementPill}>
+              <Ionicons name="checkmark-circle" size={16} color="#16a34a" />
+              <Text style={styles.entitlementText}>
+                Active: {entitlementLabel || 'PillarUp Premium'}
+              </Text>
+            </View>
+          )}
         </View>
-        <Card style={styles.featureCard}>
-          {featureList.map((item, idx) => (
-            <View key={item.title} style={[styles.featureRow, idx < featureList.length - 1 && styles.featureBorder]}>
-              <View style={styles.featureIcon}>
-                <Feather name="check" size={16} color="#0f6d4f" />
+
+        <View style={styles.featuresTimeline}>
+          <View style={styles.timelineLine} />
+          {featureList.map((item) => (
+            <View key={item.title} style={styles.featureTimelineRow}>
+              <View style={[styles.featureDot, { backgroundColor: item.iconBg }]}>
+                <Ionicons name={item.icon} size={18} color={item.iconColor} />
               </View>
-              <View style={{ flex: 1 }}>
+              <View style={styles.featureTimelineText}>
                 <Text style={styles.featureTitle}>{item.title}</Text>
                 <Text style={styles.featureSubtitle}>{item.subtitle}</Text>
               </View>
             </View>
           ))}
-        </Card>
-
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Choose your plan</Text>
-          <Text style={styles.sectionHint}>Prices come directly from your RevenueCat offering.</Text>
         </View>
 
-        {loading ? (
-          <Card style={styles.loadingCard}>
-            <ActivityIndicator color={palette.primary} />
-            <Text style={styles.loadingText}>Fetching plans...</Text>
-          </Card>
-        ) : (
-          <>
-            <TouchableOpacity
-              activeOpacity={0.92}
-              onPress={() => handlePurchase(monthlyPackage)}
-            >
-              <LinearGradient
-                colors={['#f7e7b4', '#f1c644']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.planCard}
+        <View style={styles.planStack}>
+          {loading ? (
+            <View style={styles.loadingCard}>
+              <ActivityIndicator color={accentColor} />
+              <Text style={styles.loadingText}>Fetching plans...</Text>
+            </View>
+          ) : (
+            <>
+              <TouchableOpacity
+                activeOpacity={0.92}
+                onPress={() => handlePlanPress('monthly', monthlyPackage)}
+                disabled={!!purchasingId || entitled}
               >
-                <View style={styles.planHeader}>
-                  <Text style={styles.planLabel}>Monthly</Text>
-                  <View style={styles.planBadge}>
-                    <Text style={styles.planBadgeText}>Flexible</Text>
+                <LinearGradient
+                  colors={['#b974ff', '#a65bff']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.planCard}
+                >
+                  <View style={styles.planHeader}>
+                    <Text style={[styles.planLabel, styles.planLabelLight]}>Monthly</Text>
+                    <View style={[styles.planBadge, styles.planBadgeLight]}>
+                      <Text style={[styles.planBadgeText, styles.planBadgeTextLight]}>Flexible</Text>
+                    </View>
                   </View>
-                </View>
-                <Text style={styles.planPrice}>{formatPrice(monthlyPackage, 'monthly')}</Text>
-                <Text style={styles.planDetail}>Cancel anytime.</Text>
-                <Button
-                  title={purchasingId === monthlyPackage?.identifier ? 'Processing...' : 'Choose Monthly'}
-                  onPress={() => handlePurchase(monthlyPackage)}
-                  fullWidth
-                  style={styles.planButton}
-                  disabled={!!purchasingId || entitled}
-                  icon="star"
-                  disableTranslation
-                />
-              </LinearGradient>
-            </TouchableOpacity>
+                  <Text style={[styles.planPrice, styles.planTextLight]}>
+                    {formatPrice(monthlyPackage)}
+                  </Text>
+                  <Text style={[styles.planDetail, styles.planTextLight]}>Cancel anytime</Text>
+                  <View style={styles.planDividerLight} />
+                  <View style={styles.planFooter}>
+                    {purchasingId === monthlyPackage?.identifier ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : selectedPlan === 'monthly' ? (
+                      <Ionicons name="checkmark" size={16} color="#ffffff" />
+                    ) : null}
+                    <Text style={[styles.planFooterText, styles.planFooterTextLight]}>
+          {getPlanFooterLabel('monthly', monthlyPackage)}
+                    </Text>
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              activeOpacity={0.92}
-              onPress={() => handlePurchase(annualPackage)}
-            >
-              <Card style={styles.planOutlineCard}>
-                <View style={styles.planHeader}>
-                  <Text style={styles.planLabel}>Yearly</Text>
-                  <View style={[styles.planBadge, styles.bestValueBadge]}>
-                    <Text style={[styles.planBadgeText, styles.bestValueBadgeText]}>Best value</Text>
+              <TouchableOpacity
+                activeOpacity={0.92}
+                onPress={() => handlePlanPress('yearly', annualPackage)}
+                disabled={!!purchasingId || entitled}
+              >
+                <View
+                  style={[
+                    styles.planOutlineCard,
+                    selectedPlan === 'yearly' && styles.planOutlineCardSelected,
+                  ]}
+                >
+                  <View style={styles.planHeader}>
+                    <Text style={styles.planLabel}>Yearly</Text>
+                    <View style={[styles.planBadge, styles.bestValueBadge]}>
+                      <Text style={[styles.planBadgeText, styles.bestValueBadgeText]}>Best value</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.planPrice}>{formatPrice(annualPackage)}</Text>
+                  <Text style={styles.planDetail}>Save with annual plan</Text>
+                  <View style={styles.planDivider} />
+                  <View style={styles.planFooter}>
+                    {purchasingId === annualPackage?.identifier ? (
+                      <ActivityIndicator size="small" color={accentColor} />
+                    ) : selectedPlan === 'yearly' ? (
+                      <Ionicons name="checkmark" size={16} color={accentColor} />
+                    ) : null}
+                    <Text style={styles.planFooterText}>
+                      {getPlanFooterLabel('yearly', annualPackage)}
+                    </Text>
                   </View>
                 </View>
-                <Text style={styles.planPrice}>{formatPrice(annualPackage, 'yearly')}</Text>
-                <Text style={styles.planDetail}>Save more with the annual plan.</Text>
-                <Button
-                  title={purchasingId === annualPackage?.identifier ? 'Processing...' : 'Choose Yearly'}
-                  onPress={() => handlePurchase(annualPackage)}
-                  fullWidth
-                  variant="secondary"
-                  style={styles.planButton}
-                  disabled={!!purchasingId || entitled}
-                  icon="calendar"
-                  disableTranslation
-                />
-              </Card>
-            </TouchableOpacity>
-          </>
-        )}
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
 
         {!!loadingError && (
           <View style={styles.errorBox}>
@@ -296,14 +379,17 @@ const PaywallScreen = () => {
         )}
 
         <View style={styles.footerActions}>
-          <Button
-            title={restoring ? 'Restoring...' : 'Restore purchases'}
+          <TouchableOpacity
+            style={styles.restoreButton}
             onPress={handleRestore}
-            fullWidth
-            variant="ghost"
-            disabled={restoring || purchasingId}
-            disableTranslation
-          />
+            disabled={restoring || !!purchasingId}
+            activeOpacity={0.7}
+          >
+            {restoring ? <ActivityIndicator size="small" color={accentColor} /> : null}
+            <Text style={styles.restoreText}>
+              {restoring ? 'Restoring...' : 'Restore purchases'}
+            </Text>
+          </TouchableOpacity>
           {entitled ? (
             <Text style={styles.smallNote}>You already have Premium on this account.</Text>
           ) : (
@@ -317,140 +403,176 @@ const PaywallScreen = () => {
   );
 };
 
-const createStyles = (palette) =>
-  StyleSheet.create({
+const createStyles = ({ isDark, themeColors, accentColor }) => {
+  const background = isDark ? themeColors?.background || '#0f1115' : '#ffffff';
+  const surface = isDark ? themeColors?.card || '#161b26' : '#ffffff';
+  const text = themeColors?.text || (isDark ? '#f3f4f6' : '#111827');
+  const textSecondary = themeColors?.textSecondary || (isDark ? '#9ca3af' : '#6b7280');
+  const textMuted = themeColors?.textLight || (isDark ? '#94a3b8' : '#94a3b8');
+  const softBorder = isDark ? '#2b3342' : '#eee7de';
+  const line = isDark ? '#2c3446' : '#f1ede7';
+  const backButtonBg = isDark ? '#151a24' : '#ffffff';
+  const badgeBg = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
+  const entitlementBg = isDark ? 'rgba(34,197,94,0.18)' : '#e7f8ef';
+  const entitlementBorder = isDark ? 'rgba(34,197,94,0.35)' : '#bbf7d0';
+  const entitlementText = isDark ? '#86efac' : '#15803d';
+  const errorBg = isDark ? 'rgba(239,68,68,0.12)' : '#fef2f2';
+  const errorBorder = isDark ? 'rgba(239,68,68,0.35)' : '#fecaca';
+  const errorText = isDark ? '#fca5a5' : '#991b1b';
+
+  return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: palette.background,
+      backgroundColor: background,
     },
-    hero: {
+    scroll: {
+      flex: 1,
+    },
+    scrollContent: {
       paddingHorizontal: spacing.xl,
-      paddingTop: spacing.xl,
-      paddingBottom: spacing.lg,
-      borderBottomLeftRadius: borderRadius.xl,
-      borderBottomRightRadius: borderRadius.xl,
-      ...shadows.medium,
+      paddingTop: spacing.md,
     },
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
     },
     backButton: {
       width: 36,
       height: 36,
       borderRadius: borderRadius.full,
       borderWidth: 1,
-      borderColor: '#f1c644',
+      borderColor: softBorder,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: 'rgba(255,255,255,0.06)',
+      backgroundColor: backButtonBg,
+      ...shadows.small,
     },
-    tagline: {
-      ...typography.bodySmall,
-      color: '#f8f3d7',
-      textAlign: 'center',
+    hero: {
+      alignItems: 'center',
+      marginTop: spacing.lg,
+      marginBottom: spacing.lg,
     },
-    title: {
-      fontSize: 32,
-      fontWeight: '800',
-      color: '#f5d76e',
+    heroIcon: {
+      width: 56,
+      height: 56,
+      backgroundColor: 'transparent',
+    },
+    titleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: '100%',
       marginTop: spacing.md,
-      letterSpacing: 0.5,
+      transform: [{ translateX: -6 }],
+    },
+    titleSide: {
+      flex: 1,
+      alignItems: 'flex-end',
+    },
+    titleSideRight: {
+      alignItems: 'flex-start',
+    },
+    titleText: {
+      fontSize: 22,
+      fontWeight: '700',
+      color: text,
+      letterSpacing: 0.2,
+    },
+    titleGradient: {
+      marginLeft: 6,
     },
     subtitle: {
-      ...typography.body,
-      color: '#d5e0ff',
-      marginTop: spacing.sm,
-      lineHeight: 22,
+      ...typography.bodySmall,
+      color: textSecondary,
+      marginTop: spacing.xs,
+      textAlign: 'center',
     },
     sourceNote: {
       ...typography.caption,
-      color: '#9ab0ff',
+      color: textMuted,
       marginTop: spacing.xs,
     },
     entitlementPill: {
       marginTop: spacing.sm,
-      alignSelf: 'flex-start',
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.xs,
       paddingHorizontal: spacing.sm,
       paddingVertical: spacing.xs,
-      backgroundColor: 'rgba(15, 203, 129, 0.12)',
+      backgroundColor: entitlementBg,
       borderRadius: borderRadius.full,
       borderWidth: 1,
-      borderColor: 'rgba(15, 203, 129, 0.35)',
+      borderColor: entitlementBorder,
     },
     entitlementText: {
       ...typography.caption,
-      color: '#c7f3df',
-      fontWeight: '700',
+      color: entitlementText,
+      fontWeight: '600',
     },
-    scroll: {
-      flex: 1,
-      paddingHorizontal: spacing.xl,
-      paddingTop: spacing.lg,
-    },
-    sectionHeader: {
-      marginBottom: spacing.sm,
+    featuresTimeline: {
       marginTop: spacing.md,
+      marginBottom: spacing.xl,
+      paddingLeft: spacing.xl,
+      gap: spacing.xl,
+      position: 'relative',
     },
-    sectionTitle: {
-      ...typography.h3,
-      color: palette.text,
-      fontWeight: '700',
+    timelineLine: {
+      position: 'absolute',
+      left: 37,
+      top: 6,
+      bottom: 6,
+      width: 2,
+      backgroundColor: line,
     },
-    sectionHint: {
-      ...typography.caption,
-      color: palette.textSecondary,
-      marginTop: 2,
-    },
-    featureCard: {
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.md,
-    },
-    featureRow: {
+    featureTimelineRow: {
       flexDirection: 'row',
       alignItems: 'flex-start',
-      paddingVertical: spacing.sm,
       gap: spacing.md,
     },
-    featureBorder: {
-      borderBottomWidth: 1,
-      borderBottomColor: palette.divider || '#ececec',
-    },
-    featureIcon: {
-      width: 28,
-      height: 28,
-      borderRadius: borderRadius.full,
-      backgroundColor: '#dcf5eb',
+    featureDot: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
       alignItems: 'center',
       justifyContent: 'center',
-      marginTop: 2,
+      ...shadows.small,
+    },
+    featureTimelineText: {
+      flex: 1,
     },
     featureTitle: {
-      ...typography.body,
-      fontWeight: '700',
-      color: palette.text,
+      fontSize: 17,
+      fontWeight: '600',
+      color: text,
     },
     featureSubtitle: {
-      ...typography.bodySmall,
-      color: palette.textSecondary,
-      marginTop: 2,
+      fontSize: 14,
+      color: textSecondary,
+      marginTop: 4,
+    },
+    planStack: {
+      marginTop: spacing.xl,
+      gap: spacing.md,
     },
     planCard: {
       borderRadius: borderRadius.xl,
       padding: spacing.lg,
-      marginTop: spacing.md,
       ...shadows.medium,
     },
     planOutlineCard: {
       borderRadius: borderRadius.xl,
       padding: spacing.lg,
-      marginTop: spacing.md,
-      borderWidth: 1.5,
-      borderColor: '#f1c644',
+      backgroundColor: surface,
+      borderWidth: 1,
+      borderColor: softBorder,
+      ...shadows.small,
+    },
+    planOutlineCardSelected: {
+      borderColor: accentColor,
+      shadowColor: accentColor,
+      shadowOpacity: 0.15,
+      shadowRadius: 12,
+      elevation: 4,
     },
     planHeader: {
       flexDirection: 'row',
@@ -458,73 +580,125 @@ const createStyles = (palette) =>
       justifyContent: 'space-between',
     },
     planLabel: {
-      ...typography.h3,
-      color: '#1f1304',
-      fontWeight: '800',
+      fontSize: 16,
+      fontWeight: '700',
+      color: text,
+    },
+    planLabelLight: {
+      color: '#ffffff',
     },
     planBadge: {
       paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.xs,
+      paddingVertical: 2,
       borderRadius: borderRadius.full,
-      backgroundColor: 'rgba(0,0,0,0.08)',
+      backgroundColor: badgeBg,
+    },
+    planBadgeLight: {
+      backgroundColor: 'rgba(255,255,255,0.28)',
     },
     planBadgeText: {
       ...typography.caption,
-      color: '#1f1304',
-      fontWeight: '700',
+      color: text,
+      fontWeight: '600',
+    },
+    planBadgeTextLight: {
+      color: '#ffffff',
     },
     bestValueBadge: {
-      backgroundColor: '#1f2937',
+      backgroundColor: '#ffe7c2',
     },
     bestValueBadgeText: {
-      color: '#f7e7b4',
+      color: '#b45309',
     },
     planPrice: {
-      ...typography.h1,
-      color: '#1f1304',
-      fontWeight: '800',
+      fontSize: 16,
+      fontWeight: '600',
       marginTop: spacing.sm,
+      color: text,
     },
     planDetail: {
-      ...typography.bodySmall,
-      color: '#2f2412',
+      fontSize: 13,
+      color: textSecondary,
       marginTop: spacing.xs,
     },
-    planButton: {
+    planTextLight: {
+      color: '#f8fafc',
+    },
+    planDividerLight: {
+      height: 1,
+      backgroundColor: 'rgba(255,255,255,0.35)',
       marginTop: spacing.md,
+      marginBottom: spacing.md,
+    },
+    planDivider: {
+      height: 1,
+      backgroundColor: line,
+      marginTop: spacing.md,
+      marginBottom: spacing.md,
+    },
+    planFooter: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.xs,
+    },
+    planFooterText: {
+      ...typography.caption,
+      color: textSecondary,
+      fontWeight: '600',
+    },
+    planFooterTextLight: {
+      color: '#ffffff',
     },
     loadingCard: {
       alignItems: 'center',
       justifyContent: 'center',
       paddingVertical: spacing.lg,
-      marginTop: spacing.md,
+      borderRadius: borderRadius.xl,
+      backgroundColor: surface,
+      borderWidth: 1,
+      borderColor: softBorder,
+      ...shadows.small,
     },
     loadingText: {
       ...typography.bodySmall,
-      color: palette.textSecondary,
+      color: textSecondary,
       marginTop: spacing.sm,
     },
     errorBox: {
       marginTop: spacing.md,
       padding: spacing.md,
       borderRadius: borderRadius.lg,
-      backgroundColor: '#fef2f2',
+      backgroundColor: errorBg,
       borderWidth: 1,
-      borderColor: '#fecdd3',
+      borderColor: errorBorder,
     },
     errorText: {
       ...typography.bodySmall,
-      color: '#991b1b',
+      color: errorText,
     },
     footerActions: {
       marginTop: spacing.lg,
+      alignItems: 'center',
       gap: spacing.sm,
+    },
+    restoreButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.xs,
+    },
+    restoreText: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: accentColor,
     },
     smallNote: {
       ...typography.caption,
-      color: palette.textSecondary,
+      color: textSecondary,
       textAlign: 'center',
     },
   });
+};
 
 export default PaywallScreen;
