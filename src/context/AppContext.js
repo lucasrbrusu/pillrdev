@@ -307,6 +307,18 @@ const dedupeById = (items = []) => {
   });
 };
 
+const isInvalidRefreshTokenError = (error) => {
+  if (!error) return false;
+  const message = [error?.message, error?.error_description, error?.details]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return (
+    message.includes('invalid refresh token') ||
+    message.includes('refresh token not found')
+  );
+};
+
 
 export const AppProvider = ({ children }) => {
   // Habits State
@@ -546,14 +558,13 @@ const profileCacheRef = useRef({});
     } = await supabase.auth.getSession();
 
     if (error) {
-      console.log('Error getting Supabase session:', error);
-      const isInvalidRefresh =
-        typeof error.message === 'string' &&
-        error.message.toLowerCase().includes('invalid refresh token');
+      const isInvalidRefresh = isInvalidRefreshTokenError(error);
       if (isInvalidRefresh) {
-        await supabase.auth.signOut();
+        await signOutLocal();
         await clearCachedSession();
         applyTheme('default');
+      } else {
+        console.log('Error getting Supabase session:', error);
       }
     } else if (session?.user) {
       await setActiveUser(session.user);
@@ -865,12 +876,25 @@ const markDataLoaded = useCallback((key) => {
     }
   };
 
+  const signOutLocal = async () => {
+    try {
+      await supabase.auth.signOut({ scope: 'local' });
+    } catch (err) {
+      // Ignore sign-out failures; we'll clear local session keys anyway.
+    }
+  };
+
   const clearCachedSession = async () => {
     try {
-      await AsyncStorage.multiRemove([
-        ...SUPABASE_STORAGE_KEYS,
-        STORAGE_KEYS.AUTH_USER,
-      ]);
+      const keys = await AsyncStorage.getAllKeys();
+      const supabaseKeys = keys.filter((key) => {
+        if (key === STORAGE_KEYS.AUTH_USER) return true;
+        if (SUPABASE_STORAGE_KEYS.includes(key)) return true;
+        if (key.startsWith('sb-') && key.includes('-auth-token')) return true;
+        return key.startsWith('supabase.auth');
+      });
+      if (!supabaseKeys.length) return;
+      await AsyncStorage.multiRemove([...new Set(supabaseKeys)]);
     } catch (err) {
       console.log('Error clearing cached session keys:', err);
     }
@@ -5638,7 +5662,15 @@ const mapProfileRow = (row) => ({
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      if (isInvalidRefreshTokenError(error)) {
+        await signOutLocal();
+      } else {
+        console.log('Error signing out:', error);
+      }
+    }
     await clearCachedSession();
     await setRevenueCatUserId(null);
     dataLoadTimestampsRef.current = {};

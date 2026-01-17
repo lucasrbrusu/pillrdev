@@ -43,7 +43,7 @@ const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 const FRIENDS_GESTURE_DISTANCE = Math.round(Dimensions.get('window').width);
 const CHAT_BUTTON_SIZE = 60;
-const CHAT_BUTTON_LIFT = 20;
+const CHAT_BUTTON_LIFT = 14;
 const CHAT_BUTTON_SPACER = CHAT_BUTTON_SIZE;
 
 const TabBarIcon = ({ name, type, focused, color, size }) => {
