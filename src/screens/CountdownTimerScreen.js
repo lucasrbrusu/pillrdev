@@ -1,14 +1,28 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Keyboard, TouchableWithoutFeedback, Platform, FlatList } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { colors, spacing, borderRadius, typography, shadows } from '../utils/theme';
+import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
+import { colors, spacing, typography, shadows } from '../utils/theme';
 import {
   requestNotificationPermissionAsync,
   scheduleLocalNotificationAsync,
 } from '../utils/notifications';
 import { useApp } from '../context/AppContext';
+
+const RING_SIZE = 220;
+const RING_STROKE = 12;
+const RING_INNER_SIZE = RING_SIZE - RING_STROKE * 2 - 16;
 
 const CountdownTimerScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
@@ -18,14 +32,11 @@ const CountdownTimerScreen = ({ navigation }) => {
   const [remainingMs, setRemainingMs] = React.useState(5 * 60 * 1000);
   const [isRunning, setIsRunning] = React.useState(false);
   const [isPaused, setIsPaused] = React.useState(false);
-  const [showPicker, setShowPicker] = React.useState(false);
-  const [showCustom, setShowCustom] = React.useState(false);
   const [hasNotified, setHasNotified] = React.useState(false);
-  const [pickerDate, setPickerDate] = React.useState(() => {
-    const d = new Date();
-    d.setHours(0, 5, 0, 0);
-    return d;
-  });
+  const [showCustom, setShowCustom] = React.useState(false);
+  const [customTime, setCustomTime] = React.useState({ hours: 0, minutes: 5, seconds: 0 });
+  const scrollRef = React.useRef(null);
+  const customSectionY = React.useRef(null);
 
   const presetOptions = [
     { label: '30s', ms: 30 * 1000 },
@@ -38,7 +49,16 @@ const CountdownTimerScreen = ({ navigation }) => {
     { label: '45m', ms: 45 * 60 * 1000 },
     { label: '1h', ms: 60 * 60 * 1000 },
   ];
-  const secondsOptions = React.useMemo(() => Array.from({ length: 60 }, (_, i) => i), []);
+  const iconColor = themeColors.textSecondary || colors.textSecondary;
+  const accent = themeColors.primary || colors.primary;
+  const accentGradient = ['#8B5CF6', '#EC4899'];
+  const ringRadius = (RING_SIZE - RING_STROKE) / 2;
+  const ringCircumference = 2 * Math.PI * ringRadius;
+  const progress =
+    durationMs > 0
+      ? Math.min(Math.max(remainingMs / durationMs, 0), 1)
+      : 0;
+  const ringOffset = ringCircumference * (1 - progress);
 
   const formattedTime = () => {
     const totalSeconds = Math.floor(Math.max(remainingMs, 0) / 1000);
@@ -83,32 +103,36 @@ const CountdownTimerScreen = ({ navigation }) => {
   const applyPreset = (ms) => {
     setDurationMs(ms);
     setRemainingMs(ms);
-    setShowCustom(false);
-    setShowPicker(false);
+    setIsRunning(false);
+    setIsPaused(false);
     setHasNotified(false);
-    const d = new Date();
-    const totalMinutes = Math.floor(ms / (60 * 1000));
-    const seconds = Math.floor((ms % (60 * 1000)) / 1000);
-    d.setHours(Math.floor(totalMinutes / 60), totalMinutes % 60, seconds, 0);
-    setPickerDate(d);
+    setShowCustom(false);
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    setCustomTime({ hours, minutes, seconds });
   };
 
-  const onPickerChange = (event, selectedDate) => {
-    if (event.type === 'dismissed') {
-      setShowPicker(false);
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+  const adjustCustomTime = (unit, delta) => {
+    setCustomTime((prev) => {
+      const limits = { hours: 23, minutes: 59, seconds: 59 };
+      const nextValue = clamp(prev[unit] + delta, 0, limits[unit]);
+      return { ...prev, [unit]: nextValue };
+    });
+  };
+
+  const handleTimeInput = (unit, value) => {
+    const limits = { hours: 23, minutes: 59, seconds: 59 };
+    const sanitized = value.replace(/\D/g, '');
+    if (!sanitized) {
+      setCustomTime((prev) => ({ ...prev, [unit]: 0 }));
       return;
     }
-    const prevSeconds = pickerDate.getSeconds();
-    const nextDate = new Date(selectedDate || pickerDate);
-    nextDate.setSeconds(prevSeconds);
-    if (Platform.OS !== 'ios') setShowPicker(false);
-    setPickerDate(nextDate);
-    setHasNotified(false);
-    const totalSeconds =
-      nextDate.getHours() * 3600 + nextDate.getMinutes() * 60 + nextDate.getSeconds();
-    const ms = Math.max(totalSeconds, 1) * 1000;
-    setDurationMs(ms);
-    setRemainingMs(ms);
+    const parsed = parseInt(sanitized, 10);
+    setCustomTime((prev) => ({ ...prev, [unit]: clamp(parsed, 0, limits[unit]) }));
   };
 
   const handleStart = () => {
@@ -136,181 +160,256 @@ const CountdownTimerScreen = ({ navigation }) => {
     setHasNotified(false);
   };
 
-  const setSecondsValue = (sec) => {
-    setPickerDate((prev) => {
-      const next = new Date(prev);
-      next.setSeconds(sec);
-      const totalSeconds = next.getHours() * 3600 + next.getMinutes() * 60 + sec;
-      const ms = Math.max(totalSeconds, 1) * 1000;
-      setDurationMs(ms);
-      setRemainingMs(ms);
-      setHasNotified(false);
-      return next;
-    });
+  const handleSetCustomTime = () => {
+    const totalSeconds =
+      customTime.hours * 3600 + customTime.minutes * 60 + customTime.seconds;
+    const ms = Math.max(totalSeconds, 1) * 1000;
+    setDurationMs(ms);
+    setRemainingMs(ms);
+    setIsRunning(false);
+    setIsPaused(false);
+    setHasNotified(false);
   };
 
-  return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <View style={[styles.container, { paddingTop: insets.top + spacing.xl }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.title}>Countdown Timer</Text>
-        <View style={{ width: 24 }} />
+  const handlePrimaryAction = () => {
+    if (isRunning && !isPaused) {
+      handlePause();
+      return;
+    }
+    if (isPaused) {
+      handleResume();
+      return;
+    }
+    handleStart();
+  };
+
+  const handleToggleCustom = () => {
+    setShowCustom((prev) => !prev);
+  };
+
+  const handleFocusCustom = () => {
+    if (!scrollRef.current) return;
+    if (customSectionY.current !== null) {
+      const targetY = Math.max(customSectionY.current - spacing.lg, 0);
+      scrollRef.current.scrollTo({ y: targetY, animated: true });
+    } else {
+      scrollRef.current.scrollToEnd({ animated: true });
+    }
+  };
+
+  React.useEffect(() => {
+    if (!showCustom) return;
+    const timer = setTimeout(() => {
+      if (!scrollRef.current) return;
+      if (customSectionY.current !== null) {
+        const targetY = Math.max(customSectionY.current - spacing.lg, 0);
+        scrollRef.current.scrollTo({ y: targetY, animated: true });
+      } else {
+        scrollRef.current.scrollToEnd({ animated: true });
+      }
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [showCustom]);
+
+  const primaryIconName = isRunning && !isPaused ? 'pause' : 'play';
+  const isPrimaryDisabled = !isRunning && remainingMs <= 0;
+
+  const renderTimeBlock = (label, value, onMinus, onPlus, onChange) => (
+    <View style={styles.timeBlock}>
+      <Text style={styles.timeLabel}>{label}</Text>
+      <View style={styles.timeValueCard}>
+        <TextInput
+          style={styles.timeInput}
+          value={String(value)}
+          onChangeText={onChange}
+          onFocus={handleFocusCustom}
+          keyboardType="number-pad"
+          maxLength={2}
+          selectTextOnFocus
+        />
+        <View style={styles.timeControls}>
+          <TouchableOpacity style={styles.adjustButton} onPress={onMinus}>
+            <Ionicons name="remove" size={16} color={accent} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.adjustButton} onPress={onPlus}>
+            <Ionicons name="add" size={16} color={accent} />
+          </TouchableOpacity>
+        </View>
       </View>
+    </View>
+  );
 
-      <View style={styles.content}>
-        <Text style={styles.timer}>{formattedTime()}</Text>
-
-        <View style={styles.mainActions}>
-          {!isRunning && (
-            <TouchableOpacity
-              style={[styles.actionButton, styles.primaryButton, styles.startButton]}
-              onPress={handleStart}
-              disabled={remainingMs <= 0}
-            >
-              <Text style={styles.actionText}>Start</Text>
-            </TouchableOpacity>
-          )}
-          {isRunning && !isPaused && (
-            <TouchableOpacity
-              style={[styles.actionButton, styles.secondaryButton, styles.actionButtonFull]}
-              onPress={handlePause}
-            >
-              <Text style={styles.secondaryText}>Pause</Text>
-            </TouchableOpacity>
-          )}
-          {isRunning && isPaused && (
-            <TouchableOpacity
-              style={[styles.actionButton, styles.primaryButton, styles.actionButtonFull]}
-              onPress={handleResume}
-            >
-              <Text style={styles.actionText}>Resume</Text>
-            </TouchableOpacity>
-          )}
-          {isRunning && (
-            <TouchableOpacity
-              style={[styles.actionButton, styles.stopButton, styles.actionButtonFull]}
-              onPress={handleStop}
-            >
-              <Text style={styles.actionText}>Stop</Text>
-            </TouchableOpacity>
-          )}
+  return (
+    <KeyboardAvoidingView
+      style={[styles.container, { paddingTop: insets.top + spacing.lg }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={insets.top + spacing.lg}
+    >
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+            <Ionicons name="chevron-back" size={20} color={iconColor} />
+          </TouchableOpacity>
+          <View style={styles.headerTitle}>
+            <View style={styles.headerIcon}>
+              <Ionicons name="timer-outline" size={16} color={accent} />
+            </View>
+            <Text style={styles.title}>Countdown Timer</Text>
+          </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Quick Timer</Text>
-        <View style={styles.presetsRow}>
-          {[...presetOptions, { label: 'Custom', ms: null }].map(({ label, ms }) => (
+        <View style={styles.timerCard}>
+          <View style={styles.timerRingWrap}>
+            <View style={styles.timerRing}>
+              <Svg width={RING_SIZE} height={RING_SIZE}>
+                <Defs>
+                  <SvgLinearGradient id="timerGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <Stop offset="0%" stopColor={accentGradient[0]} />
+                    <Stop offset="100%" stopColor={accentGradient[1]} />
+                  </SvgLinearGradient>
+                </Defs>
+                <Circle
+                  cx={RING_SIZE / 2}
+                  cy={RING_SIZE / 2}
+                  r={ringRadius}
+                  stroke="#EEE7F7"
+                  strokeWidth={RING_STROKE}
+                  fill="none"
+                />
+                <Circle
+                  cx={RING_SIZE / 2}
+                  cy={RING_SIZE / 2}
+                  r={ringRadius}
+                  stroke="url(#timerGradient)"
+                  strokeWidth={RING_STROKE}
+                  fill="none"
+                  strokeDasharray={`${ringCircumference} ${ringCircumference}`}
+                  strokeDashoffset={ringOffset}
+                  strokeLinecap="round"
+                  transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
+                />
+              </Svg>
+              <View style={styles.timerRingInner}>
+                <Text style={styles.timerValue}>{formattedTime()}</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.timerActions}>
             <TouchableOpacity
-              key={label}
-              style={[
-                styles.presetButton,
-                (ms !== null && durationMs === ms) || (ms === null && showCustom)
-                  ? styles.presetButtonActive
-                  : null,
-              ]}
-              onPress={() => {
-                if (ms === null) {
-                  if (showCustom) {
-                    setShowCustom(false);
-                    setShowPicker(false);
-                  } else {
-                    setShowCustom(true);
-                    setShowPicker(true);
-                  }
-                } else {
-                  applyPreset(ms);
-                }
-              }}
+              style={styles.iconButton}
+              onPress={handleStop}
+              activeOpacity={0.85}
             >
-              <Text
-                style={[
-                  styles.presetText,
-                  (ms !== null && durationMs === ms) || (ms === null && showCustom)
-                    ? styles.presetTextActive
-                    : null,
-                ]}
-              >
-                {label}
-              </Text>
+              <Ionicons name="refresh" size={20} color={iconColor} />
             </TouchableOpacity>
-          ))}
+            <TouchableOpacity
+              style={[styles.playButton, isPrimaryDisabled && styles.iconButtonDisabled]}
+              onPress={handlePrimaryAction}
+              disabled={isPrimaryDisabled}
+              activeOpacity={0.85}
+            >
+              <LinearGradient
+                colors={accentGradient}
+                start={{ x: 0.1, y: 0.2 }}
+                end={{ x: 0.9, y: 0.8 }}
+                style={styles.playButtonGradient}
+              >
+                <Ionicons name={primaryIconName} size={24} color="#FFFFFF" />
+              </LinearGradient>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.iconButton, showCustom && styles.iconButtonActive]}
+              onPress={handleToggleCustom}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="alarm-outline" size={20} color={iconColor} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>Quick Timers</Text>
+          <View style={styles.presetGrid}>
+            {presetOptions.map(({ label, ms }) => {
+              const isActive = durationMs === ms;
+              return (
+                <TouchableOpacity
+                  key={label}
+                  style={styles.presetItem}
+                  onPress={() => applyPreset(ms)}
+                  activeOpacity={0.85}
+                >
+                  {isActive ? (
+                    <LinearGradient
+                      colors={accentGradient}
+                      start={{ x: 0.1, y: 0.2 }}
+                      end={{ x: 0.9, y: 0.8 }}
+                      style={styles.presetButtonActive}
+                    >
+                      <Text style={styles.presetTextActive}>{label}</Text>
+                    </LinearGradient>
+                  ) : (
+                    <View style={styles.presetButton}>
+                      <Text style={styles.presetText}>{label}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
 
         {showCustom && (
-          <View style={styles.customRow}>
-            <TouchableOpacity style={styles.customInput} onPress={() => setShowPicker(true)}>
-              <Text style={styles.customInputText}>
-                {String(pickerDate.getHours()).padStart(2, '0')}:
-                {String(pickerDate.getMinutes()).padStart(2, '0')}:
-                {String(pickerDate.getSeconds()).padStart(2, '0')}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.applyButton}
-              onPress={() => setShowPicker(false)}
-            >
-              <Text style={styles.applyButtonText}>Set</Text>
+          <View
+            style={styles.sectionCard}
+            onLayout={(event) => {
+              customSectionY.current = event.nativeEvent.layout.y;
+            }}
+          >
+            <Text style={styles.sectionTitle}>Custom Time</Text>
+            <View style={styles.customGrid}>
+              {renderTimeBlock(
+                'Hours',
+                customTime.hours,
+                () => adjustCustomTime('hours', -1),
+                () => adjustCustomTime('hours', 1),
+                (value) => handleTimeInput('hours', value)
+              )}
+              {renderTimeBlock(
+                'Minutes',
+                customTime.minutes,
+                () => adjustCustomTime('minutes', -1),
+                () => adjustCustomTime('minutes', 1),
+                (value) => handleTimeInput('minutes', value)
+              )}
+              {renderTimeBlock(
+                'Seconds',
+                customTime.seconds,
+                () => adjustCustomTime('seconds', -1),
+                () => adjustCustomTime('seconds', 1),
+                (value) => handleTimeInput('seconds', value)
+              )}
+            </View>
+            <TouchableOpacity style={styles.customButton} onPress={handleSetCustomTime} activeOpacity={0.85}>
+              <LinearGradient
+                colors={accentGradient}
+                start={{ x: 0.1, y: 0.2 }}
+                end={{ x: 0.9, y: 0.8 }}
+                style={styles.customButtonGradient}
+              >
+                <Text style={styles.customButtonText}>Set Custom Time</Text>
+              </LinearGradient>
             </TouchableOpacity>
           </View>
         )}
-        {showPicker && (
-          <>
-            <View style={styles.pickerLabels}>
-              <View style={styles.hmLabels}>
-                <Text style={styles.pickerLabel}>Hours</Text>
-                <Text style={styles.pickerLabel}>Minutes</Text>
-              </View>
-              <View style={styles.secondsLabelWrap}>
-                <Text style={styles.pickerLabel}>Seconds</Text>
-              </View>
-            </View>
-            <View style={styles.pickerRow}>
-              <DateTimePicker
-                style={styles.timePicker}
-                value={pickerDate}
-                mode="time"
-                display="spinner"
-                timePickerModeAndroid="spinner"
-                onChange={onPickerChange}
-                minuteInterval={1}
-                themeVariant="light"
-                textColor={colors.text}
-              />
-              <View style={styles.secondsPickerContainer}>
-                <FlatList
-                  data={secondsOptions}
-                  keyExtractor={(item) => item.toString()}
-                  showsVerticalScrollIndicator={false}
-                  style={styles.secondsPicker}
-                  contentContainerStyle={styles.secondsPickerContent}
-                  getItemLayout={(_, index) => ({
-                    length: 38,
-                    offset: 38 * index,
-                    index,
-                  })}
-                  renderItem={({ item }) => {
-                    const selected = item === pickerDate.getSeconds();
-                    return (
-                      <TouchableOpacity
-                        onPress={() => setSecondsValue(item)}
-                        style={[styles.secondsItem, selected && styles.secondsItemSelected]}
-                      >
-                        <Text style={[styles.secondsText, selected && styles.secondsTextSelected]}>
-                          {String(item).padStart(2, '0')}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  }}
-                />
-              </View>
-            </View>
-          </>
-        )}
-      </View>
-      </View>
-    </TouchableWithoutFeedback>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -318,219 +417,209 @@ const createStyles = (themeColorsParam = colors) =>
   StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: themeColorsParam.background || colors.background,
+      backgroundColor: '#F6F2FF',
+    },
+    scrollContent: {
       paddingHorizontal: spacing.xl,
+      paddingBottom: spacing.xxxl * 2,
     },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: spacing.xl,
+      marginBottom: spacing.lg,
     },
     backButton: {
-      padding: spacing.sm,
+      width: 36,
+      height: 36,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#FFFFFF',
+      ...shadows.small,
+    },
+    headerTitle: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginLeft: spacing.sm,
+    },
+    headerIcon: {
+      width: 28,
+      height: 28,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#F2E8FF',
+      marginRight: spacing.sm,
     },
     title: {
-      ...typography.h2,
+      ...typography.h3,
+      fontSize: 18,
       color: themeColorsParam.text || colors.text,
     },
-    content: {
+    timerCard: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 24,
+      padding: spacing.xl,
+      alignItems: 'center',
+      ...shadows.large,
+    },
+    timerRingWrap: {
+      marginTop: spacing.sm,
+      marginBottom: spacing.lg,
+    },
+    timerRing: {
+      width: RING_SIZE,
+      height: RING_SIZE,
+      alignItems: 'center',
+      justifyContent: 'center',
+      position: 'relative',
+    },
+    timerRingInner: {
+      position: 'absolute',
+      width: RING_INNER_SIZE,
+      height: RING_INNER_SIZE,
+      borderRadius: RING_INNER_SIZE / 2,
+      backgroundColor: '#FFFFFF',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    timerValue: {
+      ...typography.h1,
+      fontSize: 34,
+      fontWeight: '700',
+      color: themeColorsParam.text || colors.text,
+    },
+    timerActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.lg,
+    },
+    iconButton: {
+      width: 48,
+      height: 48,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#F2F4F9',
+      ...shadows.small,
+    },
+    iconButtonActive: {
+      backgroundColor: '#F2E8FF',
+    },
+    iconButtonDisabled: {
+      opacity: 0.5,
+    },
+    playButton: {
+      width: 70,
+      height: 70,
+      borderRadius: 22,
+      overflow: 'hidden',
+      ...shadows.medium,
+    },
+    playButtonGradient: {
       flex: 1,
       alignItems: 'center',
-      justifyContent: 'flex-start',
-      padding: spacing.xl,
-      paddingTop: spacing.lg,
+      justifyContent: 'center',
     },
-    timer: {
-      ...typography.h1,
-      fontSize: 48,
-      marginBottom: spacing.lg,
+    sectionCard: {
+      marginTop: spacing.lg,
+      backgroundColor: '#FFFFFF',
+      borderRadius: 24,
+      padding: spacing.lg,
+      ...shadows.medium,
+    },
+    sectionTitle: {
+      ...typography.h3,
+      fontSize: 18,
+      fontWeight: '700',
       color: themeColorsParam.text || colors.text,
+      marginBottom: spacing.md,
     },
-    mainActions: {
-      width: '100%',
-      alignItems: 'center',
-      gap: spacing.sm,
-      marginBottom: spacing.lg,
-    },
-    presetsRow: {
+    presetGrid: {
       flexDirection: 'row',
-      justifyContent: 'flex-start',
       flexWrap: 'wrap',
       gap: spacing.sm,
-      marginTop: spacing.sm,
+    },
+    presetItem: {
+      flexBasis: '30%',
+      flexGrow: 1,
     },
     presetButton: {
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm,
-      borderRadius: borderRadius.full,
-      borderWidth: 1,
-      borderColor: themeColorsParam.border || colors.border,
-      backgroundColor: themeColorsParam.inputBackground || colors.inputBackground,
-      flexBasis: '22%',
+      borderRadius: 16,
+      backgroundColor: '#F5F6FB',
+      paddingVertical: spacing.md,
       alignItems: 'center',
     },
     presetButtonActive: {
-      backgroundColor: themeColorsParam.primary || colors.primary,
-      borderColor: themeColorsParam.primary || colors.primary,
+      borderRadius: 16,
+      paddingVertical: spacing.md,
+      alignItems: 'center',
+      ...shadows.small,
     },
     presetText: {
       ...typography.body,
-      color: themeColorsParam.text || colors.text,
       fontWeight: '600',
+      color: themeColorsParam.textSecondary || colors.textSecondary,
     },
     presetTextActive: {
-      color: '#fff',
+      ...typography.body,
+      fontWeight: '700',
+      color: '#FFFFFF',
     },
-    customRow: {
+    customGrid: {
       flexDirection: 'row',
-      alignItems: 'center',
-      alignSelf: 'center',
-      justifyContent: 'center',
-      marginTop: spacing.xxxl,
-      marginBottom: spacing.lg,
+      justifyContent: 'space-between',
       gap: spacing.sm,
     },
-    customInput: {
-      width: 140,
-      borderWidth: 1,
-      borderColor: themeColorsParam.border || colors.border,
-      borderRadius: borderRadius.md,
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.md,
-      backgroundColor: themeColorsParam.inputBackground || colors.inputBackground,
-      alignItems: 'center',
+    timeBlock: {
+      flex: 1,
     },
-    customInputText: {
-      ...typography.body,
-      color: themeColorsParam.text || colors.text,
-      fontWeight: '600',
-    },
-    applyButton: {
-      marginLeft: spacing.sm,
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.md,
-      backgroundColor: themeColorsParam.primary || colors.primary,
-      borderRadius: borderRadius.md,
-      ...shadows.small,
-    },
-    applyButtonText: {
-      ...typography.body,
-      color: '#fff',
-      fontWeight: '700',
-    },
-    actions: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.md,
-    },
-    actionButton: {
-      paddingHorizontal: spacing.xl,
-      paddingVertical: spacing.md,
-      borderRadius: borderRadius.lg,
-      ...shadows.small,
-    },
-    actionButtonFull: {
-      alignSelf: 'stretch',
-    },
-    startButton: {
-      alignSelf: 'center',
-      paddingHorizontal: spacing.lg,
-    },
-    primaryButton: {
-      backgroundColor: themeColorsParam.primary || colors.primary,
-    },
-    secondaryButton: {
-      backgroundColor: themeColorsParam.inputBackground || colors.inputBackground,
-      borderWidth: 1,
-      borderColor: themeColorsParam.border || colors.border,
-    },
-    stopButton: {
-      backgroundColor: themeColorsParam.danger || colors.danger,
-    },
-    actionText: {
-      ...typography.body,
-      color: '#fff',
-      fontWeight: '700',
-    },
-    secondaryText: {
-      ...typography.body,
-      color: themeColorsParam.text || colors.text,
-      fontWeight: '700',
-    },
-    pickerLabels: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      width: '100%',
-      paddingHorizontal: spacing.md,
+    timeLabel: {
+      ...typography.caption,
+      color: themeColorsParam.textSecondary || colors.textSecondary,
       marginBottom: spacing.xs,
     },
-    pickerLabel: {
-      ...typography.bodySmall,
+    timeValueCard: {
+      backgroundColor: '#F8F3FF',
+      borderRadius: 18,
+      paddingVertical: spacing.md,
+      alignItems: 'center',
+      ...shadows.small,
+    },
+    timeInput: {
+      fontSize: 26,
+      fontWeight: '700',
       color: themeColorsParam.text || colors.text,
       textAlign: 'center',
-      marginHorizontal: spacing.xs,
+      paddingVertical: 0,
+      minWidth: 40,
     },
-    hmLabels: {
-      flex: 1,
+    timeControls: {
       flexDirection: 'row',
-      justifyContent: 'center',
-      gap: spacing.xl,
+      gap: spacing.sm,
+      marginTop: spacing.sm,
     },
-    secondsLabelWrap: {
-      width: 80,
-      marginLeft: -spacing.sm,
+    adjustButton: {
+      width: 32,
+      height: 32,
+      borderRadius: 10,
       alignItems: 'center',
-    },
-    pickerRow: {
-      flexDirection: 'row',
-      width: '100%',
-      alignItems: 'center',
-      paddingLeft: 0,
-    },
-    timePicker: {
-      flex: 1,
-    },
-    secondsPickerContainer: {
-      width: 80,
-      marginLeft: -spacing.lg,
-      height: 220,
-      position: 'relative',
       justifyContent: 'center',
+      backgroundColor: '#EFE7FF',
     },
-    secondsPicker: {
-      width: '100%',
-      height: '100%',
+    customButton: {
+      marginTop: spacing.lg,
+      borderRadius: 18,
+      overflow: 'hidden',
     },
-    secondsPickerContent: {
+    customButtonGradient: {
       alignItems: 'center',
       paddingVertical: spacing.md,
     },
-    secondsItem: {
-      height: 38,
-      justifyContent: 'center',
-      alignItems: 'center',
-      paddingHorizontal: spacing.sm,
-    },
-    secondsItemSelected: {
-      // mimic native picker highlight
-    },
-    secondsText: {
-      fontSize: 20,
-      color: '#6b7280', // darker gray for unselected
-    },
-    secondsTextSelected: {
-      fontWeight: '600',
-      color: themeColorsParam.text || colors.text,
-    },
-    sectionTitle: {
-      ...typography.h4,
-      color: themeColorsParam.text || colors.text,
-      alignSelf: 'flex-start',
-      marginTop: spacing.xxxl * 2,
-      marginBottom: spacing.sm,
-      fontSize: 20,
+    customButtonText: {
+      ...typography.body,
       fontWeight: '700',
+      color: '#FFFFFF',
     },
   });
 
