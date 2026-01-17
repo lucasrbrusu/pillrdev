@@ -1,13 +1,15 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Animated,
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Linking,
-  Platform,
   ActivityIndicator,
+  Easing,
+  Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -15,22 +17,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Input from '../components/Input';
 import { useApp } from '../context/AppContext';
 import { colors, borderRadius, spacing, typography, shadows } from '../utils/theme';
-
-const getPasswordError = (password) => {
-  if (!password || password.length < 6) {
-    return 'Password must be at least 6 characters and include at least one uppercase letter and one symbol.';
-  }
-
-  if (!/[A-Z]/.test(password)) {
-    return 'Password must include at least one uppercase letter.';
-  }
-
-  if (!/[^A-Za-z0-9]/.test(password)) {
-    return 'Password must include at least one symbol.';
-  }
-
-  return '';
-};
 
 const badges = [
   {
@@ -67,21 +53,18 @@ const badges = [
 
 const AuthScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
-  const { signIn, signUp, hasOnboarded, themeColors, themeName } = useApp();
+  const { signIn, hasOnboarded, themeColors, themeName } = useApp();
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
   const isDark = themeName === 'dark';
+  const { width, height } = useWindowDimensions();
+  const waveAnim = React.useRef(new Animated.Value(0)).current;
 
-  const [mode, setMode] = useState('login');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
+  const [showWave, setShowWave] = useState(false);
   const [form, setForm] = useState({
-    fullName: '',
-    username: '',
-    email: '',
-    password: '',
-    confirmPassword: '',
     identifier: '',
+    password: '',
   });
 
   const authTheme = useMemo(
@@ -91,60 +74,39 @@ const AuthScreen = ({ navigation }) => {
         : ['#F9F0FF', '#FFF6FA', '#F5F8FF'],
       cardBg: isDark ? '#0F172A' : '#FFFFFF',
       cardBorder: isDark ? '#1F2937' : '#EDE9F5',
-      tabBg: isDark ? '#111827' : '#F3F4F6',
-      tabActiveBg: isDark ? '#1F2937' : '#FFFFFF',
       inputBg: isDark ? '#0B1220' : '#FFFFFF',
       inputBorder: isDark ? '#1F2937' : '#E5E7EB',
       buttonGradient: isDark ? ['#8B5CF6', '#EC4899'] : ['#B14DFF', '#F43F8C'],
       link: isDark ? '#C084FC' : colors.primary,
       muted: themeColors.textSecondary || colors.textSecondary,
+      orbOne: isDark ? 'rgba(139,92,246,0.22)' : 'rgba(236,72,153,0.16)',
+      orbTwo: isDark ? 'rgba(56,189,248,0.2)' : 'rgba(59,130,246,0.12)',
     }),
     [isDark, themeColors.textSecondary]
   );
 
   const updateField = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+    if (error) {
+      setError('');
+    }
   };
 
   const handleSubmit = async () => {
-    try {
-      setIsSubmitting(true);
-      setError('');
+    setIsSubmitting(true);
+    setError('');
 
-      if (mode === 'login') {
-        if (!form.identifier || !form.password) {
-          setError('Please enter your email and password.');
-          return;
-        }
-        await signIn({
-          identifier: form.identifier,
-          password: form.password,
-        });
-      } else {
-        if (!form.fullName || !form.username || !form.email || !form.password) {
-          setError('Please fill in all fields to create your account.');
-          return;
-        }
-        const passwordError = getPasswordError(form.password);
-        if (passwordError) {
-          setError(passwordError);
-          return;
-        }
-        if (form.password !== form.confirmPassword) {
-          setError('Passwords do not match.');
-          return;
-        }
-        if (!hasAcceptedTerms) {
-          setError('Please acknowledge the terms to create an account.');
-          return;
-        }
-        await signUp({
-          fullName: form.fullName,
-          username: form.username,
-          email: form.email,
-          password: form.password,
-        });
-      }
+    if (!form.identifier || !form.password) {
+      setError('Please enter your email and password.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    try {
+      await signIn({
+        identifier: form.identifier,
+        password: form.password,
+      });
     } catch (submitError) {
       setError(submitError?.message || 'Something went wrong. Please try again.');
     } finally {
@@ -172,8 +134,29 @@ const AuthScreen = ({ navigation }) => {
     });
   };
 
-  const handleOpenLink = (url) => {
-    Linking.openURL(url);
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      waveAnim.setValue(0);
+      setShowWave(false);
+    });
+    return unsubscribe;
+  }, [navigation, waveAnim]);
+
+  const handleCreateAccount = () => {
+    if (showWave) return;
+    setError('');
+    setShowWave(true);
+    waveAnim.setValue(0);
+    Animated.timing(waveAnim, {
+      toValue: 1,
+      duration: 520,
+      easing: Easing.inOut(Easing.cubic),
+      useNativeDriver: false,
+    }).start(({ finished }) => {
+      if (finished) {
+        navigation.navigate('SignupFlow');
+      }
+    });
   };
 
   const renderBadgeIcon = (badge) => {
@@ -186,18 +169,29 @@ const AuthScreen = ({ navigation }) => {
     return <Ionicons name={badge.icon} size={18} color={badge.color} />;
   };
 
-  const headline =
-    mode === 'login'
-      ? "Welcome back. Let's get you signed in."
-      : 'Create your account and start building better routines.';
-
-  const isCtaDisabled = isSubmitting || (mode === 'signup' && !hasAcceptedTerms);
+  const isCtaDisabled = isSubmitting || !form.identifier || !form.password;
+  const waveWidth = waveAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, width],
+  });
+  const waveRadius = waveAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [height, 0],
+  });
+  const waveOpacity = waveAnim.interpolate({
+    inputRange: [0, 0.1, 1],
+    outputRange: [0, 1, 1],
+  });
 
   return (
     <LinearGradient
       colors={authTheme.backgroundGradient}
       style={[styles.container, { paddingTop: insets.top + spacing.md }]}
     >
+      <View style={styles.backgroundOrbs} pointerEvents="none">
+        <View style={[styles.orb, styles.orbOne, { backgroundColor: authTheme.orbOne }]} />
+        <View style={[styles.orb, styles.orbTwo, { backgroundColor: authTheme.orbTwo }]} />
+      </View>
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -233,7 +227,7 @@ const AuthScreen = ({ navigation }) => {
           </View>
           <Text style={styles.logoTitle}>PillarUp</Text>
         </View>
-        <Text style={styles.subtitle}>{headline}</Text>
+        <Text style={styles.subtitle}>Welcome back. Let's get you signed in.</Text>
 
         <View
           style={[
@@ -241,59 +235,8 @@ const AuthScreen = ({ navigation }) => {
             { backgroundColor: authTheme.cardBg, borderColor: authTheme.cardBorder },
           ]}
         >
-          <View
-            style={[
-              styles.tabRow,
-              { backgroundColor: authTheme.tabBg, borderColor: authTheme.cardBorder },
-            ]}
-          >
-            <TouchableOpacity
-              style={[
-                styles.tab,
-                mode === 'login' && styles.tabActiveShadow,
-                { backgroundColor: mode === 'login' ? authTheme.tabActiveBg : 'transparent' },
-              ]}
-              onPress={() => {
-                setMode('login');
-                setError('');
-              }}
-              activeOpacity={0.9}
-            >
-              <Text
-                style={[
-                  styles.tabText,
-                  mode === 'login' && styles.tabTextActive,
-                ]}
-              >
-                Login
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.tab,
-                mode === 'signup' && styles.tabActiveShadow,
-                { backgroundColor: mode === 'signup' ? authTheme.tabActiveBg : 'transparent' },
-              ]}
-              onPress={() => {
-                setMode('signup');
-                setHasAcceptedTerms(false);
-                setError('');
-              }}
-              activeOpacity={0.9}
-            >
-              <Text
-                style={[
-                  styles.tabText,
-                  mode === 'signup' && styles.tabTextActive,
-                ]}
-              >
-                Sign Up
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {mode === 'login' ? (
-            <>
+          <View>
+            <View>
               <Input
                 placeholder="Email"
                 icon="mail-outline"
@@ -332,135 +275,57 @@ const AuthScreen = ({ navigation }) => {
                 </Text>
               </TouchableOpacity>
 
-            </>
-          ) : (
-            <>
-              <Input
-                placeholder="Full name"
-                icon="person-circle-outline"
-                value={form.fullName}
-                onChangeText={(text) => updateField('fullName', text)}
-                containerStyle={styles.inputGroup}
-                style={[
-                  styles.inputField,
-                  { backgroundColor: authTheme.inputBg, borderColor: authTheme.inputBorder },
-                ]}
-                inputStyle={styles.inputText}
-              />
-              <Input
-                placeholder="Username"
-                icon="at-outline"
-                autoCapitalize="none"
-                value={form.username}
-                onChangeText={(text) => updateField('username', text)}
-                containerStyle={styles.inputGroup}
-                style={[
-                  styles.inputField,
-                  { backgroundColor: authTheme.inputBg, borderColor: authTheme.inputBorder },
-                ]}
-                inputStyle={styles.inputText}
-              />
-              <Input
-                placeholder="Email"
-                icon="mail-outline"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                value={form.email}
-                onChangeText={(text) => updateField('email', text)}
-                containerStyle={styles.inputGroup}
-                style={[
-                  styles.inputField,
-                  { backgroundColor: authTheme.inputBg, borderColor: authTheme.inputBorder },
-                ]}
-                inputStyle={styles.inputText}
-              />
-              <Input
-                placeholder="Password"
-                icon="lock-closed-outline"
-                secureTextEntry
-                autoCapitalize="none"
-                value={form.password}
-                onChangeText={(text) => updateField('password', text)}
-                containerStyle={styles.inputGroup}
-                style={[
-                  styles.inputField,
-                  { backgroundColor: authTheme.inputBg, borderColor: authTheme.inputBorder },
-                ]}
-                inputStyle={styles.inputText}
-              />
-              <Input
-                placeholder="Re-enter password"
-                icon="lock-closed-outline"
-                secureTextEntry
-                autoCapitalize="none"
-                value={form.confirmPassword}
-                onChangeText={(text) => updateField('confirmPassword', text)}
-                containerStyle={styles.inputGroup}
-                style={[
-                  styles.inputField,
-                  { backgroundColor: authTheme.inputBg, borderColor: authTheme.inputBorder },
-                ]}
-                inputStyle={styles.inputText}
-              />
-            </>
-          )}
+              {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            </View>
 
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-          {mode === 'signup' && (
             <TouchableOpacity
-              style={styles.termsRow}
-              activeOpacity={0.8}
-              onPress={() => setHasAcceptedTerms((prev) => !prev)}
+              style={[styles.ctaButton, isCtaDisabled && styles.ctaDisabled]}
+              onPress={handleSubmit}
+              disabled={isCtaDisabled}
+              activeOpacity={0.85}
             >
-              <Feather
-                name={hasAcceptedTerms ? 'check-square' : 'square'}
-                size={20}
-                color={hasAcceptedTerms ? authTheme.link : authTheme.muted}
-                style={styles.checkboxIcon}
-              />
-              <Text style={styles.termsText}>
-                By creating an account, you agree to the{' '}
-                <Text
-                  style={[styles.termsLink, { color: authTheme.link }]}
-                  onPress={() => handleOpenLink('https://pillarup.net/terms-of-service.html')}
-                >
-                  Terms of Service
-                </Text>{' '}
-                and acknowledge the{' '}
-                <Text
-                  style={[styles.termsLink, { color: authTheme.link }]}
-                  onPress={() => handleOpenLink('https://pillarup.net/privacy-policy.html')}
-                >
-                  Privacy Policy
-                </Text>
-                .
+              <LinearGradient colors={authTheme.buttonGradient} style={styles.ctaGradient}>
+                {isSubmitting ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Text style={styles.ctaText}>Login</Text>
+                    <Ionicons name="arrow-forward" size={18} color="#FFFFFF" style={styles.ctaIcon} />
+                  </>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <Text style={styles.createPrompt}>Don't have an account?</Text>
+            <TouchableOpacity
+              style={[styles.secondaryButton, { borderColor: authTheme.link }]}
+              onPress={handleCreateAccount}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.secondaryText, { color: authTheme.link }]}>
+                Create an Account
               </Text>
             </TouchableOpacity>
-          )}
-
-          <TouchableOpacity
-            style={[styles.ctaButton, isCtaDisabled && styles.ctaDisabled]}
-            onPress={handleSubmit}
-            disabled={isCtaDisabled}
-            activeOpacity={0.85}
-          >
-            <LinearGradient colors={authTheme.buttonGradient} style={styles.ctaGradient}>
-              {isSubmitting ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <>
-                  <Text style={styles.ctaText}>
-                    {mode === 'login' ? 'Login' : 'Create Account'}
-                  </Text>
-                  <Ionicons name="arrow-forward" size={18} color="#FFFFFF" style={styles.ctaIcon} />
-                </>
-              )}
-            </LinearGradient>
-          </TouchableOpacity>
-
+          </View>
         </View>
       </ScrollView>
+
+      {showWave && (
+        <Animated.View
+          pointerEvents="auto"
+          style={[
+            styles.waveOverlay,
+            {
+              width: waveWidth,
+              opacity: waveOpacity,
+              borderTopLeftRadius: waveRadius,
+              borderBottomLeftRadius: waveRadius,
+            },
+          ]}
+        >
+          <LinearGradient colors={authTheme.buttonGradient} style={styles.waveGradient} />
+        </Animated.View>
+      )}
     </LinearGradient>
   );
 };
@@ -480,6 +345,40 @@ const createStyles = (themeColorsParam = colors) => {
     content: {
       paddingHorizontal: spacing.xl,
     },
+    waveOverlay: {
+      position: 'absolute',
+      top: 0,
+      bottom: 0,
+      right: 0,
+      overflow: 'hidden',
+      zIndex: 10,
+    },
+    waveGradient: {
+      flex: 1,
+    },
+    backgroundOrbs: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+    },
+    orb: {
+      position: 'absolute',
+      borderRadius: 999,
+    },
+    orbOne: {
+      width: 220,
+      height: 220,
+      top: -80,
+      left: -40,
+    },
+    orbTwo: {
+      width: 180,
+      height: 180,
+      bottom: -40,
+      right: -20,
+    },
     backButton: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -494,7 +393,7 @@ const createStyles = (themeColorsParam = colors) => {
     iconRow: {
       flexDirection: 'row',
       justifyContent: 'center',
-      marginBottom: spacing.lg,
+      marginBottom: spacing.md,
     },
     badge: {
       width: 34,
@@ -534,38 +433,13 @@ const createStyles = (themeColorsParam = colors) => {
       ...typography.bodySmall,
       color: mutedText,
       textAlign: 'center',
-      marginBottom: spacing.xl,
+      marginBottom: spacing.lg,
     },
     card: {
       borderRadius: borderRadius.xl,
       borderWidth: 1,
       padding: spacing.lg,
       ...shadows.medium,
-    },
-    tabRow: {
-      flexDirection: 'row',
-      padding: spacing.xs,
-      borderRadius: borderRadius.lg,
-      marginBottom: spacing.lg,
-      borderWidth: 1,
-    },
-    tab: {
-      flex: 1,
-      paddingVertical: spacing.sm,
-      alignItems: 'center',
-      borderRadius: borderRadius.md,
-    },
-    tabActiveShadow: {
-      ...shadows.small,
-    },
-    tabText: {
-      ...typography.bodySmall,
-      color: mutedText,
-      fontWeight: '600',
-    },
-    tabTextActive: {
-      color: baseText,
-      fontWeight: '700',
     },
     inputGroup: {
       marginBottom: spacing.md,
@@ -589,29 +463,11 @@ const createStyles = (themeColorsParam = colors) => {
       color: themeColorsParam?.danger || colors.danger,
       marginBottom: spacing.sm,
     },
-    termsRow: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      marginBottom: spacing.lg,
-    },
-    checkboxIcon: {
-      marginTop: 2,
-      marginRight: spacing.sm,
-    },
-    termsText: {
-      ...typography.bodySmall,
-      color: mutedText,
-      flex: 1,
-      lineHeight: 18,
-    },
-    termsLink: {
-      fontWeight: '600',
-      textDecorationLine: 'underline',
-    },
     ctaButton: {
       borderRadius: borderRadius.full,
       overflow: 'hidden',
       marginTop: spacing.sm,
+      marginBottom: spacing.lg,
     },
     ctaDisabled: {
       opacity: 0.6,
@@ -620,7 +476,7 @@ const createStyles = (themeColorsParam = colors) => {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      paddingVertical: spacing.md,
+      paddingVertical: spacing.lg,
       paddingHorizontal: spacing.lg,
     },
     ctaText: {
@@ -631,6 +487,23 @@ const createStyles = (themeColorsParam = colors) => {
     },
     ctaIcon: {
       marginLeft: spacing.sm,
+    },
+    createPrompt: {
+      ...typography.bodySmall,
+      color: mutedText,
+      textAlign: 'center',
+      marginBottom: spacing.sm,
+    },
+    secondaryButton: {
+      borderWidth: 1,
+      borderRadius: borderRadius.full,
+      paddingVertical: spacing.md,
+      alignItems: 'center',
+    },
+    secondaryText: {
+      ...typography.body,
+      fontWeight: '700',
+      fontFamily: displayFont,
     },
   });
 };

@@ -30,6 +30,7 @@ import ChangePasswordScreen from '../screens/ChangePasswordScreen';
 import CalendarScreen from '../screens/CalendarScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import AuthScreen from '../screens/AuthScreen';
+import SignupFlowScreen from '../screens/SignupFlowScreen';
 import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
 import AppearanceScreen from '../screens/AppearanceScreen';
 import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';
@@ -301,6 +302,11 @@ const Navigation = () => {
             <Stack.Screen name="Onboarding" component={OnboardingScreen} />
           )}
           <Stack.Screen name="Auth" component={AuthScreen} />
+          <Stack.Screen
+            name="SignupFlow"
+            component={SignupFlowScreen}
+            options={{ gestureEnabled: false }}
+          />
           <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
         </Stack.Navigator>
       )}
