@@ -7,8 +7,9 @@ import React, {
   useCallback,
   useMemo,
 } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import { colors, typography } from '../utils/theme';
 import themePresets from '../utils/themePresets';
 import { supabase } from '../utils/supabaseClient';
@@ -16,10 +17,12 @@ import { addAppUsageMs, splitDurationByLocalDay } from '../utils/insightsTrackin
 import {
   requestNotificationPermissionAsync,
   cancelAllScheduledNotificationsAsync,
+  cancelScheduledNotificationAsync,
   scheduleLocalNotificationAsync,
   buildDateWithTime,
   formatFriendlyDateTime,
   formatTimeFromDate,
+  getExpoPushTokenAsync,
 } from '../utils/notifications';
 import uuid from 'react-native-uuid';
 import { getPremiumEntitlementStatus, setRevenueCatUserId } from '../../RevenueCat';
@@ -53,6 +56,7 @@ const STORAGE_KEYS = {
   ONBOARDING: '@pillarup_onboarding_complete',
   STREAK_FROZEN_PREFIX: '@pillarup_streak_frozen_',
   LAST_ACTIVE_PREFIX: '@pillarup_last_active_',
+  PUSH_DEVICE_ID: '@pillarup_push_device_id',
 };
 
 const SUPABASE_STORAGE_KEYS = [
@@ -102,15 +106,18 @@ const defaultUserSettings = {
 };
 
 const DEFAULT_EVENT_TIME = { hour: 9, minute: 0 };
+const REMINDER_LEAD_MINUTES = 30;
 const HABIT_REMINDER_TIME = { hour: 8, minute: 0 };
 const HEALTH_REMINDER_TIME = { hour: 20, minute: 0 };
 const STREAK_FREEZE_REMINDER_TIME = { hour: 9, minute: 0 };
+const IOS_MAX_SCHEDULED_NOTIFICATIONS = 60;
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
 // Poll less frequently to reduce Supabase egress (friend/user status checks).
 const STATUS_POLL_INTERVAL_MS = 5 * 60 * 1000;
 const PRESENCE_WRITE_INTERVAL_MS = 2 * 60 * 1000;
 const DATA_REFRESH_TTL_MS = 5 * 60 * 1000;
 const PROFILE_CACHE_TTL_MS = 30 * 60 * 1000;
+const PUSH_REGISTRATION_TTL_MS = 12 * 60 * 60 * 1000;
 
 const computeIsPremium = (plan, premiumExpiresAt, explicitFlag) => {
   if (explicitFlag === true) return true;
@@ -209,6 +216,21 @@ const writeStreakFrozen = async (userId, frozen) => {
   await AsyncStorage.removeItem(getStreakFrozenKey(userId));
 };
 
+const getOrCreatePushDeviceId = async () => {
+  const cached = await AsyncStorage.getItem(STORAGE_KEYS.PUSH_DEVICE_ID);
+  if (cached) return cached;
+  const generated = uuid.v4();
+  const deviceId = typeof generated === 'string' ? generated : String(generated);
+  await AsyncStorage.setItem(STORAGE_KEYS.PUSH_DEVICE_ID, deviceId);
+  return deviceId;
+};
+
+const getExpoProjectId = () =>
+  Constants?.easConfig?.projectId ||
+  Constants?.expoConfig?.extra?.eas?.projectId ||
+  Constants?.expoConfig?.projectId ||
+  null;
+
 const asNumber = (value, fallback = null) => {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -272,6 +294,55 @@ const parseDateTimeParts = (value) => {
     time: formatTimeFromDate(parsed),
     dateTimeISO: parsed.toISOString(),
   };
+};
+
+const normalizeNotificationIds = (value) => {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.filter(Boolean);
+    } catch (err) {
+      // fall through for comma-separated values
+    }
+    return trimmed.split(',').map((v) => v.trim()).filter(Boolean);
+  }
+  return [];
+};
+
+const areNotificationIdsEqual = (a = [], b = []) => {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+};
+
+const getNextDailyOccurrence = (hour, minute) => {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(hour, minute, 0, 0);
+  if (next.getTime() <= now.getTime()) {
+    next.setDate(next.getDate() + 1);
+  }
+  return next;
+};
+
+const getNextWeeklyOccurrence = (weekday, hour, minute) => {
+  const now = new Date();
+  const currentWeekday = now.getDay() + 1; // JS Sunday=0
+  let daysAhead = weekday - currentWeekday;
+  if (daysAhead < 0) daysAhead += 7;
+  const next = new Date(now);
+  next.setDate(next.getDate() + daysAhead);
+  next.setHours(hour, minute, 0, 0);
+  if (next.getTime() <= now.getTime()) {
+    next.setDate(next.getDate() + 7);
+  }
+  return next;
 };
 
 const getAvatarPublicUrl = (path) => {
@@ -412,6 +483,25 @@ const profileCacheRef = useRef({});
   const [streakFrozen, setStreakFrozen] = useState(false);
   const appStateRef = useRef(AppState.currentState);
   const appSessionStartMsRef = useRef(null);
+  const notificationIdCacheRef = useRef({
+    task: new Map(),
+    reminder: new Map(),
+    chore: new Map(),
+    habit: new Map(),
+  });
+  const notificationColumnSupportRef = useRef({
+    tasks: true,
+    reminders: true,
+    chores: true,
+    habits: true,
+  });
+  const pushRegistrationRef = useRef({
+    userId: null,
+    token: null,
+    deviceId: null,
+    lastAttemptMs: 0,
+  });
+  const reschedulingNotificationsRef = useRef(false);
 
   // Immutable snapshots of the original palettes and typography
   const defaultPaletteRef = useRef(
@@ -2987,16 +3077,28 @@ const mapExternalProfile = (row) => ({
 
 const fetchHabitsFromSupabase = async (userId, _groupListParam) => {
   // Get all habits
-  const { data: habitRows, error: habitError } = await supabase
+  const habitSelectFields =
+    'id, title, category, description, repeat, days, streak, created_at, notification_ids';
+  let { data: habitRows, error: habitError } = await supabase
     .from('habits')
-    .select('id, title, category, description, repeat, days, streak, created_at')
+    .select(habitSelectFields)
     .eq('user_id', userId)
     .order('created_at', { ascending: true });
+
+  if (habitError && isMissingColumnError(habitError, 'notification_ids')) {
+    ({ data: habitRows, error: habitError } = await supabase
+      .from('habits')
+      .select('id, title, category, description, repeat, days, streak, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true }));
+  }
 
   if (habitError) {
     console.log('Error fetching habits:', habitError);
     return;
   }
+
+  seedNotificationCacheFromRows('habit', habitRows || []);
 
   // Get all completions for this user
   const { data: completionRows, error: completionError } = await supabase
@@ -3114,6 +3216,8 @@ const updateHabit = async (habitId, updates) => {
 
 const deleteHabit = async (habitId) => {
   if (!authUser?.id) return;
+
+  await cancelItemNotifications('habits', 'habit', habitId);
 
   const { error } = await supabase
     .from('habits')
@@ -3276,11 +3380,15 @@ const isHabitCompletedToday = (habitId) => {
     await writeLastActive(userId, now);
   }, [authUser?.id, profile?.isPremium, profile?.plan, profile?.premiumExpiresAt, profile?.premium_expires_at, profileLoaded, resetAllHabitStreaks, persistStreakFrozenState, streakFrozen, habits]);
 
-const TASK_SELECT_FIELDS =
+const TASK_SELECT_FIELDS_BASE =
   'id,title,description,priority,date,time,completed,created_at,shared_task_id';
-const TASK_SELECT_FIELDS_NO_DESC =
+const TASK_SELECT_FIELDS_BASE_NO_DESC =
   'id,title,priority,date,time,completed,created_at,shared_task_id';
-const TASK_SELECT_FIELDS_MINIMAL = 'id,title,date,time,completed,created_at,shared_task_id';
+const TASK_SELECT_FIELDS_BASE_MINIMAL =
+  'id,title,date,time,completed,created_at,shared_task_id';
+const TASK_SELECT_FIELDS = `${TASK_SELECT_FIELDS_BASE},notification_ids`;
+const TASK_SELECT_FIELDS_NO_DESC = `${TASK_SELECT_FIELDS_BASE_NO_DESC},notification_ids`;
+const TASK_SELECT_FIELDS_MINIMAL = `${TASK_SELECT_FIELDS_BASE_MINIMAL},notification_ids`;
 
 const fetchTasksFromSupabase = async (userId) => {
   const buildQuery = (table, selectFields) =>
@@ -3305,6 +3413,21 @@ const fetchTasksFromSupabase = async (userId) => {
       reason: 'tasks_list.priority missing; retrying without priority column',
     },
     {
+      table: 'tasks_list',
+      fields: TASK_SELECT_FIELDS_BASE,
+      reason: 'tasks_list.notification_ids missing; retrying without notification_ids column',
+    },
+    {
+      table: 'tasks_list',
+      fields: TASK_SELECT_FIELDS_BASE_NO_DESC,
+      reason: 'tasks_list.description missing; retrying without description column',
+    },
+    {
+      table: 'tasks_list',
+      fields: TASK_SELECT_FIELDS_BASE_MINIMAL,
+      reason: 'tasks_list.priority missing; retrying without priority column',
+    },
+    {
       table: 'tasks',
       fields: TASK_SELECT_FIELDS,
       reason: 'Falling back to tasks table with full fields',
@@ -3317,6 +3440,21 @@ const fetchTasksFromSupabase = async (userId) => {
     {
       table: 'tasks',
       fields: TASK_SELECT_FIELDS_MINIMAL,
+      reason: 'tasks table priority missing; retrying without priority column',
+    },
+    {
+      table: 'tasks',
+      fields: TASK_SELECT_FIELDS_BASE,
+      reason: 'tasks table notification_ids missing; retrying without notification_ids column',
+    },
+    {
+      table: 'tasks',
+      fields: TASK_SELECT_FIELDS_BASE_NO_DESC,
+      reason: 'tasks table description missing; retrying without description column',
+    },
+    {
+      table: 'tasks',
+      fields: TASK_SELECT_FIELDS_BASE_MINIMAL,
       reason: 'tasks table priority missing; retrying without priority column',
     },
   ];
@@ -3341,6 +3479,8 @@ const fetchTasksFromSupabase = async (userId) => {
     console.log('Error fetching tasks:', error);
     return;
   }
+
+  seedNotificationCacheFromRows('task', data || []);
 
   let mappedTasks = (data || []).map((t) => ({
     id: t.id,
@@ -3463,6 +3603,10 @@ const fetchTasksFromSupabase = async (userId) => {
   setTasks((prev) =>
     prev.map((t) => (t.id === taskId ? { ...t, ...updates } : t))
   );
+
+  if (updates.completed === true) {
+    await cancelItemNotifications('tasks', 'task', taskId);
+  }
 };
 
 
@@ -3472,6 +3616,8 @@ const fetchTasksFromSupabase = async (userId) => {
 
   const deleteTask = async (taskId) => {
   if (!authUser?.id) return;
+
+  await cancelItemNotifications('tasks', 'task', taskId);
 
   const { error } = await supabase
     .from('tasks')
@@ -3522,6 +3668,10 @@ const fetchTasksFromSupabase = async (userId) => {
       t.id === taskId ? { ...t, completed: newCompleted } : t
     )
   );
+
+  if (newCompleted) {
+    await cancelItemNotifications('tasks', 'task', taskId);
+  }
 };
 
 //Fetch Notes
@@ -4326,16 +4476,27 @@ const reorderRoutineTasks = async (routineId, newTaskOrder) => {
 
 
 const fetchChoresFromSupabase = async (userId) => {
-  const { data, error } = await supabase
+  const choreSelectFields = 'id, title, date, completed, created_at, notification_ids';
+  let { data, error } = await supabase
     .from('chores')
-    .select('id, title, date, completed, created_at')
+    .select(choreSelectFields)
     .eq('user_id', userId)
     .order('created_at', { ascending: true });
+
+  if (error && isMissingColumnError(error, 'notification_ids')) {
+    ({ data, error } = await supabase
+      .from('chores')
+      .select('id, title, date, completed, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true }));
+  }
 
   if (error) {
     console.log('Error fetching chores:', error);
     return;
   }
+
+  seedNotificationCacheFromRows('chore', data || []);
 
   const mapped = (data || []).map((c) => ({
     id: c.id,
@@ -4407,10 +4568,16 @@ const updateChore = async (choreId, updates) => {
   setChores((prev) =>
     prev.map((c) => (c.id === choreId ? { ...c, ...updates } : c))
   );
+
+  if (updates.completed === true) {
+    await cancelItemNotifications('chores', 'chore', choreId);
+  }
 };
 
 const deleteChore = async (choreId) => {
   if (!authUser?.id) return;
+
+  await cancelItemNotifications('chores', 'chore', choreId);
 
   const { error } = await supabase
     .from('chores')
@@ -4439,16 +4606,27 @@ const mapReminderRow = (row) => {
 };
 
 const fetchRemindersFromSupabase = async (userId) => {
-  const { data, error } = await supabase
+  const reminderSelectFields = 'id, title, description, date, time, created_at, notification_ids';
+  let { data, error } = await supabase
     .from('reminders')
-    .select('id, title, description, date, time, created_at')
+    .select(reminderSelectFields)
     .eq('user_id', userId)
     .order('created_at', { ascending: true });
+
+  if (error && isMissingColumnError(error, 'notification_ids')) {
+    ({ data, error } = await supabase
+      .from('reminders')
+      .select('id, title, description, date, time, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true }));
+  }
 
   if (error) {
     console.log('Error fetching reminders:', error);
     return;
   }
+
+  seedNotificationCacheFromRows('reminder', data || []);
 
   const mapped = (data || []).map((r) => mapReminderRow(r));
 
@@ -4505,6 +4683,8 @@ const addReminder = async (reminder) => {
 
 const deleteReminder = async (reminderId) => {
   if (!authUser?.id) return;
+
+  await cancelItemNotifications('reminders', 'reminder', reminderId);
 
   const { error } = await supabase
     .from('reminders')
@@ -5676,6 +5856,12 @@ const mapProfileRow = (row) => ({
     dataLoadTimestampsRef.current = {};
     lastPresenceUpdateRef.current = 0;
     setAuthUser(null);
+    pushRegistrationRef.current = {
+      ...pushRegistrationRef.current,
+      userId: null,
+      token: null,
+      lastAttemptMs: 0,
+    };
     setHasOnboarded(false);
     setProfile(defaultProfile);
     setUserSettings(defaultUserSettings);
@@ -5710,10 +5896,283 @@ const mapProfileRow = (row) => ({
     await upsertUserSettings({ ...userSettings, themeName: name });
   };
 
+  const seedNotificationCacheFromRows = (type, rows = []) => {
+    const cache = notificationIdCacheRef.current[type];
+    if (!cache || !Array.isArray(rows)) return;
+    const hasNotificationField = rows.some((row) =>
+      Object.prototype.hasOwnProperty.call(row || {}, 'notification_ids')
+    );
+    if (!hasNotificationField) return;
+    const seen = new Set();
+    rows.forEach((row) => {
+      const id = row?.id;
+      if (!id) return;
+      seen.add(id);
+      const ids = normalizeNotificationIds(row?.notification_ids);
+      if (ids.length) {
+        cache.set(id, ids);
+      } else {
+        cache.delete(id);
+      }
+    });
+    Array.from(cache.keys()).forEach((id) => {
+      if (!seen.has(id)) cache.delete(id);
+    });
+  };
+
+  const getCachedNotificationIds = (type, itemId) => {
+    const cache = notificationIdCacheRef.current[type];
+    if (!cache || !itemId) return [];
+    return cache.get(itemId) || [];
+  };
+
+  const clearNotificationIdsForItem = async (table, cacheType, itemId) => {
+    if (!itemId) return;
+    const cache = notificationIdCacheRef.current[cacheType];
+    cache?.delete(itemId);
+    if (!authUser?.id || notificationColumnSupportRef.current[table] === false) {
+      return;
+    }
+    const { error } = await supabase
+      .from(table)
+      .update({ notification_ids: null })
+      .eq('id', itemId)
+      .eq('user_id', authUser.id);
+
+    if (error) {
+      if (isMissingColumnError(error, 'notification_ids')) {
+        notificationColumnSupportRef.current[table] = false;
+        return;
+      }
+      console.log(`Error clearing ${table} notification ids:`, error);
+    }
+  };
+
+  const cancelItemNotifications = async (table, cacheType, itemId) => {
+    const ids = getCachedNotificationIds(cacheType, itemId);
+    if (ids.length) {
+      await Promise.all(ids.map((id) => cancelScheduledNotificationAsync(id)));
+    }
+    await clearNotificationIdsForItem(table, cacheType, itemId);
+  };
+
+  const syncNotificationIdsForItems = async ({
+    table,
+    cacheType,
+    items,
+    idsById,
+  }) => {
+    const cache = notificationIdCacheRef.current[cacheType];
+    if (!cache || !Array.isArray(items)) return;
+
+    const normalizedMap = new Map();
+    items.forEach((item) => {
+      if (!item?.id) return;
+      const nextIds = normalizeNotificationIds(idsById?.get(item.id));
+      normalizedMap.set(item.id, nextIds);
+    });
+
+    const updates = [];
+    normalizedMap.forEach((nextIds, id) => {
+      const prevIds = cache.get(id) || [];
+      if (!areNotificationIdsEqual(prevIds, nextIds)) {
+        updates.push({ id, ids: nextIds });
+      }
+    });
+
+    if (
+      authUser?.id &&
+      notificationColumnSupportRef.current[table] !== false &&
+      updates.length
+    ) {
+      for (const update of updates) {
+        const payload = {
+          notification_ids: update.ids.length ? update.ids : null,
+        };
+        const { error } = await supabase
+          .from(table)
+          .update(payload)
+          .eq('id', update.id)
+          .eq('user_id', authUser.id);
+
+        if (error) {
+          if (isMissingColumnError(error, 'notification_ids')) {
+            notificationColumnSupportRef.current[table] = false;
+            break;
+          }
+          console.log(`Error updating ${table} notification ids:`, error);
+        }
+      }
+    }
+
+    const seen = new Set(normalizedMap.keys());
+    normalizedMap.forEach((nextIds, id) => {
+      if (nextIds.length) {
+        cache.set(id, nextIds);
+      } else {
+        cache.delete(id);
+      }
+    });
+    Array.from(cache.keys()).forEach((id) => {
+      if (!seen.has(id)) cache.delete(id);
+    });
+  };
+
+  const clearAllNotificationIds = async () =>
+    Promise.all([
+      syncNotificationIdsForItems({
+        table: 'tasks',
+        cacheType: 'task',
+        items: tasks,
+        idsById: new Map(),
+      }),
+      syncNotificationIdsForItems({
+        table: 'chores',
+        cacheType: 'chore',
+        items: chores,
+        idsById: new Map(),
+      }),
+      syncNotificationIdsForItems({
+        table: 'reminders',
+        cacheType: 'reminder',
+        items: reminders,
+        idsById: new Map(),
+      }),
+      syncNotificationIdsForItems({
+        table: 'habits',
+        cacheType: 'habit',
+        items: habits,
+        idsById: new Map(),
+      }),
+    ]);
+
+  const registerPushTokenIfNeeded = useCallback(
+    async (force = false) => {
+      if (
+        !authUser?.id ||
+        !userSettings.notificationsEnabled ||
+        !hasNotificationPermission ||
+        Platform.OS === 'web'
+      ) {
+        return null;
+      }
+
+      const nowMs = Date.now();
+      if (
+        !force &&
+        pushRegistrationRef.current.lastAttemptMs &&
+        nowMs - pushRegistrationRef.current.lastAttemptMs < PUSH_REGISTRATION_TTL_MS
+      ) {
+        return pushRegistrationRef.current.token;
+      }
+
+      pushRegistrationRef.current.lastAttemptMs = nowMs;
+
+      const projectId = getExpoProjectId();
+      if (!projectId) {
+        console.log('Missing Expo project id; cannot register push token.');
+        return null;
+      }
+
+      let deviceId = pushRegistrationRef.current.deviceId;
+      if (!deviceId) {
+        deviceId = await getOrCreatePushDeviceId();
+        pushRegistrationRef.current.deviceId = deviceId;
+      }
+
+      let token = null;
+      try {
+        token = await getExpoPushTokenAsync(projectId);
+      } catch (error) {
+        console.log('Error fetching Expo push token:', error);
+        return null;
+      }
+      if (!token) return null;
+
+      if (
+        !force &&
+        pushRegistrationRef.current.token === token &&
+        pushRegistrationRef.current.userId === authUser.id
+      ) {
+        return token;
+      }
+
+      const nowISO = new Date().toISOString();
+      const payload = {
+        user_id: authUser.id,
+        device_id: deviceId,
+        expo_push_token: token,
+        platform: Platform.OS,
+        updated_at: nowISO,
+        last_seen_at: nowISO,
+      };
+
+      const { error } = await supabase
+        .from('push_tokens')
+        .upsert(payload, { onConflict: 'user_id,device_id' });
+
+      if (error) {
+        if (!isMissingRelationError(error, 'push_tokens')) {
+          console.log('Error registering push token:', error);
+        }
+        return null;
+      }
+
+      pushRegistrationRef.current.userId = authUser.id;
+      pushRegistrationRef.current.token = token;
+      return token;
+    },
+    [authUser?.id, hasNotificationPermission, userSettings.notificationsEnabled]
+  );
+
   // NOTIFICATION HELPERS
-  const scheduleTaskNotifications = async () => {
+  const buildDueNotificationCandidates = ({
+    itemType,
+    itemId,
+    titlePrefix,
+    itemTitle,
+    scheduledAt,
+  }) => {
+    if (!scheduledAt || Number.isNaN(scheduledAt.getTime())) return [];
     const now = Date.now();
+    const candidates = [];
+    const dueTimeMs = scheduledAt.getTime();
+
+    if (dueTimeMs > now) {
+      candidates.push({
+        itemType,
+        itemId,
+        kind: 'due',
+        priority: 1,
+        sortTimeMs: dueTimeMs,
+        title: `${titlePrefix} due`,
+        body: `${itemTitle} is due now.`,
+        data: { type: itemType, id: itemId, kind: 'due' },
+        trigger: scheduledAt,
+      });
+    }
+
+    const reminderAt = new Date(dueTimeMs - REMINDER_LEAD_MINUTES * 60 * 1000);
+    if (reminderAt.getTime() > now) {
+      candidates.push({
+        itemType,
+        itemId,
+        kind: 'reminder',
+        priority: 2,
+        sortTimeMs: reminderAt.getTime(),
+        title: `Upcoming ${titlePrefix.toLowerCase()}`,
+        body: `${itemTitle} - Due ${formatFriendlyDateTime(scheduledAt)}`,
+        data: { type: itemType, id: itemId, kind: 'reminder' },
+        trigger: reminderAt,
+      });
+    }
+
+    return candidates;
+  };
+
+  const buildTaskNotificationCandidates = () => {
     const pendingTasks = (tasks || []).filter((t) => t.date && !t.completed);
+    const candidates = [];
 
     for (const task of pendingTasks) {
       const scheduledAt = buildDateWithTime(
@@ -5722,27 +6181,24 @@ const mapProfileRow = (row) => ({
         DEFAULT_EVENT_TIME.hour,
         DEFAULT_EVENT_TIME.minute
       );
-
       if (!scheduledAt) continue;
-
-      const thirtyBefore = new Date(scheduledAt.getTime() - 30 * 60 * 1000);
-      const triggerTime =
-        thirtyBefore.getTime() > now ? thirtyBefore : scheduledAt;
-
-      if (triggerTime.getTime() <= now) continue;
-
       const taskTitle = task.title || 'Task';
-      await scheduleLocalNotificationAsync({
-        title: 'Upcoming task',
-        body: `${taskTitle} - Due ${formatFriendlyDateTime(scheduledAt)}`,
-        data: { type: 'task', id: task.id },
-        trigger: triggerTime,
-      });
+      candidates.push(
+        ...buildDueNotificationCandidates({
+          itemType: 'task',
+          itemId: task.id,
+          titlePrefix: 'Task',
+          itemTitle: taskTitle,
+          scheduledAt,
+        })
+      );
     }
+
+    return candidates;
   };
 
-  const scheduleReminderNotifications = async () => {
-    const now = Date.now();
+  const buildReminderNotificationCandidates = () => {
+    const candidates = [];
     for (const reminder of reminders || []) {
       const reminderDate = buildDateWithTime(
         reminder.date || reminder.dateTime,
@@ -5750,21 +6206,24 @@ const mapProfileRow = (row) => ({
         DEFAULT_EVENT_TIME.hour,
         DEFAULT_EVENT_TIME.minute
       );
-
-      if (!reminderDate || reminderDate.getTime() <= now) continue;
-
-      await scheduleLocalNotificationAsync({
-        title: reminder.title || 'Reminder',
-        body: formatFriendlyDateTime(reminderDate),
-        data: { type: 'reminder', id: reminder.id },
-        trigger: reminderDate,
-      });
+      if (!reminderDate) continue;
+      const reminderTitle = reminder.title || 'Reminder';
+      candidates.push(
+        ...buildDueNotificationCandidates({
+          itemType: 'reminder',
+          itemId: reminder.id,
+          titlePrefix: 'Reminder',
+          itemTitle: reminderTitle,
+          scheduledAt: reminderDate,
+        })
+      );
     }
+    return candidates;
   };
 
-  const scheduleChoreNotifications = async () => {
-    const now = Date.now();
+  const buildChoreNotificationCandidates = () => {
     const pendingChores = (chores || []).filter((c) => c.date && !c.completed);
+    const candidates = [];
 
     for (const chore of pendingChores) {
       const scheduledAt = buildDateWithTime(
@@ -5773,17 +6232,20 @@ const mapProfileRow = (row) => ({
         DEFAULT_EVENT_TIME.hour,
         DEFAULT_EVENT_TIME.minute
       );
-
-      if (!scheduledAt || scheduledAt.getTime() <= now) continue;
-
+      if (!scheduledAt) continue;
       const choreTitle = chore.title || 'Chore';
-      await scheduleLocalNotificationAsync({
-        title: 'Upcoming chore',
-        body: `${choreTitle} - Due ${formatFriendlyDateTime(scheduledAt)}`,
-        data: { type: 'chore', id: chore.id },
-        trigger: scheduledAt,
-      });
+      candidates.push(
+        ...buildDueNotificationCandidates({
+          itemType: 'chore',
+          itemId: chore.id,
+          titlePrefix: 'Chore',
+          itemTitle: choreTitle,
+          scheduledAt,
+        })
+      );
     }
+
+    return candidates;
   };
 
   const weekdayMap = {
@@ -5796,58 +6258,98 @@ const mapProfileRow = (row) => ({
     Sat: 7,
   };
 
-  const scheduleHabitNotifications = async () => {
+  const buildHabitNotificationCandidates = () => {
     const habitsToSchedule = habits || [];
-    if (!habitsToSchedule.length) return;
+    if (!habitsToSchedule.length) return [];
 
-    let scheduleDaily = false;
-    const weekdaysToSchedule = new Set();
-
+    const candidates = [];
     for (const habit of habitsToSchedule) {
       const days = Array.isArray(habit.days) && habit.days.length ? habit.days : [];
-      if (habit.repeat === 'Daily' || days.length === 0 || days.length === 7) {
-        scheduleDaily = true;
-        break;
+      const scheduleDaily =
+        habit.repeat === 'Daily' || days.length === 0 || days.length === 7;
+      const habitTitle = habit.title || 'Habit';
+
+      if (scheduleDaily) {
+        const nextTime = getNextDailyOccurrence(
+          HABIT_REMINDER_TIME.hour,
+          HABIT_REMINDER_TIME.minute
+        );
+        candidates.push({
+          itemType: 'habit',
+          itemId: habit.id,
+          kind: 'habit',
+          priority: 3,
+          sortTimeMs: nextTime.getTime(),
+          title: 'Habit reminder',
+          body: `${habitTitle} - due today.`,
+          data: { type: 'habit', id: habit.id },
+          trigger: {
+            hour: HABIT_REMINDER_TIME.hour,
+            minute: HABIT_REMINDER_TIME.minute,
+            repeats: true,
+          },
+        });
+        continue;
       }
 
+      const weekdaysToSchedule = new Set();
       days.forEach((day) => {
         const weekday = weekdayMap[day] || weekdayMap[day?.slice(0, 3)];
         if (weekday) weekdaysToSchedule.add(weekday);
       });
-    }
 
-    const content = {
-      title: 'Habit check-in',
-      body: 'Keep your streak going. Check in on your habits today.',
-      data: { type: 'habit' },
-    };
+      if (!weekdaysToSchedule.size) {
+        const nextTime = getNextDailyOccurrence(
+          HABIT_REMINDER_TIME.hour,
+          HABIT_REMINDER_TIME.minute
+        );
+        candidates.push({
+          itemType: 'habit',
+          itemId: habit.id,
+          kind: 'habit',
+          priority: 3,
+          sortTimeMs: nextTime.getTime(),
+          title: 'Habit reminder',
+          body: `${habitTitle} - due today.`,
+          data: { type: 'habit', id: habit.id },
+          trigger: {
+            hour: HABIT_REMINDER_TIME.hour,
+            minute: HABIT_REMINDER_TIME.minute,
+            repeats: true,
+          },
+        });
+        continue;
+      }
 
-    if (scheduleDaily || weekdaysToSchedule.size === 0 || weekdaysToSchedule.size === 7) {
-      await scheduleLocalNotificationAsync({
-        ...content,
-        trigger: {
-          hour: HABIT_REMINDER_TIME.hour,
-          minute: HABIT_REMINDER_TIME.minute,
-          repeats: true,
-        },
-      });
-      return;
-    }
-
-    for (const weekday of weekdaysToSchedule) {
-      await scheduleLocalNotificationAsync({
-        ...content,
-        trigger: {
+      for (const weekday of weekdaysToSchedule) {
+        const nextTime = getNextWeeklyOccurrence(
           weekday,
-          hour: HABIT_REMINDER_TIME.hour,
-          minute: HABIT_REMINDER_TIME.minute,
-          repeats: true,
-        },
-      });
+          HABIT_REMINDER_TIME.hour,
+          HABIT_REMINDER_TIME.minute
+        );
+        candidates.push({
+          itemType: 'habit',
+          itemId: habit.id,
+          kind: 'habit',
+          priority: 3,
+          sortTimeMs: nextTime.getTime(),
+          title: 'Habit reminder',
+          body: `${habitTitle} - due today.`,
+          data: { type: 'habit', id: habit.id },
+          trigger: {
+            weekday,
+            hour: HABIT_REMINDER_TIME.hour,
+            minute: HABIT_REMINDER_TIME.minute,
+            repeats: true,
+          },
+        });
+      }
     }
+
+    return candidates;
   };
 
-  const scheduleHealthNotifications = async () => {
+  const buildHealthNotificationCandidate = () => {
     const now = new Date();
     const hasMood = Number.isFinite(todayHealth?.mood);
     const scheduledAt = new Date(now);
@@ -5862,15 +6364,20 @@ const mapProfileRow = (row) => ({
       scheduledAt.setDate(scheduledAt.getDate() + 1);
     }
 
-    await scheduleLocalNotificationAsync({
+    return {
+      itemType: 'health',
+      itemId: 'mood',
+      kind: 'health',
+      priority: 4,
+      sortTimeMs: scheduledAt.getTime(),
       title: 'Mood check-in',
       body: 'Take a moment to log your mood for today.',
       data: { type: 'health', id: 'mood' },
       trigger: scheduledAt,
-    });
+    };
   };
 
-  const scheduleStreakFreezeNotification = async () => {
+  const buildStreakFreezeNotificationCandidate = async () => {
     if (!authUser?.id || !isPremiumUser || streakFrozen) return;
     const hasAnyStreak = habits.some((h) => (h.streak || 0) > 0);
     if (!hasAnyStreak) return;
@@ -5888,35 +6395,116 @@ const mapProfileRow = (row) => ({
       0
     );
 
-    if (scheduledAt.getTime() <= Date.now()) return;
+    if (scheduledAt.getTime() <= Date.now()) return null;
 
-    await scheduleLocalNotificationAsync({
+    return {
+      itemType: 'streak_freeze',
+      itemId: 'streak_freeze',
+      kind: 'streak_freeze',
+      priority: 5,
+      sortTimeMs: scheduledAt.getTime(),
       title: 'Streak frozen',
       body: 'Complete a habit today to unfreeze your streak.',
       data: { type: 'streak_freeze' },
       trigger: scheduledAt,
-    });
+    };
   };
 
   const rescheduleAllNotifications = useCallback(async () => {
-    if (!userSettings.notificationsEnabled || !authUser || !hasNotificationPermission) {
+    if (reschedulingNotificationsRef.current) return;
+    reschedulingNotificationsRef.current = true;
+
+    try {
+      if (!userSettings.notificationsEnabled || !authUser || !hasNotificationPermission) {
+        await cancelAllScheduledNotificationsAsync();
+        await clearAllNotificationIds();
+        return;
+      }
+
       await cancelAllScheduledNotificationsAsync();
-      return;
-    }
 
-    await cancelAllScheduledNotificationsAsync();
+      const candidates = [];
+      if (userSettings.taskRemindersEnabled) {
+        candidates.push(...buildTaskNotificationCandidates());
+        candidates.push(...buildChoreNotificationCandidates());
+        candidates.push(...buildReminderNotificationCandidates());
+      }
 
-    if (userSettings.taskRemindersEnabled) {
-      await scheduleTaskNotifications();
-      await scheduleChoreNotifications();
-      await scheduleReminderNotifications();
-    }
-    if (userSettings.habitRemindersEnabled) {
-      await scheduleHabitNotifications();
-      await scheduleStreakFreezeNotification();
-    }
-    if (userSettings.healthRemindersEnabled) {
-      await scheduleHealthNotifications();
+      if (userSettings.habitRemindersEnabled) {
+        candidates.push(...buildHabitNotificationCandidates());
+      }
+
+      if (userSettings.healthRemindersEnabled) {
+        const healthCandidate = buildHealthNotificationCandidate();
+        if (healthCandidate) candidates.push(healthCandidate);
+      }
+
+      if (userSettings.habitRemindersEnabled) {
+        const streakCandidate = await buildStreakFreezeNotificationCandidate();
+        if (streakCandidate) candidates.push(streakCandidate);
+      }
+
+      const maxScheduled =
+        Platform.OS === 'ios' ? IOS_MAX_SCHEDULED_NOTIFICATIONS : Number.POSITIVE_INFINITY;
+
+      const selected = candidates
+        .filter((candidate) => candidate && candidate.trigger)
+        .sort((a, b) => {
+          if (a.priority !== b.priority) return a.priority - b.priority;
+          return (a.sortTimeMs || 0) - (b.sortTimeMs || 0);
+        })
+        .slice(0, maxScheduled);
+
+      const idsByType = {
+        task: new Map(),
+        chore: new Map(),
+        reminder: new Map(),
+        habit: new Map(),
+      };
+
+      for (const candidate of selected) {
+        const id = await scheduleLocalNotificationAsync({
+          title: candidate.title,
+          body: candidate.body,
+          data: candidate.data,
+          trigger: candidate.trigger,
+        });
+
+        if (!candidate.itemType || !candidate.itemId) continue;
+        if (!idsByType[candidate.itemType]) continue;
+        const existing = idsByType[candidate.itemType].get(candidate.itemId) || [];
+        existing.push(id);
+        idsByType[candidate.itemType].set(candidate.itemId, existing);
+      }
+
+      await Promise.all([
+        syncNotificationIdsForItems({
+          table: 'tasks',
+          cacheType: 'task',
+          items: tasks,
+          idsById: idsByType.task,
+        }),
+        syncNotificationIdsForItems({
+          table: 'chores',
+          cacheType: 'chore',
+          items: chores,
+          idsById: idsByType.chore,
+        }),
+        syncNotificationIdsForItems({
+          table: 'reminders',
+          cacheType: 'reminder',
+          items: reminders,
+          idsById: idsByType.reminder,
+        }),
+        syncNotificationIdsForItems({
+          table: 'habits',
+          cacheType: 'habit',
+          items: habits,
+          idsById: idsByType.habit,
+        }),
+      ]);
+    } finally {
+      reschedulingNotificationsRef.current = false;
     }
   }, [
     authUser,
@@ -5939,14 +6527,31 @@ const mapProfileRow = (row) => ({
       if (!authUser || !userSettings.notificationsEnabled) {
         setHasNotificationPermission(false);
         await cancelAllScheduledNotificationsAsync();
+        await clearAllNotificationIds();
         return;
       }
       const granted = await requestNotificationPermissionAsync();
       setHasNotificationPermission(granted);
+      if (!granted) {
+        await cancelAllScheduledNotificationsAsync();
+        await clearAllNotificationIds();
+      }
     };
 
     syncPermission();
   }, [authUser, userSettings.notificationsEnabled]);
+
+  useEffect(() => {
+    if (!authUser?.id || !userSettings.notificationsEnabled || !hasNotificationPermission) {
+      return;
+    }
+    registerPushTokenIfNeeded();
+  }, [
+    authUser?.id,
+    userSettings.notificationsEnabled,
+    hasNotificationPermission,
+    registerPushTokenIfNeeded,
+  ]);
 
   useEffect(() => {
     if (isLoading || !authUser?.id || !profileLoaded) return;
@@ -5970,6 +6575,21 @@ const mapProfileRow = (row) => ({
     userSettings.healthRemindersEnabled,
     hasNotificationPermission,
   ]);
+
+  useEffect(() => {
+    if (!authUser?.id) return undefined;
+    const onStateChange = (nextState) => {
+      const prevState = appStateRef.current;
+      appStateRef.current = nextState;
+      if (prevState !== 'active' && nextState === 'active') {
+        rescheduleAllNotifications();
+        registerPushTokenIfNeeded(true);
+      }
+    };
+
+    const sub = AppState.addEventListener('change', onStateChange);
+    return () => sub?.remove?.();
+  }, [authUser?.id, rescheduleAllNotifications, registerPushTokenIfNeeded]);
 
   // COMPUTED VALUES
   const getBestStreak = () => {

@@ -48,6 +48,21 @@ export const cancelAllScheduledNotificationsAsync = async () => {
   await Notifications.cancelAllScheduledNotificationsAsync();
 };
 
+export const cancelScheduledNotificationAsync = async (notificationId) => {
+  if (!notificationId) return;
+  try {
+    await Notifications.cancelScheduledNotificationAsync(notificationId);
+  } catch (error) {
+    console.log('Error cancelling scheduled notification:', error);
+  }
+};
+
+export const getExpoPushTokenAsync = async (projectId) => {
+  if (!projectId) return null;
+  const token = await Notifications.getExpoPushTokenAsync({ projectId });
+  return token?.data || null;
+};
+
 export const parseTimeString = (value, fallbackHour = 9, fallbackMinute = 0) => {
   if (!value || typeof value !== 'string') {
     return { hour: fallbackHour, minute: fallbackMinute };
