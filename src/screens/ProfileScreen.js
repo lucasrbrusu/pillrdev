@@ -116,7 +116,7 @@ const ProfileScreen = () => {
       id: 'help',
       label: 'Help & Support',
       icon: 'help-circle-outline',
-      onPress: () => {},
+      onPress: () => navigation.navigate('HelpSupport'),
     },
   ];
   const settingsPalette = React.useMemo(
