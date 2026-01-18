@@ -54,6 +54,13 @@ const featureList = [
     subtitle: 'Track patterns across health, focus, and habits.',
   },
   {
+    title: 'Weight Manager',
+    icon: 'barbell-outline',
+    iconBg: '#ECFDF3',
+    iconColor: '#10B981',
+    subtitle: 'Personalized calorie + macro targets for body goals.',
+  },
+  {
     title: 'Finance insights & budgets',
     icon: 'wallet-outline',
     iconBg: '#ECFDF3',

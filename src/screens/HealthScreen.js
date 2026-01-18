@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Animated, useWindowDimensions } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +17,11 @@ import {
 } from '../utils/theme';
 import { formatTimeFromDate } from '../utils/notifications';
 import { lookupFoodByBarcode } from '../utils/foodBarcodeLookup';
+import {
+  computeWeightManagerPlan,
+  WEIGHT_MANAGER_BODY_TYPES,
+  DEFAULT_WEIGHT_MANAGER_UNIT,
+} from '../utils/weightManager';
 
 
 const MOOD_OPTIONS = [
@@ -119,6 +125,7 @@ const HealthScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const route = useRoute();
+  const { width: windowWidth } = useWindowDimensions();
   const {
     healthData,
     todayHealth,
@@ -127,7 +134,10 @@ const HealthScreen = () => {
     addFoodEntryForDate,
     deleteFoodEntryForDate,
     updateHealthForDate,
+    authUser,
     profile,
+    isPremium,
+    isPremiumUser,
     getAverageWater,
     getAverageSleep,
     themeName,
@@ -135,6 +145,16 @@ const HealthScreen = () => {
     ensureHealthLoaded,
   } = useApp();
   const isDark = themeName === 'dark';
+  const isPremiumActive = Boolean(
+    isPremiumUser ||
+      isPremium ||
+      profile?.isPremium ||
+      profile?.plan === 'premium' ||
+      profile?.plan === 'pro' ||
+      profile?.plan === 'paid'
+  );
+  const isWeightManagerLocked = !isPremiumActive;
+  const swipeCardWidth = Math.max(0, windowWidth - spacing.xl * 2);
   const healthTheme = useMemo(() => {
     const baseCard = isDark ? '#1D2236' : '#FFFFFF';
     return {
@@ -218,6 +238,53 @@ const HealthScreen = () => {
     ensureHealthLoaded();
   }, [ensureHealthLoaded]);
 
+  const weightManagerStorageKey = useMemo(() => {
+    const userId = authUser?.id || profile?.id || profile?.user_id || 'default';
+    return `weight_manager_state:${userId}`;
+  }, [authUser?.id, profile?.id, profile?.user_id]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadWeightManagerState = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(weightManagerStorageKey);
+        if (!stored) {
+          const fallback = {
+            weightUnit: profile?.weightManagerUnit || DEFAULT_WEIGHT_MANAGER_UNIT,
+            currentWeight: profile?.weightManagerCurrentWeight,
+            targetWeight: profile?.weightManagerTargetWeight,
+            currentBodyType: profile?.weightManagerCurrentBodyType,
+            targetBodyType: profile?.weightManagerTargetBodyType,
+          };
+          const hasFallback = Object.values(fallback).some(
+            (value) => value !== null && value !== undefined && value !== ''
+          );
+          if (isMounted) setWeightManagerState(hasFallback ? fallback : null);
+          return;
+        }
+        const parsed = JSON.parse(stored);
+        if (isMounted) setWeightManagerState(parsed || null);
+      } catch (err) {
+        console.log('Error loading weight manager state:', err);
+      }
+    };
+
+    loadWeightManagerState();
+    const unsubscribe = navigation.addListener('focus', loadWeightManagerState);
+    return () => {
+      isMounted = false;
+      if (unsubscribe) unsubscribe();
+    };
+  }, [
+    navigation,
+    profile?.weightManagerCurrentBodyType,
+    profile?.weightManagerCurrentWeight,
+    profile?.weightManagerTargetBodyType,
+    profile?.weightManagerTargetWeight,
+    profile?.weightManagerUnit,
+    weightManagerStorageKey,
+  ]);
+
   const [isLookingUpBarcode, setIsLookingUpBarcode] = useState(false);
   const [showFoodModal, setShowFoodModal] = useState(false);
   const [foodName, setFoodName] = useState('');
@@ -231,6 +298,7 @@ const HealthScreen = () => {
   const [fatGoalInput, setFatGoalInput] = useState('');
   const [isSavingGoals, setIsSavingGoals] = useState(false);
   const [showGoalModal, setShowGoalModal] = useState(false);
+  const [healthSwipeIndex, setHealthSwipeIndex] = useState(0);
   const [foodGramsEaten, setFoodGramsEaten] = useState('');
   const [foodBasis, setFoodBasis] = useState(null);
   const [showScannerModal, setShowScannerModal] = useState(false);
@@ -252,6 +320,7 @@ const HealthScreen = () => {
     sleepQuality: null,
   });
   const [isSavingSleep, setIsSavingSleep] = useState(false);
+  const [weightManagerState, setWeightManagerState] = useState(null);
 
   const sleepQualities = ['Excellent', 'Good', 'Fair', 'Poor'];
 
@@ -415,6 +484,12 @@ const HealthScreen = () => {
     setCarbsGoalInput(carbsGoal !== null ? String(carbsGoal) : '');
     setFatGoalInput(fatGoal !== null ? String(fatGoal) : '');
     setShowGoalModal(false);
+  };
+
+  const handleSwipeEnd = (event) => {
+    if (!swipeCardWidth) return;
+    const nextIndex = Math.round(event.nativeEvent.contentOffset.x / swipeCardWidth);
+    setHealthSwipeIndex(nextIndex);
   };
 
   const handleLogFood = async () => {
@@ -682,6 +757,58 @@ const HealthScreen = () => {
   const sleepValueColor = healthTheme.stats.sleep.value;
   const caloriesConsumed = selectedHealth.calories || 0;
   const caloriesRemaining = dailyCalorieGoal - caloriesConsumed;
+  const weightManagerUnit = weightManagerState?.weightUnit || DEFAULT_WEIGHT_MANAGER_UNIT;
+  const weightManagerPlan = useMemo(
+    () =>
+      computeWeightManagerPlan({
+        currentWeight: weightManagerState?.currentWeight,
+        targetWeight: weightManagerState?.targetWeight,
+        unit: weightManagerUnit,
+        currentBodyTypeKey: weightManagerState?.currentBodyType,
+        targetBodyTypeKey: weightManagerState?.targetBodyType,
+      }),
+    [
+      weightManagerState?.currentBodyType,
+      weightManagerState?.currentWeight,
+      weightManagerState?.targetBodyType,
+      weightManagerState?.targetWeight,
+      weightManagerUnit,
+    ]
+  );
+  const weightManagerTargetBody = useMemo(
+    () =>
+      WEIGHT_MANAGER_BODY_TYPES.find(
+        (type) => type.key === weightManagerState?.targetBodyType
+      ),
+    [weightManagerState?.targetBodyType]
+  );
+  const weightManagerCurrentDisplay = weightManagerState?.currentWeight
+    ? `${weightManagerState.currentWeight} ${weightManagerUnit}`
+    : '--';
+  const weightManagerTargetDisplay = weightManagerState?.targetWeight
+    ? `${weightManagerState.targetWeight} ${weightManagerUnit}`
+    : '--';
+  const macroTotals = (selectedHealth.foods || []).reduce(
+    (totals, food) => ({
+      protein: totals.protein + (Number(food.proteinGrams) || 0),
+      carbs: totals.carbs + (Number(food.carbsGrams) || 0),
+      fat: totals.fat + (Number(food.fatGrams) || 0),
+    }),
+    { protein: 0, carbs: 0, fat: 0 }
+  );
+  const macroGoals = {
+    protein: Number.isFinite(selectedHealth.proteinGoal) ? selectedHealth.proteinGoal : null,
+    carbs: Number.isFinite(selectedHealth.carbsGoal) ? selectedHealth.carbsGoal : null,
+    fat: Number.isFinite(selectedHealth.fatGoal) ? selectedHealth.fatGoal : null,
+  };
+  const macroRemaining = {
+    protein:
+      macroGoals.protein !== null ? Math.max(macroGoals.protein - macroTotals.protein, 0) : null,
+    carbs:
+      macroGoals.carbs !== null ? Math.max(macroGoals.carbs - macroTotals.carbs, 0) : null,
+    fat: macroGoals.fat !== null ? Math.max(macroGoals.fat - macroTotals.fat, 0) : null,
+  };
+  const hasMacroGoals = Object.values(macroGoals).some((value) => value !== null);
   const remainingRatio = dailyCalorieGoal
     ? Math.max(0, caloriesRemaining) / dailyCalorieGoal
     : 1;
@@ -786,6 +913,13 @@ const HealthScreen = () => {
     return `${value}g`;
   };
 
+  const formatMacroRemainingValue = (value) => {
+    if (value === null || value === undefined) return '--';
+    const rounded = Math.round(Number(value));
+    if (!Number.isFinite(rounded)) return '--';
+    return `${Math.max(0, rounded)}g`;
+  };
+
   const formatMacroGoals = (health) => {
     const proteinGoal = Number.isFinite(health.proteinGoal) ? health.proteinGoal : null;
     const carbsGoal = Number.isFinite(health.carbsGoal) ? health.carbsGoal : null;
@@ -802,10 +936,391 @@ const HealthScreen = () => {
     ].join(' • ');
   };
 
+  const getDailyHealthTip = ({ caloriesRemainingValue, dailyGoal, macroRemainders, dateKey }) => {
+    if (!dailyGoal) {
+      return 'Set a calorie goal to get a daily tip.';
+    }
+    if (caloriesRemainingValue <= 0) {
+      return 'You are at your calorie goal. Keep it light and hydrate.';
+    }
+    if (caloriesRemainingValue < 200) {
+      return 'Keep the rest of the day light: lean protein and veggies.';
+    }
+
+    const macroPriority = [
+      { key: 'protein', value: macroRemainders.protein, label: 'protein' },
+      { key: 'carbs', value: macroRemainders.carbs, label: 'carbs' },
+      { key: 'fat', value: macroRemainders.fat, label: 'healthy fats' },
+    ].filter((item) => item.value !== null);
+
+    if (macroPriority.length > 0) {
+      const top = macroPriority.reduce((best, item) =>
+        best.value >= item.value ? best : item
+      );
+      if (top.value > 0) {
+        return `Focus on ${top.label} to stay on track today.`;
+      }
+    }
+
+    const tips = [
+      'Plan your next meal with whole foods to stay on target.',
+      'Add color to your plate with veggies or fruit.',
+      'Keep a steady pace with smaller, balanced meals.',
+      'Pair carbs with protein for steady energy.',
+      'Prep a simple snack so you do not overshoot later.',
+    ];
+    const seed = (dateKey || '').split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
+    const index = tips.length ? seed % tips.length : 0;
+    return tips[index] || tips[0];
+  };
+
+  const formatWeightManagerMacro = (value) => {
+    if (!Number.isFinite(value)) return '--';
+    return `${value} g`;
+  };
+
+  const renderWeightManagerBodyType = () => {
+    const accent = healthTheme.calorie.title;
+    if (!weightManagerTargetBody) {
+      return (
+        <View style={[styles.weightManagerBodyPlaceholder, { borderColor: accent }]}>
+          <Text style={[styles.weightManagerBodyPlaceholderText, { color: accent }]}>?</Text>
+        </View>
+      );
+    }
+
+    const silhouette = weightManagerTargetBody.silhouette || {};
+    const scale = 0.6;
+    const widthFor = (value, fallback) => Math.max(18, Math.round((value || fallback) * scale));
+
+    return (
+      <View style={styles.weightManagerBodyPreview}>
+        <View style={[styles.weightManagerBodyHead, { backgroundColor: accent }]} />
+        <View
+          style={[
+            styles.weightManagerBodyShoulders,
+            { backgroundColor: accent, width: widthFor(silhouette.shoulders, 40) },
+          ]}
+        />
+        <View
+          style={[
+            styles.weightManagerBodyTorso,
+            { backgroundColor: accent, width: widthFor(silhouette.torso, 32) },
+          ]}
+        />
+        <View
+          style={[
+            styles.weightManagerBodyWaist,
+            { backgroundColor: accent, width: widthFor(silhouette.waist, 28) },
+          ]}
+        />
+        <View
+          style={[
+            styles.weightManagerBodyLegs,
+            { backgroundColor: accent, width: widthFor(silhouette.waist, 28) },
+          ]}
+        />
+      </View>
+    );
+  };
+
   const formatWaterLitres = (value) => {
     const num = Math.round((Number(value) || 0) * 100) / 100;
     return `${num}`;
   };
+
+  const macroRemainingText = hasMacroGoals
+    ? `P ${formatMacroRemainingValue(macroRemaining.protein)} | C ${formatMacroRemainingValue(macroRemaining.carbs)} | F ${formatMacroRemainingValue(macroRemaining.fat)}`
+    : 'Set macro goals to see what is left.';
+
+  const healthTip = getDailyHealthTip({
+    caloriesRemainingValue: caloriesRemaining,
+    dailyGoal: dailyCalorieGoal,
+    macroRemainders: macroRemaining,
+    dateKey: selectedDateISO,
+  });
+
+  const cardWidthStyle = swipeCardWidth ? { width: swipeCardWidth } : null;
+  const swipeCardStyle = swipeCardWidth ? styles.swipeCard : null;
+  const upgradeBadgeColor = themeColors.warning || colors.warning;
+
+  const handleWeightManagerPress = () => {
+    if (isWeightManagerLocked) {
+      navigation.navigate('Paywall', { source: 'weight-manager' });
+      return;
+    }
+    navigation.navigate('WeightManager');
+  };
+
+  const calorieTrackerCard = (
+    <Card
+      style={[
+        styles.sectionCard,
+        styles.calorieCard,
+        swipeCardStyle,
+        cardWidthStyle,
+        {
+          backgroundColor: healthTheme.calorie.card,
+          borderColor: healthTheme.calorie.border,
+        },
+      ]}
+    >
+      <View style={styles.sectionHeader}>
+        <Text style={[styles.sectionTitle, { color: healthTheme.calorie.title }]}>
+          Calorie Tracker
+        </Text>
+        <TouchableOpacity
+          onPress={() => setShowGoalModal(true)}
+          style={[
+            styles.calorieEditButton,
+            { backgroundColor: healthTheme.calorie.ringBg },
+          ]}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons
+            name="create-outline"
+            size={16}
+            color={healthTheme.calorie.title}
+            style={styles.calorieEditIcon}
+          />
+          <Text style={[styles.calorieEditText, { color: healthTheme.calorie.title }]}>
+            Edit
+          </Text>
+        </TouchableOpacity>
+      </View>
+      <View style={styles.calorieRow}>
+        <View style={styles.calorieLeft}>
+          <View style={styles.calorieStat}>
+            <Text style={[styles.calorieLabel, { color: healthTheme.calorie.label }]}>
+              Daily Goal
+            </Text>
+            <Text style={[styles.calorieValue, { color: healthTheme.calorie.goal }]}>
+              {dailyCalorieGoal} cal
+            </Text>
+          </View>
+          <View style={styles.calorieStat}>
+            <Text style={[styles.calorieLabel, { color: healthTheme.calorie.label }]}>
+              Consumed
+            </Text>
+            <Text style={[styles.calorieValue, { color: healthTheme.calorie.consumed }]}>
+              {caloriesConsumed} cal
+            </Text>
+          </View>
+        </View>
+        <View style={styles.calorieRight}>
+          <View
+            style={[
+              styles.remainingCircle,
+              {
+                width: calorieCircleSize,
+                height: calorieCircleSize,
+                borderColor: healthTheme.calorie.ring,
+                backgroundColor: healthTheme.calorie.ringBg,
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.remainingText,
+                { color: healthTheme.calorie.ring },
+              ]}
+            >
+              {Math.max(caloriesRemaining, 0)} cal
+            </Text>
+            <Text style={[styles.remainingSub, { color: healthTheme.calorie.ring }]}>
+              Remaining
+            </Text>
+          </View>
+        </View>
+      </View>
+      <View style={styles.macroGoalSummary}>
+        <Text style={[styles.calorieLabel, { color: healthTheme.calorie.label }]}>
+          Macro goals
+        </Text>
+        <Text style={[styles.calorieValue, { color: healthTheme.calorie.goal }]}>
+          {formatMacroGoals(selectedHealth)}
+        </Text>
+      </View>
+      <View style={styles.macroRemainingSummary}>
+        <Text style={[styles.calorieLabel, { color: healthTheme.calorie.label }]}>
+          Macros left
+        </Text>
+        <Text style={[styles.calorieValue, { color: healthTheme.calorie.goal }]}>
+          {macroRemainingText}
+        </Text>
+      </View>
+      <View
+        style={[
+          styles.healthTip,
+          { backgroundColor: healthTheme.calorie.ringBg },
+        ]}
+      >
+        <Text style={[styles.healthTipLabel, { color: healthTheme.calorie.label }]}>
+          Tip
+        </Text>
+        <Text style={[styles.healthTipText, { color: healthTheme.calorie.title }]}>
+          {healthTip}
+        </Text>
+      </View>
+    </Card>
+  );
+
+  const weightManagerCard = (
+    <TouchableOpacity
+      activeOpacity={0.9}
+      onPress={handleWeightManagerPress}
+    >
+      <Card
+        style={[
+          styles.sectionCard,
+          styles.weightManagerCard,
+          styles.swipeCard,
+          cardWidthStyle,
+          {
+            backgroundColor: healthTheme.calorie.card,
+            borderColor: healthTheme.calorie.border,
+          },
+        ]}
+      >
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: healthTheme.calorie.title }]}>
+            Weight Manager
+          </Text>
+          <View
+            style={[
+              styles.weightManagerBadge,
+              isWeightManagerLocked && { backgroundColor: upgradeBadgeColor },
+            ]}
+          >
+            <Ionicons
+              name={isWeightManagerLocked ? 'lock-closed' : 'star'}
+              size={12}
+              color="#FFFFFF"
+              style={styles.weightManagerBadgeIcon}
+            />
+            <Text style={styles.weightManagerBadgeText}>
+              {isWeightManagerLocked ? 'Upgrade to Premium' : 'Premium'}
+            </Text>
+          </View>
+        </View>
+        <Text style={[styles.weightManagerSubtitle, { color: healthTheme.calorie.label }]}>
+          {weightManagerTargetBody?.label
+            ? `Target: ${weightManagerTargetBody.label}`
+            : 'Set your target body type'}
+        </Text>
+
+        {!weightManagerPlan && (
+          <Text style={[styles.weightManagerEmpty, { color: healthTheme.calorie.label }]}>
+            Add your current and target weights to unlock daily targets.
+          </Text>
+        )}
+
+        <View style={styles.weightManagerRow}>
+          <View style={styles.weightManagerWeights}>
+            <View style={styles.weightManagerTypeRow}>
+              {renderWeightManagerBodyType()}
+              <View style={styles.weightManagerTypeText}>
+                <Text style={[styles.weightManagerLabel, { color: healthTheme.calorie.label }]}>
+                  Target type
+                </Text>
+                <Text style={[styles.weightManagerValue, { color: healthTheme.calorie.title }]}>
+                  {weightManagerTargetBody?.label || '--'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.weightManagerStat}>
+              <Text style={[styles.weightManagerLabel, { color: healthTheme.calorie.label }]}>
+                Current
+              </Text>
+              <Text style={[styles.weightManagerValue, { color: healthTheme.calorie.title }]}>
+                {weightManagerCurrentDisplay}
+              </Text>
+            </View>
+            <View style={styles.weightManagerStat}>
+              <Text style={[styles.weightManagerLabel, { color: healthTheme.calorie.label }]}>
+                Target
+              </Text>
+              <Text style={[styles.weightManagerValue, { color: healthTheme.calorie.title }]}>
+                {weightManagerTargetDisplay}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.weightManagerTarget}>
+            <View
+              style={[
+                styles.weightManagerTargetRing,
+                {
+                  borderColor: healthTheme.calorie.ring,
+                  backgroundColor: healthTheme.calorie.ringBg,
+                },
+              ]}
+            >
+              <Text style={[styles.weightManagerTargetValue, { color: healthTheme.calorie.ring }]}>
+                {weightManagerPlan?.targetCalories ?? '--'}
+              </Text>
+              <Text style={[styles.weightManagerTargetLabel, { color: healthTheme.calorie.label }]}>
+                cal/day
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View
+          style={[
+            styles.weightManagerMacroRow,
+            { backgroundColor: healthTheme.calorie.ringBg },
+          ]}
+        >
+          <View style={styles.weightManagerMacroItem}>
+            <Text style={[styles.weightManagerMacroLabel, { color: healthTheme.calorie.label }]}>
+              Protein
+            </Text>
+            <Text style={[styles.weightManagerMacroValue, { color: healthTheme.calorie.title }]}>
+              {formatWeightManagerMacro(weightManagerPlan?.proteinGrams)}
+            </Text>
+          </View>
+          <View style={styles.weightManagerMacroItem}>
+            <Text style={[styles.weightManagerMacroLabel, { color: healthTheme.calorie.label }]}>
+              Carbs
+            </Text>
+            <Text style={[styles.weightManagerMacroValue, { color: healthTheme.calorie.title }]}>
+              {formatWeightManagerMacro(weightManagerPlan?.carbsGrams)}
+            </Text>
+          </View>
+          <View style={styles.weightManagerMacroItem}>
+            <Text style={[styles.weightManagerMacroLabel, { color: healthTheme.calorie.label }]}>
+              Fat
+            </Text>
+            <Text style={[styles.weightManagerMacroValue, { color: healthTheme.calorie.title }]}>
+              {formatWeightManagerMacro(weightManagerPlan?.fatGrams)}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.weightManagerFooter}>
+          <Text style={[styles.weightManagerAction, { color: healthTheme.calorie.title }]}>
+            Tap to update your plan
+          </Text>
+          <Ionicons name="chevron-forward" size={18} color={healthTheme.calorie.title} />
+        </View>
+        {isWeightManagerLocked && (
+          <View pointerEvents="none" style={styles.weightManagerLockOverlay}>
+            <View style={styles.weightManagerLockScrim} />
+            <View style={styles.weightManagerLockContent}>
+              <Ionicons name="lock-closed" size={22} color={healthTheme.calorie.title} />
+              <Text style={[styles.weightManagerLockTitle, { color: healthTheme.calorie.title }]}>
+                Upgrade to Premium
+              </Text>
+              <Text style={[styles.weightManagerLockSubtitle, { color: healthTheme.calorie.label }]}>
+                Unlock weight targets and daily macro goals.
+              </Text>
+            </View>
+          </View>
+        )}
+      </Card>
+    </TouchableOpacity>
+  );
 
   return (
     <View
@@ -907,93 +1422,33 @@ const HealthScreen = () => {
         </View>
 
         {/* Calorie Tracker Section */}
-        <Card
-          style={[
-            styles.sectionCard,
-            styles.calorieCard,
-            {
-              backgroundColor: healthTheme.calorie.card,
-              borderColor: healthTheme.calorie.border,
-            },
-          ]}
-        >
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: healthTheme.calorie.title }]}>
-              Calorie Tracker
-            </Text>
-            <TouchableOpacity
-              onPress={() => setShowGoalModal(true)}
+        <View style={[styles.swipeSection, { width: swipeCardWidth }]}>
+          <Animated.ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={handleSwipeEnd}
+            scrollEventThrottle={16}
+            style={{ width: swipeCardWidth }}
+          >
+            {calorieTrackerCard}
+            {weightManagerCard}
+          </Animated.ScrollView>
+          <View style={styles.swipeDots}>
+            <View
               style={[
-                styles.calorieEditButton,
-                { backgroundColor: healthTheme.calorie.ringBg },
+                styles.swipeDot,
+                healthSwipeIndex === 0 && styles.swipeDotActive,
               ]}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Ionicons
-                name="create-outline"
-                size={16}
-                color={healthTheme.calorie.title}
-                style={styles.calorieEditIcon}
-              />
-              <Text style={[styles.calorieEditText, { color: healthTheme.calorie.title }]}>
-                Edit
-              </Text>
-            </TouchableOpacity>
+            />
+            <View
+              style={[
+                styles.swipeDot,
+                healthSwipeIndex === 1 && styles.swipeDotActive,
+              ]}
+            />
           </View>
-          <View style={styles.calorieRow}>
-            <View style={styles.calorieLeft}>
-              <View style={styles.calorieStat}>
-                <Text style={[styles.calorieLabel, { color: healthTheme.calorie.label }]}>
-                  Daily Goal
-                </Text>
-                <Text style={[styles.calorieValue, { color: healthTheme.calorie.goal }]}>
-                  {dailyCalorieGoal} cal
-                </Text>
-              </View>
-              <View style={styles.calorieStat}>
-                <Text style={[styles.calorieLabel, { color: healthTheme.calorie.label }]}>
-                  Consumed
-                </Text>
-                <Text style={[styles.calorieValue, { color: healthTheme.calorie.consumed }]}>
-                  {caloriesConsumed} cal
-                </Text>
-              </View>
-            </View>
-            <View style={styles.calorieRight}>
-              <View
-                style={[
-                  styles.remainingCircle,
-                  {
-                    width: calorieCircleSize,
-                    height: calorieCircleSize,
-                    borderColor: healthTheme.calorie.ring,
-                    backgroundColor: healthTheme.calorie.ringBg,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.remainingText,
-                    { color: healthTheme.calorie.ring },
-                  ]}
-                >
-                  {Math.max(caloriesRemaining, 0)} cal
-                </Text>
-                <Text style={[styles.remainingSub, { color: healthTheme.calorie.ring }]}>
-                  Remaining
-                </Text>
-              </View>
-            </View>
-          </View>
-          <View style={styles.macroGoalSummary}>
-            <Text style={[styles.calorieLabel, { color: healthTheme.calorie.label }]}>
-              Macro goals
-            </Text>
-            <Text style={[styles.calorieValue, { color: healthTheme.calorie.goal }]}>
-              {formatMacroGoals(selectedHealth)}
-            </Text>
-          </View>
-        </Card>
+        </View>
 
         {/* Food Section */}
         <Card
@@ -1895,6 +2350,24 @@ const createStyles = (themeColors) => StyleSheet.create({
   macroGoalSummary: {
     marginTop: spacing.sm,
   },
+  macroRemainingSummary: {
+    marginTop: spacing.sm,
+  },
+  healthTip: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: themeColors.border,
+  },
+  healthTipLabel: {
+    ...typography.caption,
+    marginBottom: spacing.xs,
+  },
+  healthTipText: {
+    ...typography.bodySmall,
+    lineHeight: 18,
+  },
   goalModalInput: {
     marginBottom: spacing.md,
   },
@@ -1931,6 +2404,202 @@ const createStyles = (themeColors) => StyleSheet.create({
   },
   calorieCard: {
     paddingVertical: spacing.xl,
+  },
+  swipeSection: {
+    alignSelf: 'center',
+  },
+  swipeCard: {
+    marginBottom: spacing.md,
+  },
+  swipeDots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginBottom: spacing.lg,
+  },
+  swipeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginHorizontal: spacing.xs,
+    backgroundColor: themeColors.border,
+    opacity: 0.6,
+  },
+  swipeDotActive: {
+    backgroundColor: themeColors.primary,
+    opacity: 1,
+  },
+  weightManagerCard: {
+    paddingVertical: spacing.lg,
+  },
+  weightManagerSubtitle: {
+    ...typography.caption,
+    marginBottom: spacing.sm,
+  },
+  weightManagerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.full,
+    backgroundColor: themeColors.primary,
+  },
+  weightManagerBadgeIcon: {
+    marginRight: spacing.xs,
+  },
+  weightManagerBadgeText: {
+    ...typography.caption,
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  weightManagerEmpty: {
+    ...typography.bodySmall,
+    marginBottom: spacing.md,
+  },
+  weightManagerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  weightManagerWeights: {
+    flex: 1,
+  },
+  weightManagerTypeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  weightManagerTypeText: {
+    marginLeft: spacing.sm,
+  },
+  weightManagerStat: {
+    marginBottom: spacing.sm,
+  },
+  weightManagerLabel: {
+    ...typography.caption,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  weightManagerValue: {
+    ...typography.body,
+    fontWeight: '700',
+    marginBottom: spacing.sm,
+  },
+  weightManagerTarget: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: spacing.md,
+  },
+  weightManagerTargetRing: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    borderWidth: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weightManagerTargetValue: {
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  weightManagerTargetLabel: {
+    ...typography.caption,
+    marginTop: 2,
+  },
+  weightManagerBodyPreview: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weightManagerBodyPlaceholder: {
+    width: 48,
+    height: 64,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.xs,
+  },
+  weightManagerBodyPlaceholderText: {
+    ...typography.body,
+    fontWeight: '700',
+  },
+  weightManagerBodyHead: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    marginBottom: 2,
+  },
+  weightManagerBodyShoulders: {
+    height: 6,
+    borderRadius: 3,
+    marginBottom: 2,
+  },
+  weightManagerBodyTorso: {
+    height: 12,
+    borderRadius: 5,
+    marginBottom: 2,
+  },
+  weightManagerBodyWaist: {
+    height: 8,
+    borderRadius: 4,
+    marginBottom: 2,
+  },
+  weightManagerBodyLegs: {
+    height: 12,
+    borderRadius: 5,
+  },
+  weightManagerMacroRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.md,
+  },
+  weightManagerMacroItem: {
+    flex: 1,
+    alignItems: 'flex-start',
+  },
+  weightManagerMacroLabel: {
+    ...typography.caption,
+  },
+  weightManagerMacroValue: {
+    ...typography.bodySmall,
+    fontWeight: '700',
+  },
+  weightManagerFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  weightManagerAction: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+  },
+  weightManagerLockOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weightManagerLockScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.12)',
+  },
+  weightManagerLockContent: {
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  weightManagerLockTitle: {
+    ...typography.body,
+    fontWeight: '700',
+    marginTop: spacing.xs,
+  },
+  weightManagerLockSubtitle: {
+    ...typography.caption,
+    marginTop: spacing.xs,
+    textAlign: 'center',
   },
   foodList: {
     marginBottom: spacing.md,

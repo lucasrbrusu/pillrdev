@@ -47,6 +47,7 @@ import InsightsScreen from '../screens/InsightsScreen';
 import BudgetGroupInsightScreen from '../screens/BudgetGroupInsightScreen';
 import FriendProfileScreen from '../screens/FriendProfileScreen';
 import PaywallScreen from '../screens/PaywallScreen';
+import WeightManagerScreen from '../screens/WeightManagerScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -292,6 +293,7 @@ const Navigation = () => {
           <Stack.Screen name="Chat" component={ChatScreen} />
           <Stack.Screen name="FocusMode" component={FocusModeScreen} />
           <Stack.Screen name="CountdownTimer" component={CountdownTimerScreen} />
+          <Stack.Screen name="WeightManager" component={WeightManagerScreen} />
         </Stack.Navigator>
       ) : (
         <Stack.Navigator

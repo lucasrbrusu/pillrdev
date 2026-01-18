@@ -10,6 +10,7 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -17,6 +18,11 @@ import { useApp } from '../context/AppContext';
 import { Card } from '../components';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, shadows, borderRadius, spacing, typography } from '../utils/theme';
+import {
+  DEFAULT_WEIGHT_MANAGER_UNIT,
+  WEIGHT_MANAGER_BODY_TYPES,
+  computeWeightManagerPlan,
+} from '../utils/weightManager';
 
 const MOOD_OPTIONS = [
   { label: 'Depressed', emoji: '😞' },
@@ -40,6 +46,7 @@ const HomeScreen = () => {
   const {
     themeColors,
     profile,
+    authUser,
     habits,
     tasks,
     todayHealth,
@@ -111,6 +118,15 @@ const HomeScreen = () => {
         text: '#FFFFFF',
         meta: 'rgba(255,255,255,0.82)',
       },
+      weightManager: {
+        gradient: isDark ? ['#0EA35B', '#06733F'] : ['#19D377', '#00B563'],
+        border: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.25)',
+        iconBg: 'rgba(255,255,255,0.2)',
+        iconColor: '#FFFFFF',
+        text: '#FFFFFF',
+        meta: 'rgba(255,255,255,0.82)',
+        chipBg: isDark ? 'rgba(8, 32, 22, 0.35)' : 'rgba(255,255,255,0.2)',
+      },
       habits: {
         card: isDark ? '#12131C' : '#FFFFFF',
         border: isDark ? '#2B2D40' : '#EEE6FF',
@@ -165,6 +181,33 @@ const HomeScreen = () => {
   const consumedCalories = todayHealth?.calories || 0;
   const calorieGoal = profile?.dailyCalorieGoal || 2000;
   const remainingCalories = Math.max(calorieGoal - consumedCalories, 0);
+  const weightUnit = weightManagerState?.weightUnit || DEFAULT_WEIGHT_MANAGER_UNIT;
+  const weightManagerPlan = React.useMemo(
+    () =>
+      computeWeightManagerPlan({
+        currentWeight: weightManagerState?.currentWeight,
+        targetWeight: weightManagerState?.targetWeight,
+        unit: weightUnit,
+        currentBodyTypeKey: weightManagerState?.currentBodyType,
+        targetBodyTypeKey: weightManagerState?.targetBodyType,
+      }),
+    [
+      weightManagerState?.currentBodyType,
+      weightManagerState?.currentWeight,
+      weightManagerState?.targetBodyType,
+      weightManagerState?.targetWeight,
+      weightUnit,
+    ]
+  );
+  const currentWeightDisplay = weightManagerState?.currentWeight
+    ? `${weightManagerState.currentWeight} ${weightUnit}`
+    : '--';
+  const targetWeightDisplay = weightManagerState?.targetWeight
+    ? `${weightManagerState.targetWeight} ${weightUnit}`
+    : '--';
+  const targetBodyType = WEIGHT_MANAGER_BODY_TYPES.find(
+    (type) => type.key === weightManagerState?.targetBodyType
+  );
   const statGradients = {
     streak: isDark ? ['#C65A1F', '#8D2A00'] : ['#FF7A2D', '#FF4D2D'],
     calories: isDark ? ['#0EA35B', '#06733F'] : ['#19D377', '#00B563'],
@@ -182,6 +225,62 @@ const HomeScreen = () => {
   const getInitial = React.useCallback((nameValue, usernameValue) => {
     const source = (nameValue || usernameValue || '?').trim();
     return (source[0] || '?').toUpperCase();
+  }, []);
+  const renderWeightManagerBodyType = React.useCallback(() => {
+    if (!targetBodyType) {
+      return (
+        <View
+          style={[
+            styles.weightManagerBodyPlaceholder,
+            { borderColor: sectionListTheme.weightManager.meta },
+          ]}
+        >
+          <Text style={[styles.weightManagerBodyPlaceholderText, { color: sectionListTheme.weightManager.text }]}>
+            ?
+          </Text>
+        </View>
+      );
+    }
+
+    const silhouette = targetBodyType.silhouette || {};
+    const scale = 0.55;
+    const widthFor = (value, fallback) => Math.max(18, Math.round((value || fallback) * scale));
+    const fillColor = sectionListTheme.weightManager.text;
+
+    return (
+      <View style={styles.weightManagerBodyPreview}>
+        <View style={[styles.weightManagerBodyHead, { backgroundColor: fillColor }]} />
+        <View
+          style={[
+            styles.weightManagerBodyShoulders,
+            { backgroundColor: fillColor, width: widthFor(silhouette.shoulders, 40) },
+          ]}
+        />
+        <View
+          style={[
+            styles.weightManagerBodyTorso,
+            { backgroundColor: fillColor, width: widthFor(silhouette.torso, 32) },
+          ]}
+        />
+        <View
+          style={[
+            styles.weightManagerBodyWaist,
+            { backgroundColor: fillColor, width: widthFor(silhouette.waist, 28) },
+          ]}
+        />
+        <View
+          style={[
+            styles.weightManagerBodyLegs,
+            { backgroundColor: fillColor, width: widthFor(silhouette.waist, 28) },
+          ]}
+        />
+      </View>
+    );
+  }, [sectionListTheme.weightManager.meta, sectionListTheme.weightManager.text, styles, targetBodyType]);
+
+  const formatWeightManagerMacro = React.useCallback((value) => {
+    if (!Number.isFinite(value)) return '--';
+    return `${value} g`;
   }, []);
   const displayedFriends = React.useMemo(() => {
     const enriched = (friends || []).map((f) => ({
@@ -207,12 +306,55 @@ const HomeScreen = () => {
   const [noteTitleDraft, setNoteTitleDraft] = React.useState('');
   const [noteContentDraft, setNoteContentDraft] = React.useState('');
   const [showStreakFrozenModal, setShowStreakFrozenModal] = React.useState(false);
+  const [weightManagerState, setWeightManagerState] = React.useState(null);
+
+  const weightManagerStorageKey = React.useMemo(() => {
+    const userId = authUser?.id || profile?.id || profile?.user_id || 'default';
+    return `weight_manager_state:${userId}`;
+  }, [authUser?.id, profile?.id, profile?.user_id]);
+
+  const loadWeightManagerState = React.useCallback(async () => {
+    try {
+      const stored = await AsyncStorage.getItem(weightManagerStorageKey);
+      if (!stored) {
+        const fallback = {
+          weightUnit: profile?.weightManagerUnit || DEFAULT_WEIGHT_MANAGER_UNIT,
+          currentWeight: profile?.weightManagerCurrentWeight,
+          targetWeight: profile?.weightManagerTargetWeight,
+          currentBodyType: profile?.weightManagerCurrentBodyType,
+          targetBodyType: profile?.weightManagerTargetBodyType,
+        };
+        const hasFallback = Object.values(fallback).some(
+          (value) => value !== null && value !== undefined && value !== ''
+        );
+        setWeightManagerState(hasFallback ? fallback : null);
+        return;
+      }
+      const parsed = JSON.parse(stored);
+      setWeightManagerState(parsed || null);
+    } catch (err) {
+      console.log('Error loading weight manager state:', err);
+    }
+  }, [
+    profile?.weightManagerCurrentBodyType,
+    profile?.weightManagerCurrentWeight,
+    profile?.weightManagerTargetBodyType,
+    profile?.weightManagerTargetWeight,
+    profile?.weightManagerUnit,
+    weightManagerStorageKey,
+  ]);
 
   React.useEffect(() => {
     ensureHomeDataLoaded();
     ensureFriendDataLoaded();
     ensureTaskInvitesLoaded();
   }, [ensureFriendDataLoaded, ensureHomeDataLoaded, ensureTaskInvitesLoaded]);
+
+  React.useEffect(() => {
+    loadWeightManagerState();
+    const unsubscribe = navigation.addListener('focus', loadWeightManagerState);
+    return unsubscribe;
+  }, [loadWeightManagerState, navigation]);
 
   const sortedNotes = React.useMemo(() => {
     return (notes || [])
@@ -977,6 +1119,106 @@ const HomeScreen = () => {
           </LinearGradient>
         </Card>
 
+        {isPremium && (
+          <Card
+            style={[styles.sectionCard, styles.sectionCardGradient]}
+            onPress={() => navigation.navigate('WeightManager')}
+          >
+            <LinearGradient
+              colors={sectionListTheme.weightManager.gradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[styles.sectionGradient, { borderColor: sectionListTheme.weightManager.border }]}
+            >
+              <View style={styles.sectionContent}>
+                <View style={styles.sectionListHeader}>
+                  <View style={styles.sectionListTitleRow}>
+                    <View
+                      style={[
+                        styles.sectionListIcon,
+                        { backgroundColor: sectionListTheme.weightManager.iconBg },
+                      ]}
+                    >
+                      <Ionicons name="barbell" size={16} color={sectionListTheme.weightManager.iconColor} />
+                    </View>
+                    <Text style={[styles.sectionListTitle, { color: sectionListTheme.weightManager.text }]}>
+                      Weight Manager
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={sectionListTheme.weightManager.text} />
+                </View>
+
+                <View style={styles.weightManagerContent}>
+                  <View style={styles.weightManagerWeights}>
+                    <Text style={[styles.weightManagerLabel, { color: sectionListTheme.weightManager.meta }]}>
+                      Current
+                    </Text>
+                    <Text style={[styles.weightManagerValue, { color: sectionListTheme.weightManager.text }]}>
+                      {currentWeightDisplay}
+                    </Text>
+                    <Text style={[styles.weightManagerLabel, { color: sectionListTheme.weightManager.meta }]}>
+                      Target
+                    </Text>
+                    <Text style={[styles.weightManagerValue, { color: sectionListTheme.weightManager.text }]}>
+                      {targetWeightDisplay}
+                    </Text>
+                  </View>
+
+                  <View style={styles.weightManagerTarget}>
+                    <View
+                      style={[
+                        styles.weightManagerCalorieRing,
+                        { borderColor: sectionListTheme.weightManager.text },
+                      ]}
+                    >
+                      <Text style={[styles.weightManagerCalorieValue, { color: sectionListTheme.weightManager.text }]}>
+                        {weightManagerPlan?.targetCalories ?? '--'}
+                      </Text>
+                      <Text style={[styles.weightManagerCalorieLabel, { color: sectionListTheme.weightManager.meta }]}>
+                        cal/day
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.weightManagerBodyType}>
+                    {renderWeightManagerBodyType()}
+                    <Text style={[styles.weightManagerBodyLabel, { color: sectionListTheme.weightManager.text }]}>
+                      {targetBodyType?.label || 'Target type'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={[styles.weightManagerMacroRow, { backgroundColor: sectionListTheme.weightManager.chipBg }]}>
+                  <View style={styles.weightManagerMacroItem}>
+                    <Text style={[styles.weightManagerMacroLabel, { color: sectionListTheme.weightManager.meta }]}>
+                      Protein
+                    </Text>
+                    <Text style={[styles.weightManagerMacroValue, { color: sectionListTheme.weightManager.text }]}>
+                      {formatWeightManagerMacro(weightManagerPlan?.proteinGrams)}
+                    </Text>
+                  </View>
+                  <View style={styles.weightManagerMacroItem}>
+                    <Text style={[styles.weightManagerMacroLabel, { color: sectionListTheme.weightManager.meta }]}>
+                      Carbs
+                    </Text>
+                    <Text style={[styles.weightManagerMacroValue, { color: sectionListTheme.weightManager.text }]}>
+                      {formatWeightManagerMacro(weightManagerPlan?.carbsGrams)}
+                    </Text>
+                  </View>
+                  <View style={styles.weightManagerMacroItem}>
+                    <Text style={[styles.weightManagerMacroLabel, { color: sectionListTheme.weightManager.meta }]}>
+                      Fat
+                    </Text>
+                    <Text style={[styles.weightManagerMacroValue, { color: sectionListTheme.weightManager.text }]}>
+                      {formatWeightManagerMacro(weightManagerPlan?.fatGrams)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </LinearGradient>
+          </Card>
+        )}
+
         {/* Your Habits */}
         <Card
           style={[
@@ -1469,6 +1711,116 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
   moodSummaryText: {
     ...typography.body,
     fontWeight: '600',
+  },
+  weightManagerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  weightManagerWeights: {
+    flex: 1,
+  },
+  weightManagerLabel: {
+    ...typography.caption,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  weightManagerValue: {
+    ...typography.body,
+    fontWeight: '700',
+    marginBottom: spacing.sm,
+  },
+  weightManagerTarget: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: spacing.sm,
+  },
+  weightManagerCalorieRing: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weightManagerCalorieValue: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  weightManagerCalorieLabel: {
+    ...typography.caption,
+    marginTop: 2,
+  },
+  weightManagerBodyType: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 80,
+  },
+  weightManagerBodyLabel: {
+    ...typography.caption,
+    fontWeight: '600',
+    marginTop: spacing.xs,
+  },
+  weightManagerBodyPreview: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weightManagerBodyPlaceholder: {
+    width: 48,
+    height: 64,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.xs,
+  },
+  weightManagerBodyPlaceholderText: {
+    ...typography.body,
+    fontWeight: '700',
+  },
+  weightManagerBodyHead: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    marginBottom: 2,
+  },
+  weightManagerBodyShoulders: {
+    height: 6,
+    borderRadius: 3,
+    marginBottom: 2,
+  },
+  weightManagerBodyTorso: {
+    height: 12,
+    borderRadius: 5,
+    marginBottom: 2,
+  },
+  weightManagerBodyWaist: {
+    height: 8,
+    borderRadius: 4,
+    marginBottom: 2,
+  },
+  weightManagerBodyLegs: {
+    height: 12,
+    borderRadius: 5,
+  },
+  weightManagerMacroRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.lg,
+  },
+  weightManagerMacroItem: {
+    flex: 1,
+    alignItems: 'flex-start',
+  },
+  weightManagerMacroLabel: {
+    ...typography.caption,
+  },
+  weightManagerMacroValue: {
+    ...typography.bodySmall,
+    fontWeight: '700',
   },
     healthPrompt: {
       flexDirection: 'row',

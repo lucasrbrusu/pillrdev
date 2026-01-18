@@ -72,6 +72,15 @@ const defaultProfile = {
   dailyCalorieGoal: 2000,
   dailyWaterGoal: 2,
   dailySleepGoal: 8,
+  weightManagerUnit: 'kg',
+  weightManagerCurrentWeight: null,
+  weightManagerTargetWeight: null,
+  weightManagerCurrentBodyType: 'muscular',
+  weightManagerTargetBodyType: 'muscular',
+  weightManagerTargetCalories: null,
+  weightManagerProteinGrams: null,
+  weightManagerCarbsGrams: null,
+  weightManagerFatGrams: null,
   profileId: null,
   plan: 'free',
   premiumExpiresAt: null,
@@ -3048,7 +3057,7 @@ const mapExternalProfile = (row) => ({
       const { data, error } = await supabase
         .from('profiles')
         .select(
-          'id, user_id, username, full_name, email, avatar_url, photo, daily_calorie_goal, daily_water_goal, daily_sleep_goal, plan, premium_expires_at, is_premium, has_onboarded, created_at, updated_at'
+          'id, user_id, username, full_name, email, avatar_url, photo, daily_calorie_goal, daily_water_goal, daily_sleep_goal, weight_manager_unit, weight_manager_current_weight, weight_manager_target_weight, weight_manager_current_body_type, weight_manager_target_body_type, weight_manager_target_calories, weight_manager_protein_grams, weight_manager_carbs_grams, weight_manager_fat_grams, plan, premium_expires_at, is_premium, has_onboarded, created_at, updated_at'
         )
         .or(`id.eq.${userId},user_id.eq.${userId}`)
         .limit(1);
@@ -5370,6 +5379,35 @@ const mapProfileRow = (row) => ({
   dailyCalorieGoal: row?.daily_calorie_goal ?? defaultProfile.dailyCalorieGoal,
   dailyWaterGoal: row?.daily_water_goal ?? defaultProfile.dailyWaterGoal,
   dailySleepGoal: row?.daily_sleep_goal ?? defaultProfile.dailySleepGoal,
+  weightManagerUnit: row?.weight_manager_unit ?? defaultProfile.weightManagerUnit,
+  weightManagerCurrentWeight: asNumber(
+    row?.weight_manager_current_weight,
+    defaultProfile.weightManagerCurrentWeight
+  ),
+  weightManagerTargetWeight: asNumber(
+    row?.weight_manager_target_weight,
+    defaultProfile.weightManagerTargetWeight
+  ),
+  weightManagerCurrentBodyType:
+    row?.weight_manager_current_body_type ?? defaultProfile.weightManagerCurrentBodyType,
+  weightManagerTargetBodyType:
+    row?.weight_manager_target_body_type ?? defaultProfile.weightManagerTargetBodyType,
+  weightManagerTargetCalories: asNumber(
+    row?.weight_manager_target_calories,
+    defaultProfile.weightManagerTargetCalories
+  ),
+  weightManagerProteinGrams: asNumber(
+    row?.weight_manager_protein_grams,
+    defaultProfile.weightManagerProteinGrams
+  ),
+  weightManagerCarbsGrams: asNumber(
+    row?.weight_manager_carbs_grams,
+    defaultProfile.weightManagerCarbsGrams
+  ),
+  weightManagerFatGrams: asNumber(
+    row?.weight_manager_fat_grams,
+    defaultProfile.weightManagerFatGrams
+  ),
   plan: row?.plan || defaultProfile.plan,
   premiumExpiresAt: row?.premium_expires_at || row?.premiumExpiresAt || defaultProfile.premiumExpiresAt,
   premium_expires_at: row?.premium_expires_at || row?.premiumExpiresAt || defaultProfile.premiumExpiresAt,
@@ -5407,7 +5445,7 @@ const mapProfileRow = (row) => ({
       const { data, error } = await supabase
         .from('profiles')
         .select(
-          'id, user_id, username, full_name, email, avatar_url, photo, daily_calorie_goal, daily_water_goal, daily_sleep_goal, plan, premium_expires_at, is_premium, has_onboarded, created_at, updated_at'
+          'id, user_id, username, full_name, email, avatar_url, photo, daily_calorie_goal, daily_water_goal, daily_sleep_goal, weight_manager_unit, weight_manager_current_weight, weight_manager_target_weight, weight_manager_current_body_type, weight_manager_target_body_type, weight_manager_target_calories, weight_manager_protein_grams, weight_manager_carbs_grams, weight_manager_fat_grams, plan, premium_expires_at, is_premium, has_onboarded, created_at, updated_at'
         )
         .eq(column, userId)
         .limit(1);
@@ -5539,6 +5577,40 @@ const mapProfileRow = (row) => ({
       daily_calorie_goal: fields.daily_calorie_goal ?? fields.dailyCalorieGoal ?? profile.dailyCalorieGoal,
       daily_water_goal: fields.daily_water_goal ?? fields.dailyWaterGoal ?? profile.dailyWaterGoal,
       daily_sleep_goal: fields.daily_sleep_goal ?? fields.dailySleepGoal ?? profile.dailySleepGoal,
+      weight_manager_unit:
+        fields.weight_manager_unit ?? fields.weightManagerUnit ?? profile.weightManagerUnit,
+      weight_manager_current_weight:
+        fields.weight_manager_current_weight ??
+        fields.weightManagerCurrentWeight ??
+        profile.weightManagerCurrentWeight,
+      weight_manager_target_weight:
+        fields.weight_manager_target_weight ??
+        fields.weightManagerTargetWeight ??
+        profile.weightManagerTargetWeight,
+      weight_manager_current_body_type:
+        fields.weight_manager_current_body_type ??
+        fields.weightManagerCurrentBodyType ??
+        profile.weightManagerCurrentBodyType,
+      weight_manager_target_body_type:
+        fields.weight_manager_target_body_type ??
+        fields.weightManagerTargetBodyType ??
+        profile.weightManagerTargetBodyType,
+      weight_manager_target_calories:
+        fields.weight_manager_target_calories ??
+        fields.weightManagerTargetCalories ??
+        profile.weightManagerTargetCalories,
+      weight_manager_protein_grams:
+        fields.weight_manager_protein_grams ??
+        fields.weightManagerProteinGrams ??
+        profile.weightManagerProteinGrams,
+      weight_manager_carbs_grams:
+        fields.weight_manager_carbs_grams ??
+        fields.weightManagerCarbsGrams ??
+        profile.weightManagerCarbsGrams,
+      weight_manager_fat_grams:
+        fields.weight_manager_fat_grams ??
+        fields.weightManagerFatGrams ??
+        profile.weightManagerFatGrams,
       updated_at: nowISO,
     };
 
@@ -5618,6 +5690,15 @@ const mapProfileRow = (row) => ({
       dailyCalorieGoal: newLocalProfile.dailyCalorieGoal,
       dailyWaterGoal: newLocalProfile.dailyWaterGoal,
       dailySleepGoal: newLocalProfile.dailySleepGoal,
+      weightManagerUnit: newLocalProfile.weightManagerUnit,
+      weightManagerCurrentWeight: newLocalProfile.weightManagerCurrentWeight,
+      weightManagerTargetWeight: newLocalProfile.weightManagerTargetWeight,
+      weightManagerCurrentBodyType: newLocalProfile.weightManagerCurrentBodyType,
+      weightManagerTargetBodyType: newLocalProfile.weightManagerTargetBodyType,
+      weightManagerTargetCalories: newLocalProfile.weightManagerTargetCalories,
+      weightManagerProteinGrams: newLocalProfile.weightManagerProteinGrams,
+      weightManagerCarbsGrams: newLocalProfile.weightManagerCarbsGrams,
+      weightManagerFatGrams: newLocalProfile.weightManagerFatGrams,
     };
 
     return upsertProfileRow(payload);
