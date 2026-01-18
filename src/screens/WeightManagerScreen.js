@@ -29,6 +29,13 @@ const WeightManagerScreen = () => {
     isPremiumUser,
     updateProfile,
     updateTodayHealth,
+    weightManagerLogs,
+    ensureWeightManagerLogsLoaded,
+    addWeightManagerLog,
+    clearWeightManagerLogs,
+    todayHealth,
+    healthData,
+    ensureHealthLoaded,
   } = useApp();
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
   const isDark = themeName === 'dark';
@@ -59,6 +66,9 @@ const WeightManagerScreen = () => {
   const [targetBodyType, setTargetBodyType] = useState(DEFAULT_WEIGHT_MANAGER_BODY_TYPE);
   const [isSavingPlan, setIsSavingPlan] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+  const [dailyWeight, setDailyWeight] = useState('');
+  const [isSavingLog, setIsSavingLog] = useState(false);
+  const [logMessage, setLogMessage] = useState('');
   const hasLoadedRef = useRef(false);
 
   const storageKey = useMemo(() => {
@@ -75,6 +85,24 @@ const WeightManagerScreen = () => {
       targetBodyTypeKey: targetBodyType,
     });
   }, [currentBodyType, currentWeight, targetBodyType, targetWeight, weightUnit]);
+
+  const latestWeightLog = useMemo(
+    () => (weightManagerLogs?.length ? weightManagerLogs[0] : null),
+    [weightManagerLogs]
+  );
+  const preferredHealthCalories = useMemo(() => {
+    let latestDate = '';
+    let latestGoal = null;
+    Object.entries(healthData || {}).forEach(([dateKey, day]) => {
+      const goalValue = Number(day?.calorieGoal);
+      if (!Number.isFinite(goalValue) || goalValue <= 0) return;
+      if (!latestDate || dateKey > latestDate) {
+        latestDate = dateKey;
+        latestGoal = goalValue;
+      }
+    });
+    return latestGoal;
+  }, [healthData]);
 
   useEffect(() => {
     let isMounted = true;
@@ -158,6 +186,28 @@ const WeightManagerScreen = () => {
   ]);
 
   useEffect(() => {
+    ensureWeightManagerLogsLoaded();
+    ensureHealthLoaded();
+  }, [ensureHealthLoaded, ensureWeightManagerLogsLoaded]);
+
+  const formatLogDate = (value) => {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  const formatTimelineEstimate = (days) => {
+    if (!Number.isFinite(days) || days <= 0) return '--';
+    const weeks = Math.max(1, Math.round(days / 7));
+    if (weeks >= 8) {
+      const months = Math.max(1, Math.round(days / 30));
+      return `${months} months`;
+    }
+    return `${weeks} weeks`;
+  };
+
+  useEffect(() => {
     if (!hasLoadedRef.current) return;
     const payload = {
       weightUnit,
@@ -227,7 +277,6 @@ const WeightManagerScreen = () => {
 
     try {
       const updatedProfile = await updateProfile({
-        dailyCalorieGoal: calorieGoal,
         weightManagerUnit: weightUnit,
         weightManagerCurrentWeight: Number.isFinite(currentWeightValue) ? currentWeightValue : null,
         weightManagerTargetWeight: Number.isFinite(targetWeightValue) ? targetWeightValue : null,
@@ -254,6 +303,97 @@ const WeightManagerScreen = () => {
     } finally {
       setIsSavingPlan(false);
     }
+  };
+
+  const handleSaveLog = async () => {
+    if (!plan || isSavingLog) return;
+    const parsedWeight = Number(dailyWeight);
+    if (!Number.isFinite(parsedWeight) || parsedWeight <= 0) {
+      Alert.alert('Enter weight', 'Please enter a valid weight for today.');
+      return;
+    }
+    setIsSavingLog(true);
+    setLogMessage('');
+    try {
+      await addWeightManagerLog({
+        weight: parsedWeight,
+        unit: weightUnit,
+        logDate: new Date(),
+      });
+      setDailyWeight('');
+      setLogMessage('Logged for today.');
+    } catch (err) {
+      console.log('Error saving weight log:', err);
+      Alert.alert('Unable to save', 'Please try again.');
+    } finally {
+      setIsSavingLog(false);
+    }
+  };
+
+  const handleResetGoal = () => {
+    Alert.alert(
+      'Reset weight goal?',
+      'This clears your weight manager target and daily check-ins.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            const preferredCalories = Number(profile?.preferredDailyCalorieGoal);
+            const healthPreferredCalories = Number(preferredHealthCalories);
+            const todayCalories = Number(todayHealth?.calorieGoal);
+            const targetCalories = Number(profile?.weightManagerTargetCalories);
+            const nextCalorieGoal =
+              Number.isFinite(todayCalories) &&
+              todayCalories > 0 &&
+              todayCalories !== targetCalories
+                ? todayCalories
+                : Number.isFinite(healthPreferredCalories) &&
+                    healthPreferredCalories > 0 &&
+                    healthPreferredCalories !== targetCalories
+                  ? healthPreferredCalories
+                  : Number.isFinite(preferredCalories) && preferredCalories > 0
+                    ? preferredCalories
+                    : 2000;
+
+            try {
+              await updateProfile({
+                dailyCalorieGoal: nextCalorieGoal,
+                weightManagerUnit: DEFAULT_WEIGHT_MANAGER_UNIT,
+                weightManagerCurrentWeight: null,
+                weightManagerTargetWeight: null,
+                weightManagerCurrentBodyType: DEFAULT_WEIGHT_MANAGER_BODY_TYPE,
+                weightManagerTargetBodyType: DEFAULT_WEIGHT_MANAGER_BODY_TYPE,
+                weightManagerTargetCalories: null,
+                weightManagerProteinGrams: null,
+                weightManagerCarbsGrams: null,
+                weightManagerFatGrams: null,
+              });
+              await updateTodayHealth({
+                calorieGoal: nextCalorieGoal,
+                proteinGoal: null,
+                carbsGoal: null,
+                fatGoal: null,
+              });
+              await clearWeightManagerLogs();
+              await AsyncStorage.removeItem(storageKey);
+              setWeightUnit(DEFAULT_WEIGHT_MANAGER_UNIT);
+              setCurrentWeight('');
+              setTargetWeight('');
+              setCurrentBodyType(DEFAULT_WEIGHT_MANAGER_BODY_TYPE);
+              setTargetBodyType(DEFAULT_WEIGHT_MANAGER_BODY_TYPE);
+              setDailyWeight('');
+              setSaveMessage('');
+              setLogMessage('');
+            } catch (err) {
+              console.log('Error resetting weight manager:', err);
+              Alert.alert('Unable to reset', 'Please try again.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   if (!isPremiumActive) {
@@ -299,7 +439,7 @@ const WeightManagerScreen = () => {
         </View>
 
         <Text style={styles.subtitle}>
-          Set your current weight, target weight, and body type to estimate daily calories and macros.
+          Set your starting weight, target weight, and body type to estimate daily calories and macros.
         </Text>
 
         <Card style={styles.heroCard}>
@@ -371,6 +511,14 @@ const WeightManagerScreen = () => {
                     </Text>
                   </View>
                 </View>
+                <View style={styles.heroTimelineRow}>
+                  <Text style={[styles.heroTimelineLabel, { color: managerTheme.meta }]}>
+                    Estimated time
+                  </Text>
+                  <Text style={[styles.heroTimelineValue, { color: managerTheme.text }]}>
+                    {formatTimelineEstimate(plan.estimatedDays)}
+                  </Text>
+                </View>
                 <Text style={[styles.heroDisclaimer, { color: managerTheme.meta }]}>
                   Estimates only. Adjust based on progress and energy levels.
                 </Text>
@@ -405,7 +553,7 @@ const WeightManagerScreen = () => {
               </View>
               <View>
                 <Text style={styles.cardTitle}>Weights</Text>
-                <Text style={styles.cardSubtitle}>Set your current and target weights.</Text>
+                <Text style={styles.cardSubtitle}>Set your starting and target weights.</Text>
               </View>
             </View>
           </View>
@@ -432,7 +580,7 @@ const WeightManagerScreen = () => {
 
           <View style={styles.weightInputsRow}>
             <Input
-              label={`Current weight (${weightUnit})`}
+              label={`Starting weight (${weightUnit})`}
               value={currentWeight}
               onChangeText={setCurrentWeight}
               keyboardType="numeric"
@@ -502,7 +650,68 @@ const WeightManagerScreen = () => {
           </View>
         </Card>
 
-        
+        <Card style={styles.card}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleRow}>
+              <View style={[styles.sectionIcon, { backgroundColor: themeColors.primaryLight }]}>
+                <Ionicons name="trending-up" size={16} color={themeColors.primary} />
+              </View>
+              <View>
+                <Text style={styles.cardTitle}>Daily check-in</Text>
+                <Text style={styles.cardSubtitle}>Log today's weight to track your progress.</Text>
+              </View>
+            </View>
+          </View>
+
+          <Input
+            label={`Today's weight (${weightUnit})`}
+            value={dailyWeight}
+            onChangeText={setDailyWeight}
+            keyboardType="numeric"
+            containerStyle={styles.dailyWeightInput}
+            style={styles.weightInputField}
+            placeholder={`e.g., ${weightUnit === 'kg' ? '78' : '172'}`}
+          />
+
+          <View style={styles.logFooter}>
+            <Text style={styles.logHint}>
+              {latestWeightLog?.weight
+                ? `Last check-in: ${latestWeightLog.weight} ${latestWeightLog.unit || weightUnit} - ${formatLogDate(latestWeightLog.logDate)}`
+                : 'No check-ins yet.'}
+            </Text>
+            <Button
+              title="Save"
+              onPress={handleSaveLog}
+              loading={isSavingLog}
+              disabled={!plan || isSavingLog}
+              style={styles.logButton}
+            />
+          </View>
+
+          {!!logMessage && <Text style={styles.logMessage}>{logMessage}</Text>}
+          {!plan && (
+            <Text style={styles.logLockedText}>
+              Set a goal above to start logging your daily weight.
+            </Text>
+          )}
+        </Card>
+
+        <Card style={styles.resetCard}>
+          <View style={styles.resetRow}>
+            <View style={styles.resetTextBlock}>
+              <Text style={styles.resetTitle}>Reset goal</Text>
+              <Text style={styles.resetSubtitle}>
+                Clear targets and return to your preferred daily calories.
+              </Text>
+            </View>
+            <Button
+              title="Reset Goal"
+              variant="danger"
+              onPress={handleResetGoal}
+              style={styles.resetButton}
+            />
+          </View>
+        </Card>
       </PlatformScrollView>
     </View>
   );
@@ -633,6 +842,62 @@ const createStyles = (themeColors) =>
       borderWidth: 1,
       borderColor: themeColors.border,
       backgroundColor: themeColors.inputBackground,
+    },
+    dailyWeightInput: {
+      marginBottom: spacing.md,
+    },
+    logFooter: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    logHint: {
+      ...typography.caption,
+      color: themeColors.textSecondary,
+      flex: 1,
+      marginRight: spacing.md,
+    },
+    logButton: {
+      paddingHorizontal: spacing.lg,
+    },
+    logMessage: {
+      ...typography.caption,
+      color: themeColors.primary,
+      marginTop: spacing.sm,
+    },
+    logLockedText: {
+      ...typography.caption,
+      color: themeColors.textSecondary,
+      marginTop: spacing.xs,
+    },
+    resetCard: {
+      borderRadius: borderRadius.xl,
+      borderWidth: 1,
+      borderColor: themeColors.border,
+      backgroundColor: themeColors.card,
+      padding: spacing.lg,
+      marginBottom: spacing.xl,
+    },
+    resetRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    resetTextBlock: {
+      flex: 1,
+      marginRight: spacing.md,
+    },
+    resetTitle: {
+      ...typography.h3,
+      color: themeColors.text,
+      marginBottom: spacing.xs,
+    },
+    resetSubtitle: {
+      ...typography.caption,
+      color: themeColors.textSecondary,
+    },
+    resetButton: {
+      minWidth: 140,
     },
     sectionLabel: {
       ...typography.caption,
@@ -803,6 +1068,21 @@ const createStyles = (themeColors) =>
     heroMacroValue: {
       ...typography.body,
       fontWeight: '600',
+    },
+    heroTimelineRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginTop: spacing.sm,
+    },
+    heroTimelineLabel: {
+      ...typography.caption,
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+    },
+    heroTimelineValue: {
+      ...typography.bodySmall,
+      fontWeight: '700',
     },
     heroDisclaimer: {
       ...typography.caption,

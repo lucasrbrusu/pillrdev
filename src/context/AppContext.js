@@ -70,6 +70,7 @@ const defaultProfile = {
   email: 'user@pillarup.app',
   photo: null,
   dailyCalorieGoal: 2000,
+  preferredDailyCalorieGoal: 2000,
   dailyWaterGoal: 2,
   dailySleepGoal: 8,
   weightManagerUnit: 'kg',
@@ -305,6 +306,28 @@ const parseDateTimeParts = (value) => {
   };
 };
 
+const mapWeightManagerLogRow = (row, unitFallback) => ({
+  id: row?.id || null,
+  userId: row?.user_id || null,
+  weight: asNumber(row?.weight, null),
+  unit: row?.unit || unitFallback || defaultProfile.weightManagerUnit,
+  logDate: normalizeDateKey(row?.log_date || row?.date),
+  createdAt: row?.created_at || null,
+  updatedAt: row?.updated_at || null,
+});
+
+const sortWeightManagerLogs = (logs = []) =>
+  [...logs].sort((a, b) => {
+    const aDate = a?.logDate || '';
+    const bDate = b?.logDate || '';
+    if (aDate === bDate) {
+      const aCreated = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bCreated = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bCreated - aCreated;
+    }
+    return bDate.localeCompare(aDate);
+  });
+
 const normalizeNotificationIds = (value) => {
   if (!value) return [];
   if (Array.isArray(value)) return value.filter(Boolean);
@@ -413,6 +436,7 @@ export const AppProvider = ({ children }) => {
   const [healthData, setHealthData] = useState({});
   const [todayHealth, setTodayHealth] = useState(defaultHealthDay());
   const [foodLogs, setFoodLogs] = useState({});
+  const [weightManagerLogs, setWeightManagerLogs] = useState([]);
 
   // Routine State
   const [routines, setRoutines] = useState([]);
@@ -700,6 +724,7 @@ const loadUserDataFromSupabase = async (userId) => {
       setNotes([]);
       setHealthData({});
       setTodayHealth(defaultHealthDay());
+      setWeightManagerLogs([]);
       setRoutines([]);
       setChores([]);
       setReminders([]);
@@ -2633,6 +2658,17 @@ const mapExternalProfile = (row) => ({
     [authUser?.id, hydrateCachedFoodLogs, markDataLoaded, shouldRefreshData]
   );
 
+  const ensureWeightManagerLogsLoaded = useCallback(
+    async ({ force, ttl } = {}) => {
+      const userId = authUser?.id;
+      if (!userId) return;
+      if (!force && !shouldRefreshData('weightManagerLogs', ttl)) return;
+      await fetchWeightManagerLogsFromSupabase(userId);
+      markDataLoaded('weightManagerLogs');
+    },
+    [authUser?.id, markDataLoaded, shouldRefreshData]
+  );
+
   const ensureRoutinesLoaded = useCallback(
     async ({ force, ttl } = {}) => {
       const userId = authUser?.id;
@@ -3944,6 +3980,33 @@ const fetchHealthFromSupabase = async (userId) => {
   }
 };
 
+const fetchWeightManagerLogsFromSupabase = async (userId) => {
+  if (!userId) return [];
+  const { data, error } = await supabase
+    .from('weight_manager_logs')
+    .select('id, user_id, log_date, weight, unit, created_at, updated_at')
+    .eq('user_id', userId)
+    .order('log_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(90);
+
+  if (error) {
+    if (!isMissingRelationError(error, 'weight_manager_logs')) {
+      console.log('Error fetching weight manager logs:', error);
+    }
+    setWeightManagerLogs([]);
+    return [];
+  }
+
+  const unitFallback = profile?.weightManagerUnit || defaultProfile.weightManagerUnit;
+  const mapped = (data || [])
+    .map((row) => mapWeightManagerLogRow(row, unitFallback))
+    .filter((row) => row.logDate && Number.isFinite(row.weight));
+  const sorted = sortWeightManagerLogs(mapped);
+  setWeightManagerLogs(sorted);
+  return sorted;
+};
+
 
 
   // HEALTH FUNCTIONS
@@ -4001,6 +4064,72 @@ const upsertHealthDayRecord = async (dateISO, healthDay) => {
 
   return data || null;
 };
+
+  const addWeightManagerLog = async ({ weight, unit, logDate } = {}) => {
+    if (!authUser?.id) {
+      throw new Error('You must be logged in to log weight.');
+    }
+
+    const parsedWeight = Number(weight);
+    if (!Number.isFinite(parsedWeight) || parsedWeight <= 0) {
+      throw new Error('Weight must be a positive number.');
+    }
+
+    const logDateKey = normalizeDateKey(logDate || new Date());
+    if (!logDateKey) {
+      throw new Error('Invalid log date.');
+    }
+
+    const logUnit = unit || profile?.weightManagerUnit || defaultProfile.weightManagerUnit;
+    const payload = {
+      user_id: authUser.id,
+      log_date: logDateKey,
+      weight: parsedWeight,
+      unit: logUnit,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from('weight_manager_logs')
+      .upsert(payload, { onConflict: 'user_id,log_date' })
+      .select()
+      .single();
+
+    if (error) {
+      if (!isMissingRelationError(error, 'weight_manager_logs')) {
+        console.log('Error saving weight manager log:', error);
+      }
+      throw error;
+    }
+
+    const mapped = mapWeightManagerLogRow(data || payload, logUnit);
+    setWeightManagerLogs((prev) =>
+      sortWeightManagerLogs([
+        ...(prev || []).filter((log) => log.logDate !== mapped.logDate),
+        mapped,
+      ])
+    );
+    return mapped;
+  };
+
+  const clearWeightManagerLogs = async () => {
+    if (!authUser?.id) {
+      throw new Error('You must be logged in to clear weight logs.');
+    }
+    const { error } = await supabase
+      .from('weight_manager_logs')
+      .delete()
+      .eq('user_id', authUser.id);
+
+    if (error) {
+      if (!isMissingRelationError(error, 'weight_manager_logs')) {
+        console.log('Error clearing weight manager logs:', error);
+      }
+      throw error;
+    }
+
+    setWeightManagerLogs([]);
+  };
 
   const updateHealthForDate = async (dateISO, updates = {}) => {
     if (!authUser?.id) {
@@ -5365,58 +5494,70 @@ const getFinanceSummaryForDate = (date) => {
     );
   };
 
-const mapProfileRow = (row) => ({
-  profileId: row?.id || null,
-  name:
-    row?.full_name ||
-    authUser?.user_metadata?.full_name ||
-    authUser?.user_metadata?.name ||
+const mapProfileRow = (row) => {
+  const preferredDailyCalorieGoal =
+    row?.daily_calorie_goal ?? defaultProfile.dailyCalorieGoal;
+  const weightManagerTargetCalories = asNumber(
+    row?.weight_manager_target_calories,
+    defaultProfile.weightManagerTargetCalories
+  );
+  const hasWeightManagerGoal =
+    Number.isFinite(weightManagerTargetCalories) && weightManagerTargetCalories > 0;
+  const dailyCalorieGoal = hasWeightManagerGoal
+    ? weightManagerTargetCalories
+    : preferredDailyCalorieGoal;
+
+  return {
+    profileId: row?.id || null,
+    name:
+      row?.full_name ||
+      authUser?.user_metadata?.full_name ||
+      authUser?.user_metadata?.name ||
       authUser?.email ||
       defaultProfile.name,
     username: row?.username || authUser?.user_metadata?.username || '',
     email: row?.email || authUser?.email || profile.email || defaultProfile.email,
     photo: getAvatarPublicUrl(row?.photo || row?.avatar_url || row?.avatar) || null,
-  dailyCalorieGoal: row?.daily_calorie_goal ?? defaultProfile.dailyCalorieGoal,
-  dailyWaterGoal: row?.daily_water_goal ?? defaultProfile.dailyWaterGoal,
-  dailySleepGoal: row?.daily_sleep_goal ?? defaultProfile.dailySleepGoal,
-  weightManagerUnit: row?.weight_manager_unit ?? defaultProfile.weightManagerUnit,
-  weightManagerCurrentWeight: asNumber(
-    row?.weight_manager_current_weight,
-    defaultProfile.weightManagerCurrentWeight
-  ),
-  weightManagerTargetWeight: asNumber(
-    row?.weight_manager_target_weight,
-    defaultProfile.weightManagerTargetWeight
-  ),
-  weightManagerCurrentBodyType:
-    row?.weight_manager_current_body_type ?? defaultProfile.weightManagerCurrentBodyType,
-  weightManagerTargetBodyType:
-    row?.weight_manager_target_body_type ?? defaultProfile.weightManagerTargetBodyType,
-  weightManagerTargetCalories: asNumber(
-    row?.weight_manager_target_calories,
-    defaultProfile.weightManagerTargetCalories
-  ),
-  weightManagerProteinGrams: asNumber(
-    row?.weight_manager_protein_grams,
-    defaultProfile.weightManagerProteinGrams
-  ),
-  weightManagerCarbsGrams: asNumber(
-    row?.weight_manager_carbs_grams,
-    defaultProfile.weightManagerCarbsGrams
-  ),
-  weightManagerFatGrams: asNumber(
-    row?.weight_manager_fat_grams,
-    defaultProfile.weightManagerFatGrams
-  ),
-  plan: row?.plan || defaultProfile.plan,
-  premiumExpiresAt: row?.premium_expires_at || row?.premiumExpiresAt || defaultProfile.premiumExpiresAt,
-  premium_expires_at: row?.premium_expires_at || row?.premiumExpiresAt || defaultProfile.premiumExpiresAt,
-  isPremium: computeIsPremium(
-    row?.plan || defaultProfile.plan,
-    row?.premium_expires_at || row?.premiumExpiresAt,
-    row?.is_premium ?? row?.isPremium
-  ),
-});
+    dailyCalorieGoal,
+    preferredDailyCalorieGoal,
+    dailyWaterGoal: row?.daily_water_goal ?? defaultProfile.dailyWaterGoal,
+    dailySleepGoal: row?.daily_sleep_goal ?? defaultProfile.dailySleepGoal,
+    weightManagerUnit: row?.weight_manager_unit ?? defaultProfile.weightManagerUnit,
+    weightManagerCurrentWeight: asNumber(
+      row?.weight_manager_current_weight,
+      defaultProfile.weightManagerCurrentWeight
+    ),
+    weightManagerTargetWeight: asNumber(
+      row?.weight_manager_target_weight,
+      defaultProfile.weightManagerTargetWeight
+    ),
+    weightManagerCurrentBodyType:
+      row?.weight_manager_current_body_type ?? defaultProfile.weightManagerCurrentBodyType,
+    weightManagerTargetBodyType:
+      row?.weight_manager_target_body_type ?? defaultProfile.weightManagerTargetBodyType,
+    weightManagerTargetCalories,
+    weightManagerProteinGrams: asNumber(
+      row?.weight_manager_protein_grams,
+      defaultProfile.weightManagerProteinGrams
+    ),
+    weightManagerCarbsGrams: asNumber(
+      row?.weight_manager_carbs_grams,
+      defaultProfile.weightManagerCarbsGrams
+    ),
+    weightManagerFatGrams: asNumber(
+      row?.weight_manager_fat_grams,
+      defaultProfile.weightManagerFatGrams
+    ),
+    plan: row?.plan || defaultProfile.plan,
+    premiumExpiresAt: row?.premium_expires_at || row?.premiumExpiresAt || defaultProfile.premiumExpiresAt,
+    premium_expires_at: row?.premium_expires_at || row?.premiumExpiresAt || defaultProfile.premiumExpiresAt,
+    isPremium: computeIsPremium(
+      row?.plan || defaultProfile.plan,
+      row?.premium_expires_at || row?.premiumExpiresAt,
+      row?.is_premium ?? row?.isPremium
+    ),
+  };
+};
 
   // Ensure profile state has at least auth-derived values when we gain an auth user
   useEffect(() => {
@@ -5574,7 +5715,11 @@ const mapProfileRow = (row) => ({
       avatar_url: fields.avatar_url ?? fields.photo ?? profile.photo ?? undefined,
       photo: fields.photo ?? profile.photo ?? undefined,
       has_onboarded: fields.has_onboarded ?? hasOnboarded,
-      daily_calorie_goal: fields.daily_calorie_goal ?? fields.dailyCalorieGoal ?? profile.dailyCalorieGoal,
+      daily_calorie_goal:
+        fields.daily_calorie_goal ??
+        fields.dailyCalorieGoal ??
+        profile.preferredDailyCalorieGoal ??
+        profile.dailyCalorieGoal,
       daily_water_goal: fields.daily_water_goal ?? fields.dailyWaterGoal ?? profile.dailyWaterGoal,
       daily_sleep_goal: fields.daily_sleep_goal ?? fields.dailySleepGoal ?? profile.dailySleepGoal,
       weight_manager_unit:
@@ -5666,6 +5811,29 @@ const mapProfileRow = (row) => ({
 
   const updateProfile = async (updates) => {
     const merged = { ...profile, ...updates };
+    const weightManagerTargetCaloriesValue = Number(merged.weightManagerTargetCalories);
+    const hasWeightManagerGoal =
+      Number.isFinite(weightManagerTargetCaloriesValue) && weightManagerTargetCaloriesValue > 0;
+    const hasExplicitDailyGoal =
+      Object.prototype.hasOwnProperty.call(updates, 'dailyCalorieGoal') ||
+      Object.prototype.hasOwnProperty.call(updates, 'daily_calorie_goal');
+    const explicitDailyGoal = Object.prototype.hasOwnProperty.call(updates, 'daily_calorie_goal')
+      ? updates.daily_calorie_goal
+      : updates.dailyCalorieGoal;
+    const resolvePreferredGoal = () => {
+      if (hasExplicitDailyGoal) {
+        if (explicitDailyGoal === null || explicitDailyGoal === undefined || explicitDailyGoal === '') {
+          return null;
+        }
+        const parsed = Number(explicitDailyGoal);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      const existingPreferred =
+        profile.preferredDailyCalorieGoal ?? profile.dailyCalorieGoal;
+      const parsedPreferred = Number(existingPreferred);
+      return Number.isFinite(parsedPreferred) ? parsedPreferred : null;
+    };
+    const nextPreferredDailyCalorieGoal = resolvePreferredGoal();
 
     let avatarUrl = merged.photo;
     if (updates.photo) {
@@ -5677,9 +5845,16 @@ const mapProfileRow = (row) => ({
       ...merged,
       photo: avatarUrl,
       avatar_url: avatarUrl,
+      preferredDailyCalorieGoal: nextPreferredDailyCalorieGoal,
+      dailyCalorieGoal: hasWeightManagerGoal
+        ? weightManagerTargetCaloriesValue
+        : nextPreferredDailyCalorieGoal ?? merged.dailyCalorieGoal,
     };
     setProfile(newLocalProfile);
 
+    const dailyGoalForProfile = hasExplicitDailyGoal
+      ? nextPreferredDailyCalorieGoal
+      : nextPreferredDailyCalorieGoal ?? newLocalProfile.dailyCalorieGoal;
     const payload = {
       ...updates,
       name: newLocalProfile.name,
@@ -5687,7 +5862,7 @@ const mapProfileRow = (row) => ({
       email: newLocalProfile.email,
       avatar_url: avatarUrl,
       photo: avatarUrl,
-      dailyCalorieGoal: newLocalProfile.dailyCalorieGoal,
+      dailyCalorieGoal: dailyGoalForProfile,
       dailyWaterGoal: newLocalProfile.dailyWaterGoal,
       dailySleepGoal: newLocalProfile.dailySleepGoal,
       weightManagerUnit: newLocalProfile.weightManagerUnit,
@@ -6766,6 +6941,7 @@ const mapProfileRow = (row) => ({
     ensureHabitsLoaded,
     ensureNotesLoaded,
     ensureHealthLoaded,
+    ensureWeightManagerLogsLoaded,
     ensureRoutinesLoaded,
     ensureChoresLoaded,
     ensureRemindersLoaded,
@@ -6813,8 +6989,11 @@ const mapProfileRow = (row) => ({
     // Health
     healthData,
     todayHealth,
+    weightManagerLogs,
     updateTodayHealth,
     updateHealthForDate,
+    addWeightManagerLog,
+    clearWeightManagerLogs,
     addFoodEntry,
     addFoodEntryForDate,
     deleteFoodEntryForDate,

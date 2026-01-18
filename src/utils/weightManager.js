@@ -90,6 +90,17 @@ export const computeWeightManagerPlan = ({
   const proteinCalories = proteinGrams * 4;
   const carbCalories = Math.max(0, targetCalories - proteinCalories - fatCalories);
   const carbsGrams = Math.round(carbCalories / 4);
+  const weightDiffKg = targetKg - currentKg;
+  const dailyDelta = targetCalories - maintenanceCalories;
+  let estimatedDays = null;
+
+  if (Number.isFinite(weightDiffKg) && weightDiffKg !== 0 && Number.isFinite(dailyDelta) && dailyDelta !== 0) {
+    const directionMatches =
+      (weightDiffKg > 0 && dailyDelta > 0) || (weightDiffKg < 0 && dailyDelta < 0);
+    if (directionMatches) {
+      estimatedDays = Math.round(Math.abs(weightDiffKg) * 7700 / Math.abs(dailyDelta));
+    }
+  }
 
   return {
     maintenanceCalories,
@@ -99,5 +110,6 @@ export const computeWeightManagerPlan = ({
     fatGrams,
     currentKg,
     targetKg,
+    estimatedDays,
   };
 };

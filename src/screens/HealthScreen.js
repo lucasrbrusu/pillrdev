@@ -143,6 +143,8 @@ const HealthScreen = () => {
     themeName,
     themeColors,
     ensureHealthLoaded,
+    ensureWeightManagerLogsLoaded,
+    weightManagerLogs,
   } = useApp();
   const isDark = themeName === 'dark';
   const isPremiumActive = Boolean(
@@ -236,7 +238,8 @@ const HealthScreen = () => {
 
   useEffect(() => {
     ensureHealthLoaded();
-  }, [ensureHealthLoaded]);
+    ensureWeightManagerLogsLoaded();
+  }, [ensureHealthLoaded, ensureWeightManagerLogsLoaded]);
 
   const weightManagerStorageKey = useMemo(() => {
     const userId = authUser?.id || profile?.id || profile?.user_id || 'default';
@@ -782,8 +785,31 @@ const HealthScreen = () => {
       ),
     [weightManagerState?.targetBodyType]
   );
-  const weightManagerCurrentDisplay = weightManagerState?.currentWeight
-    ? `${weightManagerState.currentWeight} ${weightManagerUnit}`
+  const weightManagerLatestLog = useMemo(
+    () => (weightManagerLogs?.length ? weightManagerLogs[0] : null),
+    [weightManagerLogs]
+  );
+  const weightManagerEarliestLog = useMemo(() => {
+    if (!weightManagerLogs?.length) return null;
+    return weightManagerLogs[weightManagerLogs.length - 1];
+  }, [weightManagerLogs]);
+  const startingWeightValue = Number(weightManagerState?.currentWeight);
+  const weightManagerStartingValue = Number.isFinite(startingWeightValue)
+    ? { value: startingWeightValue, unit: weightManagerUnit }
+    : Number.isFinite(weightManagerEarliestLog?.weight)
+      ? {
+          value: weightManagerEarliestLog.weight,
+          unit: weightManagerEarliestLog.unit || weightManagerUnit,
+        }
+      : null;
+  const weightManagerCurrentValue = Number.isFinite(weightManagerLatestLog?.weight)
+    ? { value: weightManagerLatestLog.weight, unit: weightManagerLatestLog.unit || weightManagerUnit }
+    : weightManagerStartingValue;
+  const weightManagerStartingDisplay = weightManagerStartingValue
+    ? `${weightManagerStartingValue.value} ${weightManagerStartingValue.unit}`
+    : '--';
+  const weightManagerCurrentDisplay = weightManagerCurrentValue
+    ? `${weightManagerCurrentValue.value} ${weightManagerCurrentValue.unit}`
     : '--';
   const weightManagerTargetDisplay = weightManagerState?.targetWeight
     ? `${weightManagerState.targetWeight} ${weightManagerUnit}`
@@ -1227,6 +1253,14 @@ const HealthScreen = () => {
                   {weightManagerTargetBody?.label || '--'}
                 </Text>
               </View>
+            </View>
+            <View style={styles.weightManagerStat}>
+              <Text style={[styles.weightManagerLabel, { color: healthTheme.calorie.label }]}>
+                Starting
+              </Text>
+              <Text style={[styles.weightManagerValue, { color: healthTheme.calorie.title }]}>
+                {weightManagerStartingDisplay}
+              </Text>
             </View>
             <View style={styles.weightManagerStat}>
               <Text style={[styles.weightManagerLabel, { color: healthTheme.calorie.label }]}>
