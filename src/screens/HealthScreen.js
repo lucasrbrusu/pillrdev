@@ -546,6 +546,17 @@ const HealthScreen = () => {
     setShowFoodModal(false);
   };
 
+  const handleRelogFood = async (food) => {
+    if (!food?.name) return;
+    await addFoodEntryForDate(selectedDateISO, {
+      name: food.name,
+      calories: food.calories ?? 0,
+      proteinGrams: food.proteinGrams ?? food.protein_grams ?? null,
+      carbsGrams: food.carbsGrams ?? food.carbs_grams ?? null,
+      fatGrams: food.fatGrams ?? food.fat_grams ?? null,
+    });
+  };
+
   const applyScannedFood = (payload) => {
     if (!payload) return;
     setFoodBasis(payload.basis || null);
@@ -937,6 +948,66 @@ const HealthScreen = () => {
   const formatMacroValue = (value) => {
     if (value === null || value === undefined) return 'N/A';
     return `${value}g`;
+  };
+
+  const normalizeHistoryFood = (food, dateKey) => {
+    if (!food) return null;
+    const timestamp = food.timestamp || food.created_at || food.createdAt || null;
+    return {
+      ...food,
+      date: food.date || dateKey || '',
+      timestamp,
+      proteinGrams:
+        food.proteinGrams ?? food.protein_grams ?? food.protein ?? null,
+      carbsGrams: food.carbsGrams ?? food.carbs_grams ?? food.carbs ?? null,
+      fatGrams: food.fatGrams ?? food.fat_grams ?? food.fat ?? null,
+    };
+  };
+
+  const foodHistory = useMemo(() => {
+    const entries = [];
+    Object.entries(healthData || {}).forEach(([dateKey, day]) => {
+      (day?.foods || []).forEach((food) => {
+        const normalized = normalizeHistoryFood(food, dateKey);
+        if (!normalized?.name) return;
+        const timestampValue = normalized.timestamp
+          ? new Date(normalized.timestamp).getTime()
+          : null;
+        const dateValue = normalized.date ? new Date(normalized.date).getTime() : null;
+        entries.push({
+          ...normalized,
+          sortTime: timestampValue ?? dateValue ?? 0,
+        });
+      });
+    });
+
+    entries.sort((a, b) => (b.sortTime || 0) - (a.sortTime || 0));
+
+    const seen = new Set();
+    const deduped = [];
+    entries.forEach((item) => {
+      const key = item.id || item.timestamp || `${item.name}-${item.calories}-${item.date}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      deduped.push(item);
+    });
+    return deduped;
+  }, [healthData]);
+
+  const formatHistoryDate = (item) => {
+    const raw = item?.timestamp || item?.date;
+    if (!raw) return '';
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return String(raw);
+    const dateLabel = date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+    });
+    const timeLabel = date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+    return `${dateLabel} • ${timeLabel}`;
   };
 
   const formatMacroRemainingValue = (value) => {
@@ -1861,6 +1932,7 @@ const HealthScreen = () => {
           setFoodBasis(null);
         }}
         title="Log Food"
+        fullScreen
       >
         <Input
           label="Food Name"
@@ -1921,6 +1993,57 @@ const HealthScreen = () => {
           style={styles.scanButton}
           variant="secondary"
         />
+
+        <View style={styles.historySection}>
+          <Text style={[styles.historyTitle, { color: themeColors.text }]}>
+            History
+          </Text>
+          {foodHistory.length ? (
+            <View>
+              {foodHistory.map((food, idx) => (
+                <View
+                  key={food.id || food.timestamp || `${food.name}-${food.calories}-${idx}`}
+                  style={[
+                    styles.historyItem,
+                    {
+                      backgroundColor: themeColors.inputBackground,
+                      borderColor: themeColors.border,
+                    },
+                  ]}
+                >
+                  <View style={styles.historyInfo}>
+                    <Text style={[styles.historyName, { color: themeColors.text }]}>
+                      {food.name}
+                    </Text>
+                    <Text style={[styles.historyMeta, { color: themeColors.textSecondary }]}>
+                      {formatHistoryDate(food)}
+                    </Text>
+                    <Text style={[styles.historyMacros, { color: themeColors.textSecondary }]}>
+                      Protein: {formatMacroValue(food.proteinGrams)} | Carbs: {formatMacroValue(food.carbsGrams)} | Fat: {formatMacroValue(food.fatGrams)}
+                    </Text>
+                  </View>
+                  <View style={styles.historyActions}>
+                    <Text style={[styles.historyCalories, { color: themeColors.text }]}>
+                      {food.calories ?? 0} cal
+                    </Text>
+                    <Button
+                      title="Relog"
+                      size="small"
+                      variant="outline"
+                      fullWidth={false}
+                      onPress={() => handleRelogFood(food)}
+                      style={styles.historyRelogButton}
+                    />
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={[styles.historyEmpty, { color: themeColors.textSecondary }]}>
+              No logged foods yet.
+            </Text>
+          )}
+        </View>
 
         <View style={styles.modalButtons}>
           <Button
@@ -2834,6 +2957,51 @@ const createStyles = (themeColors) => StyleSheet.create({
   },
   scanButton: {
     marginBottom: spacing.md,
+  },
+  historySection: {
+    marginBottom: spacing.lg,
+  },
+  historyTitle: {
+    ...typography.label,
+    marginBottom: spacing.sm,
+  },
+  historyEmpty: {
+    ...typography.bodySmall,
+  },
+  historyItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: spacing.md,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    marginBottom: spacing.sm,
+  },
+  historyInfo: {
+    flex: 1,
+    paddingRight: spacing.md,
+  },
+  historyName: {
+    ...typography.body,
+  },
+  historyMeta: {
+    ...typography.caption,
+    marginTop: 2,
+  },
+  historyMacros: {
+    ...typography.caption,
+    marginTop: 2,
+  },
+  historyActions: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  historyCalories: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+    marginBottom: spacing.xs,
+  },
+  historyRelogButton: {
+    paddingHorizontal: spacing.md,
   },
   scannerContainer: {
     flex: 1,

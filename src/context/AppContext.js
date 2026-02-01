@@ -246,6 +246,13 @@ const asNumber = (value, fallback = null) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+const normalizeFoodMacro = (value) => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 const mapHealthRow = (row, fallback = defaultHealthDay()) => {
   if (!row) return { ...defaultHealthDay(), ...fallback };
   const calorieGoal =
@@ -291,6 +298,17 @@ const normalizeDateKey = (value) => {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '';
   return d.toISOString().slice(0, 10);
+};
+
+const getFoodEntryKey = (food, fallbackDate) => {
+  if (!food) return '';
+  const timestamp = food.timestamp || food.created_at || food.createdAt;
+  if (timestamp) return `time:${timestamp}`;
+  if (food.id) return `id:${food.id}`;
+  const dateKey = normalizeDateKey(food.date || fallbackDate || timestamp);
+  const name = (food.name || '').trim().toLowerCase();
+  const calories = asNumber(food.calories, 0) || 0;
+  return `fallback:${dateKey}:${name}:${calories}`;
 };
 
 const parseDateTimeParts = (value) => {
@@ -1044,13 +1062,16 @@ const markDataLoaded = useCallback((key) => {
   };
 
   const hydrateCachedFoodLogs = useCallback(async (userId) => {
-    if (!userId) return;
+    if (!userId) return null;
     const storedFoodLogs = await AsyncStorage.getItem(getFoodLogsKey(userId));
-    if (!storedFoodLogs) return;
+    if (!storedFoodLogs) return null;
     try {
-      setFoodLogs(JSON.parse(storedFoodLogs));
+      const parsed = JSON.parse(storedFoodLogs);
+      setFoodLogs(parsed);
+      return parsed;
     } catch (err) {
       console.log('Error parsing stored food logs', err);
+      return null;
     }
   }, []);
 
@@ -2651,8 +2672,8 @@ const mapExternalProfile = (row) => ({
       const userId = authUser?.id;
       if (!userId) return;
       if (!force && !shouldRefreshData('health', ttl)) return;
-      await fetchHealthFromSupabase(userId);
-      await hydrateCachedFoodLogs(userId);
+      const cachedFoodLogs = await hydrateCachedFoodLogs(userId);
+      await fetchHealthFromSupabase(userId, cachedFoodLogs);
       markDataLoaded('health');
     },
     [authUser?.id, hydrateCachedFoodLogs, markDataLoaded, shouldRefreshData]
@@ -3870,7 +3891,7 @@ const setNotePassword = async (noteId, newPassword, currentPassword) => {
 
 
 
-const fetchHealthFromSupabase = async (userId) => {
+const fetchHealthFromSupabase = async (userId, cachedFoodLogs = null) => {
   const baseSelectFields =
     'id, user_id, date, mood, water_intake, sleep_time, wake_time, sleep_quality, calories, foods, created_at, updated_at';
   const selectWithGoal =
@@ -3889,13 +3910,21 @@ const fetchHealthFromSupabase = async (userId) => {
       .order('date', { ascending: true }));
   }
 
-  const { data: foodEntries, error: foodError } = await supabase
+  let { data: foodEntries, error: foodError } = await supabase
     .from('health_food_entries')
     .select(
       'id, name, calories, protein_grams, carbs_grams, fat_grams, created_at, health_day_id, date'
     )
     .eq('user_id', userId)
     .order('date', { ascending: true });
+
+  if (foodError && /protein_grams|carbs_grams|fat_grams/i.test(foodError.message || '')) {
+    ({ data: foodEntries, error: foodError } = await supabase
+      .from('health_food_entries')
+      .select('id, name, calories, created_at, health_day_id, date')
+      .eq('user_id', userId)
+      .order('date', { ascending: true }));
+  }
 
   if (error) {
     console.log('Error fetching health data:', error);
@@ -3905,6 +3934,8 @@ const fetchHealthFromSupabase = async (userId) => {
   if (foodError) {
     console.log('Error fetching food entries:', foodError);
   }
+
+  const effectiveFoodLogs = cachedFoodLogs || foodLogs || {};
 
   const healthMap = {};
   (data || []).forEach((row) => {
@@ -3932,16 +3963,18 @@ const fetchHealthFromSupabase = async (userId) => {
   });
 
   Object.entries(foodMap).forEach(([dateKey, foods]) => {
+    const base = healthMap[dateKey] || defaultHealthDay();
+    const combined = [...(base.foods || []), ...(foods || [])];
     const deduped = [];
     const seen = new Set();
-    (foods || []).forEach((f) => {
-      const key = f.id || f.timestamp || `${f.name}-${f.calories}-${f.date}`;
+    combined.forEach((f) => {
+      const foodWithDate = f?.date ? f : { ...f, date: dateKey };
+      const key = getFoodEntryKey(foodWithDate, dateKey);
       if (seen.has(key)) return;
       seen.add(key);
-      deduped.push(f);
+      deduped.push(foodWithDate);
     });
     const totalCalories = deduped.reduce((sum, f) => sum + (f.calories || 0), 0);
-    const base = healthMap[dateKey] || defaultHealthDay();
     healthMap[dateKey] = {
       ...base,
       foods: deduped,
@@ -3950,16 +3983,98 @@ const fetchHealthFromSupabase = async (userId) => {
     };
   });
 
+  const existingFoodKeys = new Set();
+  Object.entries(foodMap).forEach(([dateKey, foods]) => {
+    (foods || []).forEach((f) => {
+      const key = getFoodEntryKey(f, dateKey);
+      if (key) existingFoodKeys.add(key);
+    });
+  });
+
+  const pendingFoodUploads = [];
+  const queueFoodUpload = (food, dateKey) => {
+    if (!food) return;
+    const foodWithDate = food?.date ? food : { ...food, date: dateKey };
+    const key = getFoodEntryKey(foodWithDate, dateKey);
+    if (!key || existingFoodKeys.has(key)) return;
+    existingFoodKeys.add(key);
+    pendingFoodUploads.push(foodWithDate);
+  };
+
+  Object.entries(healthMap).forEach(([dateKey, day]) => {
+    (day?.foods || []).forEach((food) => queueFoodUpload(food, dateKey));
+  });
+
+  Object.entries(effectiveFoodLogs || {}).forEach(([dateKey, foods]) => {
+    (foods || []).forEach((food) => queueFoodUpload(food, dateKey));
+  });
+
+  if (pendingFoodUploads.length && !foodError) {
+    // Backfill cached food logs to Supabase so history is saved to the account.
+    const healthDayIdCache = {};
+    for (const food of pendingFoodUploads) {
+      const dateKey = normalizeDateKey(food?.date || food?.timestamp || new Date());
+      if (!dateKey || !food?.name) continue;
+      const cachedId = healthDayIdCache[dateKey];
+      let healthDayId =
+        cachedId || food?.healthDayId || healthMap[dateKey]?.healthDayId || null;
+      if (!healthDayId) {
+        const base = healthMap[dateKey] || defaultHealthDay();
+        const record = await upsertHealthDayRecord(dateKey, base);
+        healthDayId = record?.id || base.healthDayId || null;
+        healthDayIdCache[dateKey] = healthDayId;
+      }
+
+      const createdAt =
+        food?.timestamp || food?.created_at || food?.createdAt || new Date().toISOString();
+      const calories = asNumber(food.calories, 0) || 0;
+      const payload = pruneUndefined({
+        user_id: userId,
+        health_day_id: healthDayId,
+        date: dateKey,
+        name: food.name,
+        calories,
+        protein_grams: normalizeFoodMacro(food.proteinGrams),
+        carbs_grams: normalizeFoodMacro(food.carbsGrams),
+        fat_grams: normalizeFoodMacro(food.fatGrams),
+        created_at: createdAt,
+      });
+
+      const insertFoodEntry = async (payloadToInsert) =>
+        supabase.from('health_food_entries').insert(payloadToInsert).select().single();
+
+      let { error: insertError } = await insertFoodEntry(payload);
+
+      if (insertError && insertError.code === '42703') {
+        const fallbackPayload = pruneUndefined({
+          user_id: userId,
+          health_day_id: healthDayId,
+          date: dateKey,
+          name: food.name,
+          calories,
+          created_at: createdAt,
+        });
+        const retry = await insertFoodEntry(fallbackPayload);
+        insertError = retry.error;
+      }
+
+      if (insertError && !isMissingRelationError(insertError, 'health_food_entries')) {
+        console.log('Error syncing cached food entry:', insertError);
+      }
+    }
+  }
+
   // Merge locally cached food logs to retain entries across sessions/logouts
-  Object.entries(foodLogs || {}).forEach(([dateKey, foods]) => {
+  Object.entries(effectiveFoodLogs || {}).forEach(([dateKey, foods]) => {
     const combined = [...(healthMap[dateKey]?.foods || []), ...(foods || [])];
     const seen = new Set();
     const deduped = [];
     combined.forEach((f) => {
-      const key = f.id || f.timestamp || `${f.name}-${f.calories}-${f.date}`;
+      const foodWithDate = f?.date ? f : { ...f, date: dateKey };
+      const key = getFoodEntryKey(foodWithDate, dateKey);
       if (seen.has(key)) return;
       seen.add(key);
-      deduped.push(f);
+      deduped.push(foodWithDate);
     });
     const totalCalories = deduped.reduce((sum, f) => sum + (f.calories || 0), 0);
     const base = healthMap[dateKey] || defaultHealthDay();
@@ -4233,19 +4348,13 @@ const addFoodEntryForDate = async (dateISO, food) => {
 
   const healthDayRecord = await upsertHealthDayRecord(dayKey, baseDay);
   const healthDayId = healthDayRecord?.id || baseDay.healthDayId;
-  const normalizeMacro = (value) => {
-    if (value === null || value === undefined) return null;
-    if (typeof value === 'string' && value.trim() === '') return null;
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  };
 
   const normalizedFood = {
     ...food,
     calories: asNumber(food.calories, 0) || 0,
-    proteinGrams: normalizeMacro(food.proteinGrams),
-    carbsGrams: normalizeMacro(food.carbsGrams),
-    fatGrams: normalizeMacro(food.fatGrams),
+    proteinGrams: normalizeFoodMacro(food.proteinGrams),
+    carbsGrams: normalizeFoodMacro(food.carbsGrams),
+    fatGrams: normalizeFoodMacro(food.fatGrams),
   };
 
   const nowISO = new Date().toISOString();
@@ -4253,6 +4362,7 @@ const addFoodEntryForDate = async (dateISO, food) => {
     ...normalizedFood,
     id: Date.now().toString(),
     timestamp: nowISO,
+    date: dayKey,
   };
 
   const insertPayload = pruneUndefined({
