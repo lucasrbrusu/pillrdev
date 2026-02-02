@@ -315,11 +315,6 @@ const FriendProfileScreen = () => {
     );
   };
 
-  const detailRows = [
-    { label: 'Name', value: profileData?.name },
-    { label: 'Username', value: profileData?.username ? `@${profileData.username}` : 'Not set' },
-  ];
-
   return (
     <View style={[themedStyles.container, { paddingTop: insets.top || spacing.lg }]}>
       <View style={themedStyles.header}>
@@ -471,31 +466,6 @@ const FriendProfileScreen = () => {
                 </View>
               </View>
             </View>
-
-            <Card
-              style={[
-                themedStyles.sectionCard,
-                { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder },
-              ]}
-            >
-              <View style={themedStyles.sectionHeaderRow}>
-                <View
-                  style={[
-                    themedStyles.sectionIcon,
-                    { backgroundColor: profileTheme.statusBg },
-                  ]}
-                >
-                  <Ionicons name="information" size={16} color={profileTheme.statusText} />
-                </View>
-                <Text style={themedStyles.sectionTitle}>Details</Text>
-              </View>
-              {detailRows.map((row) => (
-                <View key={row.label} style={themedStyles.detailRow}>
-                  <Text style={themedStyles.detailLabel}>{row.label}</Text>
-                  <Text style={themedStyles.detailValue}>{row.value || 'Not available'}</Text>
-                </View>
-              ))}
-            </Card>
 
             <Card
               style={[
@@ -1074,25 +1044,6 @@ const createStyles = (themeColorsParam = colors) => {
       ...typography.bodySmall,
       color: '#FFFFFF',
       fontWeight: '700',
-    },
-    detailRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      paddingVertical: spacing.xs,
-      borderBottomWidth: 1,
-      borderColor: themeColorsParam?.border || colors.border,
-    },
-    detailLabel: {
-      ...typography.body,
-      color: subdued,
-    },
-    detailValue: {
-      ...typography.body,
-      color: baseText,
-      flexShrink: 1,
-      textAlign: 'right',
-      marginLeft: spacing.sm,
     },
     groupsList: {
       gap: spacing.sm,
