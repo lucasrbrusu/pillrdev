@@ -2076,6 +2076,8 @@ const HealthScreen = () => {
         onClose={handleCloseScanner}
         title="Scan Barcode"
         fullScreen
+        swipeToCloseEnabled={false}
+        scrollEnabled={false}
       >
         {!CameraView ? (
           <View style={styles.scannerState}>
@@ -3006,13 +3008,14 @@ const createStyles = (themeColors) => StyleSheet.create({
   scannerContainer: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.lg,
+    justifyContent: 'flex-start',
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md,
   },
   scannerFrame: {
     width: '100%',
     aspectRatio: 1,
-    maxWidth: 320,
+    maxWidth: 420,
     borderRadius: borderRadius.lg,
     overflow: 'hidden',
     borderWidth: 2,

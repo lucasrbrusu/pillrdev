@@ -166,8 +166,8 @@ const FinanceScreen = () => {
   const isDark =
     (themeName || '').toLowerCase() === 'dark' || palette.background === '#000000';
   const balanceGradient = isDark
-    ? ['#6D28D9', '#BE185D']
-    : ['#8B5CF6', '#EC4899'];
+    ? ['#1D4ED8', '#0EA5E9']
+    : ['#3B82F6', '#38BDF8'];
   const premiumActive = !!(isPremium || profile?.isPremium);
   const styles = useMemo(
     () => createStyles(themeColors, isDark),

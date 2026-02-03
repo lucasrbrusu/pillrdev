@@ -27,6 +27,7 @@ const Modal = ({
   hideHeader = false,
   fullScreen = false,
   swipeToCloseEnabled = true,
+  scrollEnabled = true,
   containerStyle,
 }) => {
   const { themeColors } = useApp();
@@ -119,6 +120,7 @@ const Modal = ({
               nestedScrollEnabled
               overScrollMode="always"
               scrollEventThrottle={16}
+              scrollEnabled={scrollEnabled}
             >
               {children}
             </ScrollView>
@@ -131,6 +133,7 @@ const Modal = ({
               }}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
+              scrollEnabled={scrollEnabled}
             >
               {children}
             </ScrollView>
