@@ -63,6 +63,7 @@ const HabitsScreen = () => {
   } = useApp();
   const isDark = themeName === 'dark';
   const modalTopPadding = Math.max(spacing.md, insets.top);
+  const modalBottomPadding = Math.max(spacing.md, insets.bottom);
   const habitTheme = useMemo(() => {
     const streakAccent = streakFrozen ? '#4DA6FF' : '#FF7A2F';
     return {
@@ -122,25 +123,25 @@ const HabitsScreen = () => {
   }, [isDark, themeColors, streakFrozen]);
   const habitModal = useMemo(
     () => ({
-      gradient: isDark ? ['#0F3D2E', '#0EA5A6'] : ['#34D399', '#22D3EE'],
-      surface: isDark ? '#0C1F18' : '#FFFFFF',
-      border: isDark ? 'rgba(52, 211, 153, 0.35)' : '#C7F5E6',
-      fieldBg: isDark ? '#112A20' : '#F0FFFA',
-      fieldBorder: isDark ? 'rgba(52, 211, 153, 0.35)' : '#BDEFE1',
+      gradient: isDark ? ['#3B0764', '#6D28D9'] : ['#A855F7', '#7C3AED'],
+      surface: isDark ? '#1C1330' : '#FFFFFF',
+      border: isDark ? 'rgba(168, 85, 247, 0.4)' : '#E8D5FF',
+      fieldBg: isDark ? '#2A1B3D' : '#F7F0FF',
+      fieldBorder: isDark ? 'rgba(168, 85, 247, 0.4)' : '#E0C7FF',
       headerText: '#FFFFFF',
       headerSubText: 'rgba(255, 255, 255, 0.85)',
-      iconBg: 'rgba(255, 255, 255, 0.2)',
-      closeBg: 'rgba(255, 255, 255, 0.22)',
-      chipBg: isDark ? 'rgba(45, 212, 191, 0.2)' : '#D5F7F1',
-      chipBorder: isDark ? 'rgba(45, 212, 191, 0.35)' : '#BCEEE6',
-      chipText: isDark ? '#A7F3D0' : '#0F766E',
-      chipActiveBg: isDark ? '#10B981' : '#34D399',
-      chipActiveBorder: isDark ? '#34D399' : '#10B981',
+      iconBg: isDark ? 'rgba(168, 85, 247, 0.35)' : '#E9D5FF',
+      closeBg: isDark ? 'rgba(168, 85, 247, 0.35)' : '#E9D5FF',
+      chipBg: isDark ? 'rgba(168, 85, 247, 0.18)' : '#F0DBFF',
+      chipBorder: isDark ? 'rgba(168, 85, 247, 0.35)' : '#E6C6FF',
+      chipText: isDark ? '#E9D5FF' : '#6D28D9',
+      chipActiveBg: isDark ? '#A855F7' : '#C084FC',
+      chipActiveBorder: isDark ? '#C084FC' : '#A855F7',
       chipActiveText: '#FFFFFF',
-      actionGradient: isDark ? ['#10B981', '#22D3EE'] : ['#34D399', '#22D3EE'],
-      secondaryBg: isDark ? '#122117' : '#F3F4F6',
-      secondaryBorder: isDark ? '#1F3B2B' : '#E5E7EB',
-      secondaryText: themeColors.text,
+      actionGradient: isDark ? ['#A855F7', '#7C3AED'] : ['#A855F7', '#7C3AED'],
+      secondaryBg: isDark ? '#2A1B3D' : '#E9D5FF',
+      secondaryBorder: isDark ? '#6D28D9' : '#A855F7',
+      secondaryText: isDark ? '#E9D5FF' : '#6D28D9',
       accent: themeColors.habits,
     }),
     [isDark, themeColors]
@@ -720,6 +721,7 @@ const HabitsScreen = () => {
         hideHeader
         showCloseButton={false}
         contentStyle={{ paddingHorizontal: spacing.md }}
+        contentContainerStyle={{ paddingBottom: modalBottomPadding }}
       >
         <View style={[styles.modalScreen, { paddingTop: modalTopPadding }]}>
           <View
