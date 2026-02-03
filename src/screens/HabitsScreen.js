@@ -62,7 +62,7 @@ const HabitsScreen = () => {
     ensureHabitsLoaded,
   } = useApp();
   const isDark = themeName === 'dark';
-  const modalTopPadding = Math.max(spacing.lg, insets.top);
+  const modalTopPadding = Math.max(spacing.md, insets.top);
   const habitTheme = useMemo(() => {
     const streakAccent = streakFrozen ? '#4DA6FF' : '#FF7A2F';
     return {
@@ -719,6 +719,7 @@ const HabitsScreen = () => {
         fullScreen
         hideHeader
         showCloseButton={false}
+        contentStyle={{ paddingHorizontal: spacing.md }}
       >
         <View style={[styles.modalScreen, { paddingTop: modalTopPadding }]}>
           <View
@@ -1477,8 +1478,8 @@ const createStyles = (themeColors) => StyleSheet.create({
     color: '#FFFFFF',
   },
   modalScreen: {
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.xl,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
   },
   modalCard: {
     borderRadius: borderRadius.xl,

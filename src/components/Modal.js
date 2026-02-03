@@ -29,6 +29,8 @@ const Modal = ({
   swipeToCloseEnabled = true,
   scrollEnabled = true,
   containerStyle,
+  contentStyle,
+  contentContainerStyle,
 }) => {
   const { themeColors } = useApp();
   const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
@@ -109,10 +111,11 @@ const Modal = ({
           )}
           {fullScreen ? (
             <ScrollView
-              style={[styles.content, styles.fullScreenContent]}
+              style={[styles.content, styles.fullScreenContent, contentStyle]}
               contentContainerStyle={[
                 styles.fullScreenContentContainer,
                 { paddingBottom: contentBottomPadding, paddingTop: contentTopPadding },
+                contentContainerStyle,
               ]}
               showsVerticalScrollIndicator
               keyboardShouldPersistTaps="always"
@@ -126,11 +129,14 @@ const Modal = ({
             </ScrollView>
           ) : (
             <ScrollView
-              style={styles.content}
-              contentContainerStyle={{
-                paddingBottom: contentBottomPadding,
-                paddingTop: contentTopPadding,
-              }}
+              style={[styles.content, contentStyle]}
+              contentContainerStyle={[
+                {
+                  paddingBottom: contentBottomPadding,
+                  paddingTop: contentTopPadding,
+                },
+                contentContainerStyle,
+              ]}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               scrollEnabled={scrollEnabled}

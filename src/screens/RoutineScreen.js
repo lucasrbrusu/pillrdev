@@ -235,7 +235,9 @@ const RoutineScreen = () => {
       [isDark, themeColors]
     );
     const modalThemes = useMemo(
-      () => ({
+      () => {
+        const routineTheme = sectionThemes.routine;
+        return {
         chore: {
           gradient: isDark ? ['#0F172A', '#1D4ED8'] : ['#38BDF8', '#2563EB'],
           surface: isDark ? '#0B1220' : '#FFFFFF',
@@ -281,29 +283,30 @@ const RoutineScreen = () => {
           accent: themeColors.health,
         },
         routine: {
-          gradient: isDark ? ['#4C1D95', '#DB2777'] : ['#A855F7', '#EC4899'],
-          surface: isDark ? '#1C1330' : '#FFFFFF',
-          border: isDark ? 'rgba(168, 85, 247, 0.4)' : '#E8D5FF',
-          fieldBg: isDark ? '#2A1B3D' : '#F7F0FF',
-          fieldBorder: isDark ? 'rgba(168, 85, 247, 0.4)' : '#E0C7FF',
-          headerText: '#FFFFFF',
-          headerSubText: 'rgba(255, 255, 255, 0.85)',
-          iconBg: 'rgba(255, 255, 255, 0.2)',
-          closeBg: 'rgba(255, 255, 255, 0.22)',
-          chipBg: isDark ? 'rgba(168, 85, 247, 0.18)' : '#F0DBFF',
-          chipBorder: isDark ? 'rgba(168, 85, 247, 0.35)' : '#E6C6FF',
-          chipText: isDark ? '#E9D5FF' : '#6D28D9',
-          chipActiveBg: isDark ? '#A855F7' : '#C084FC',
-          chipActiveBorder: isDark ? '#C084FC' : '#A855F7',
-          chipActiveText: '#FFFFFF',
-          actionGradient: isDark ? ['#A855F7', '#EC4899'] : ['#C084FC', '#F472B6'],
-          secondaryBg: isDark ? '#201727' : '#F3F4F6',
-          secondaryBorder: isDark ? '#302236' : '#E5E7EB',
+          gradient: [routineTheme.header, routineTheme.card],
+          surface: routineTheme.card,
+          border: routineTheme.border,
+          fieldBg: routineTheme.sectionBg,
+          fieldBorder: routineTheme.itemBorder,
+          headerText: themeColors.text,
+          headerSubText: routineTheme.muted,
+          iconBg: routineTheme.iconBg,
+          closeBg: routineTheme.sectionBg,
+          chipBg: routineTheme.sectionBg,
+          chipBorder: routineTheme.itemBorder,
+          chipText: routineTheme.muted,
+          chipActiveBg: routineTheme.accent,
+          chipActiveBorder: routineTheme.accent,
+          chipActiveText: isDark ? '#1F1305' : '#FFFFFF',
+          actionGradient: [routineTheme.iconBg, routineTheme.accent],
+          secondaryBg: routineTheme.sectionBg,
+          secondaryBorder: routineTheme.itemBorder,
           secondaryText: themeColors.text,
-          accent: themeColors.primary,
+          accent: routineTheme.accent,
         },
-      }),
-      [isDark, themeColors]
+      };
+      },
+      [isDark, themeColors, sectionThemes]
     );
     const routineModal = modalThemes.routine;
     const choreModal = modalThemes.chore;
@@ -1002,7 +1005,7 @@ const RoutineScreen = () => {
               <LinearGradient colors={routineModal.gradient} style={styles.modalHeader}>
                 <View style={styles.modalHeaderContent}>
                   <View style={[styles.modalIconBadge, { backgroundColor: routineModal.iconBg }]}>
-                    <Ionicons name="sparkles" size={18} color={routineModal.headerText} />
+                    <Ionicons name="sunny" size={18} color={routineModal.headerText} />
                   </View>
                   <View style={styles.modalHeaderText}>
                     <Text style={[styles.modalTitle, { color: routineModal.headerText }]}>
