@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -24,6 +24,7 @@ import {
   borderRadius,
   spacing,
   typography,
+  defaultCurrencies,
 } from '../utils/theme';
 
 const getInitials = (name, email) => {
@@ -37,7 +38,17 @@ const getInitials = (name, email) => {
 const EditProfileScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { profile, updateProfile, deleteAccount, themeColors, themeName, tasks, getBestStreak } = useApp();
+  const {
+    profile,
+    updateProfile,
+    updateUserSettings,
+    deleteAccount,
+    themeColors,
+    themeName,
+    tasks,
+    getBestStreak,
+    userSettings,
+  } = useApp();
   const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
   const isDark = themeName === 'dark';
   const profileTheme = React.useMemo(
@@ -84,18 +95,34 @@ const EditProfileScreen = () => {
   const [calorieGoal, setCalorieGoal] = useState(String(profile.dailyCalorieGoal));
   const [waterGoal, setWaterGoal] = useState(String(profile.dailyWaterGoal));
   const [sleepGoal, setSleepGoal] = useState(String(profile.dailySleepGoal));
+  const [defaultCurrencyCode, setDefaultCurrencyCode] = useState(
+    userSettings?.defaultCurrencyCode || 'USD'
+  );
   const [deleting, setDeleting] = useState(false);
 
+  useEffect(() => {
+    if (userSettings?.defaultCurrencyCode) {
+      setDefaultCurrencyCode(userSettings.defaultCurrencyCode);
+    }
+  }, [userSettings?.defaultCurrencyCode]);
+
   const handleSave = async () => {
-    await updateProfile({
-      name: name.trim(),
-      email: email.trim(),
-      photo,
-      dailyCalorieGoal: parseInt(calorieGoal) || 2000,
-      dailyWaterGoal: parseFloat(waterGoal) || 2,
-      dailySleepGoal: parseInt(sleepGoal) || 8,
-    });
-    navigation.goBack();
+    try {
+      await updateProfile({
+        name: name.trim(),
+        email: email.trim(),
+        photo,
+        dailyCalorieGoal: parseInt(calorieGoal) || 2000,
+        dailyWaterGoal: parseFloat(waterGoal) || 2,
+        dailySleepGoal: parseInt(sleepGoal) || 8,
+      });
+      await updateUserSettings({
+        defaultCurrencyCode,
+      });
+      navigation.goBack();
+    } catch (error) {
+      Alert.alert('Save failed', error?.message || 'Unable to save your changes.');
+    }
   };
 
   const handleChangePhoto = async () => {
@@ -315,6 +342,56 @@ const EditProfileScreen = () => {
               <Text style={styles.changePasswordText}>Change Password</Text>
             </LinearGradient>
           </TouchableOpacity>
+        </Card>
+
+        {/* Currency */}
+        <Card
+          style={[
+            styles.sectionCard,
+            { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder },
+          ]}
+        >
+          <Text style={styles.sectionTitle}>Currency</Text>
+          <Text style={styles.sectionSubtitle}>
+            Set the default currency shown across budgets, balances, and insights.
+          </Text>
+          <View style={styles.currencyList}>
+            {defaultCurrencies.map((currency) => {
+              const isSelected = defaultCurrencyCode === currency.code;
+              return (
+                <TouchableOpacity
+                  key={currency.code}
+                  style={[
+                    styles.currencyRow,
+                    isSelected && styles.currencyRowSelected,
+                  ]}
+                  onPress={() => setDefaultCurrencyCode(currency.code)}
+                >
+                  <View
+                    style={[
+                      styles.currencyIcon,
+                      isSelected && styles.currencyIconSelected,
+                    ]}
+                  >
+                    <Text style={styles.currencySymbol}>{currency.symbol}</Text>
+                  </View>
+                  <View style={styles.currencyMeta}>
+                    <Text style={styles.currencyCode}>{currency.code}</Text>
+                    <Text style={styles.currencyName}>{currency.name}</Text>
+                  </View>
+                  <Ionicons
+                    name={isSelected ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={20}
+                    color={
+                      isSelected
+                        ? themeColors.primary
+                        : themeColors.textLight
+                    }
+                  />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </Card>
 
         {/* Health Goals */}
@@ -598,6 +675,11 @@ const createStyles = (themeColorsParam = colors) => {
       marginBottom: spacing.md,
       color: baseText,
     },
+    sectionSubtitle: {
+      ...typography.bodySmall,
+      color: mutedText,
+      marginBottom: spacing.md,
+    },
     formInputContainer: {
       marginBottom: spacing.md,
     },
@@ -628,6 +710,54 @@ const createStyles = (themeColorsParam = colors) => {
       ...typography.bodySmall,
       color: '#FFFFFF',
       fontWeight: '700',
+    },
+    currencyList: {
+      gap: spacing.sm,
+    },
+    currencyRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: spacing.md,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: themeColorsParam?.border || colors.border,
+      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
+    },
+    currencyRowSelected: {
+      borderColor: themeColorsParam?.primary || colors.primary,
+      backgroundColor: `${themeColorsParam?.primary || colors.primary}12`,
+    },
+    currencyIcon: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.md,
+      backgroundColor: themeColorsParam?.card || colors.card,
+      borderWidth: 1,
+      borderColor: themeColorsParam?.border || colors.border,
+    },
+    currencyIconSelected: {
+      borderColor: themeColorsParam?.primary || colors.primary,
+    },
+    currencySymbol: {
+      ...typography.body,
+      color: baseText,
+      fontWeight: '700',
+    },
+    currencyMeta: {
+      flex: 1,
+    },
+    currencyCode: {
+      ...typography.body,
+      color: baseText,
+      fontWeight: '600',
+    },
+    currencyName: {
+      ...typography.caption,
+      color: mutedText,
+      marginTop: 2,
     },
     actionItem: {
       flexDirection: 'row',
