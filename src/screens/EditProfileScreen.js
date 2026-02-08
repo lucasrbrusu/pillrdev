@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -41,7 +41,6 @@ const EditProfileScreen = () => {
   const {
     profile,
     updateProfile,
-    updateUserSettings,
     deleteAccount,
     themeColors,
     themeName,
@@ -95,16 +94,12 @@ const EditProfileScreen = () => {
   const [calorieGoal, setCalorieGoal] = useState(String(profile.dailyCalorieGoal));
   const [waterGoal, setWaterGoal] = useState(String(profile.dailyWaterGoal));
   const [sleepGoal, setSleepGoal] = useState(String(profile.dailySleepGoal));
-  const [defaultCurrencyCode, setDefaultCurrencyCode] = useState(
-    userSettings?.defaultCurrencyCode || 'USD'
-  );
   const [deleting, setDeleting] = useState(false);
 
-  useEffect(() => {
-    if (userSettings?.defaultCurrencyCode) {
-      setDefaultCurrencyCode(userSettings.defaultCurrencyCode);
-    }
-  }, [userSettings?.defaultCurrencyCode]);
+  const currentCurrency =
+    defaultCurrencies.find(
+      (currency) => currency.code === userSettings?.defaultCurrencyCode
+    ) || defaultCurrencies[0];
 
   const handleSave = async () => {
     try {
@@ -115,9 +110,6 @@ const EditProfileScreen = () => {
         dailyCalorieGoal: parseInt(calorieGoal) || 2000,
         dailyWaterGoal: parseFloat(waterGoal) || 2,
         dailySleepGoal: parseInt(sleepGoal) || 8,
-      });
-      await updateUserSettings({
-        defaultCurrencyCode,
       });
       navigation.goBack();
     } catch (error) {
@@ -150,6 +142,10 @@ const EditProfileScreen = () => {
 
   const handleExportData = () => {
     Alert.alert('Export Data', 'Your data export would be prepared here');
+  };
+
+  const handleOpenCurrency = () => {
+    navigation.navigate('Currency');
   };
 
   const handleDeleteAccount = () => {
@@ -353,45 +349,32 @@ const EditProfileScreen = () => {
         >
           <Text style={styles.sectionTitle}>Currency</Text>
           <Text style={styles.sectionSubtitle}>
-            Set the default currency shown across budgets, balances, and insights.
+            Choose the default currency used across your finances.
           </Text>
-          <View style={styles.currencyList}>
-            {defaultCurrencies.map((currency) => {
-              const isSelected = defaultCurrencyCode === currency.code;
-              return (
-                <TouchableOpacity
-                  key={currency.code}
-                  style={[
-                    styles.currencyRow,
-                    isSelected && styles.currencyRowSelected,
-                  ]}
-                  onPress={() => setDefaultCurrencyCode(currency.code)}
-                >
-                  <View
-                    style={[
-                      styles.currencyIcon,
-                      isSelected && styles.currencyIconSelected,
-                    ]}
-                  >
-                    <Text style={styles.currencySymbol}>{currency.symbol}</Text>
-                  </View>
-                  <View style={styles.currencyMeta}>
-                    <Text style={styles.currencyCode}>{currency.code}</Text>
-                    <Text style={styles.currencyName}>{currency.name}</Text>
-                  </View>
-                  <Ionicons
-                    name={isSelected ? 'checkmark-circle' : 'ellipse-outline'}
-                    size={20}
-                    color={
-                      isSelected
-                        ? themeColors.primary
-                        : themeColors.textLight
-                    }
-                  />
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <TouchableOpacity
+            style={styles.settingsRow}
+            onPress={handleOpenCurrency}
+          >
+            <View style={styles.settingsLeft}>
+              <View style={styles.settingsIcon}>
+                <Ionicons name="cash-outline" size={18} color={themeColors.text} />
+              </View>
+              <View>
+                <Text style={styles.settingsLabel}>Default currency</Text>
+                <Text style={styles.settingsValue}>
+                  {currentCurrency.code} · {currentCurrency.name}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.settingsRight}>
+              <Text style={styles.settingsCode}>{currentCurrency.symbol}</Text>
+              <Ionicons
+                name="chevron-forward"
+                size={20}
+                color={themeColors.textLight}
+              />
+            </View>
+          </TouchableOpacity>
         </Card>
 
         {/* Health Goals */}
@@ -711,53 +694,52 @@ const createStyles = (themeColorsParam = colors) => {
       color: '#FFFFFF',
       fontWeight: '700',
     },
-    currencyList: {
-      gap: spacing.sm,
-    },
-    currencyRow: {
+    settingsRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      padding: spacing.md,
+      justifyContent: 'space-between',
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
       borderRadius: borderRadius.lg,
       borderWidth: 1,
       borderColor: themeColorsParam?.border || colors.border,
       backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
     },
-    currencyRowSelected: {
-      borderColor: themeColorsParam?.primary || colors.primary,
-      backgroundColor: `${themeColorsParam?.primary || colors.primary}12`,
+    settingsLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
+      gap: spacing.md,
     },
-    currencyIcon: {
-      width: 38,
-      height: 38,
-      borderRadius: 19,
+    settingsIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
       alignItems: 'center',
       justifyContent: 'center',
-      marginRight: spacing.md,
       backgroundColor: themeColorsParam?.card || colors.card,
       borderWidth: 1,
       borderColor: themeColorsParam?.border || colors.border,
     },
-    currencyIconSelected: {
-      borderColor: themeColorsParam?.primary || colors.primary,
-    },
-    currencySymbol: {
-      ...typography.body,
-      color: baseText,
-      fontWeight: '700',
-    },
-    currencyMeta: {
-      flex: 1,
-    },
-    currencyCode: {
+    settingsLabel: {
       ...typography.body,
       color: baseText,
       fontWeight: '600',
     },
-    currencyName: {
+    settingsValue: {
       ...typography.caption,
       color: mutedText,
       marginTop: 2,
+    },
+    settingsRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    settingsCode: {
+      ...typography.body,
+      color: baseText,
+      fontWeight: '700',
     },
     actionItem: {
       flexDirection: 'row',

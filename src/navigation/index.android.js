@@ -27,6 +27,7 @@ import FinanceScreen from '../screens/FinanceScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import ChangePasswordScreen from '../screens/ChangePasswordScreen';
+import CurrencyScreen from '../screens/CurrencyScreen';
 import CalendarScreen from '../screens/CalendarScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import AuthScreen from '../screens/AuthScreen';
@@ -265,6 +266,7 @@ const Navigation = () => {
           <Stack.Screen name="Profile" component={ProfileScreen} />
           <Stack.Screen name="Paywall" component={PaywallScreen} />
           <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+          <Stack.Screen name="Currency" component={CurrencyScreen} />
           <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
           <Stack.Screen name="Finance" component={FinanceScreen} />
           <Stack.Screen
