@@ -68,6 +68,8 @@ const HomeScreen = () => {
     ensureHomeDataLoaded,
     ensureFriendDataLoaded,
     ensureTaskInvitesLoaded,
+    ensureWeightManagerLogsLoaded,
+    weightManagerLogs,
     themeName,
   } = useApp();
   const isDark = themeName === 'dark';
@@ -78,6 +80,7 @@ const HomeScreen = () => {
     const stillActive = expiresAt ? expiresAt > new Date() : false;
     return !!(profile?.isPremium || plan === 'premium' || plan === 'paid' || stillActive);
   }, [profile]);
+  const isWeightManagerLocked = !isPremium;
 
   const sectionListTheme = React.useMemo(
     () => ({
@@ -199,10 +202,58 @@ const HomeScreen = () => {
       weightUnit,
     ]
   );
-  const currentWeightDisplay = weightManagerState?.currentWeight
-    ? `${weightManagerState.currentWeight} ${weightUnit}`
+  const profileWeightManagerPlan = React.useMemo(() => {
+    const targetCalories = Number(profile?.weightManagerTargetCalories);
+    const proteinGrams = Number(profile?.weightManagerProteinGrams);
+    const carbsGrams = Number(profile?.weightManagerCarbsGrams);
+    const fatGrams = Number(profile?.weightManagerFatGrams);
+    const hasTargets = [
+      targetCalories,
+      proteinGrams,
+      carbsGrams,
+      fatGrams,
+    ].some((value) => Number.isFinite(value) && value > 0);
+    if (!hasTargets) return null;
+    return {
+      targetCalories: Number.isFinite(targetCalories) && targetCalories > 0 ? targetCalories : null,
+      proteinGrams: Number.isFinite(proteinGrams) && proteinGrams > 0 ? proteinGrams : null,
+      carbsGrams: Number.isFinite(carbsGrams) && carbsGrams > 0 ? carbsGrams : null,
+      fatGrams: Number.isFinite(fatGrams) && fatGrams > 0 ? fatGrams : null,
+    };
+  }, [
+    profile?.weightManagerTargetCalories,
+    profile?.weightManagerProteinGrams,
+    profile?.weightManagerCarbsGrams,
+    profile?.weightManagerFatGrams,
+  ]);
+  const weightManagerPlanDisplay = weightManagerPlan || profileWeightManagerPlan;
+  const weightManagerLatestLog = React.useMemo(
+    () => (weightManagerLogs?.length ? weightManagerLogs[0] : null),
+    [weightManagerLogs]
+  );
+  const weightManagerEarliestLog = React.useMemo(() => {
+    if (!weightManagerLogs?.length) return null;
+    return weightManagerLogs[weightManagerLogs.length - 1];
+  }, [weightManagerLogs]);
+  const startingWeightValue = Number(weightManagerState?.currentWeight);
+  const weightManagerStartingValue = Number.isFinite(startingWeightValue)
+    ? { value: startingWeightValue, unit: weightUnit }
+    : Number.isFinite(weightManagerEarliestLog?.weight)
+      ? {
+          value: weightManagerEarliestLog.weight,
+          unit: weightManagerEarliestLog.unit || weightUnit,
+        }
+      : null;
+  const weightManagerCurrentValue = Number.isFinite(weightManagerLatestLog?.weight)
+    ? { value: weightManagerLatestLog.weight, unit: weightManagerLatestLog.unit || weightUnit }
+    : weightManagerStartingValue;
+  const weightManagerStartingDisplay = weightManagerStartingValue
+    ? `${weightManagerStartingValue.value} ${weightManagerStartingValue.unit}`
     : '--';
-  const targetWeightDisplay = weightManagerState?.targetWeight
+  const weightManagerCurrentDisplay = weightManagerCurrentValue
+    ? `${weightManagerCurrentValue.value} ${weightManagerCurrentValue.unit}`
+    : '--';
+  const weightManagerTargetDisplay = weightManagerState?.targetWeight
     ? `${weightManagerState.targetWeight} ${weightUnit}`
     : '--';
   const targetBodyType = WEIGHT_MANAGER_BODY_TYPES.find(
@@ -348,7 +399,13 @@ const HomeScreen = () => {
     ensureHomeDataLoaded();
     ensureFriendDataLoaded();
     ensureTaskInvitesLoaded();
-  }, [ensureFriendDataLoaded, ensureHomeDataLoaded, ensureTaskInvitesLoaded]);
+    ensureWeightManagerLogsLoaded();
+  }, [
+    ensureFriendDataLoaded,
+    ensureHomeDataLoaded,
+    ensureTaskInvitesLoaded,
+    ensureWeightManagerLogsLoaded,
+  ]);
 
   React.useEffect(() => {
     loadWeightManagerState();
@@ -1119,11 +1176,10 @@ const HomeScreen = () => {
           </LinearGradient>
         </Card>
 
-        {isPremium && (
-          <Card
-            style={[styles.sectionCard, styles.sectionCardGradient]}
-            onPress={() => navigation.navigate('WeightManager')}
-          >
+        <Card
+          style={[styles.sectionCard, styles.sectionCardGradient]}
+          onPress={() => navigation.navigate('WeightManager')}
+        >
             <LinearGradient
               colors={sectionListTheme.weightManager.gradient}
               start={{ x: 0, y: 0 }}
@@ -1148,19 +1204,37 @@ const HomeScreen = () => {
                   <Ionicons name="chevron-forward" size={20} color={sectionListTheme.weightManager.text} />
                 </View>
 
+                <Text style={[styles.weightManagerSubtitle, { color: sectionListTheme.weightManager.meta }]}>
+                  {targetBodyType?.label
+                    ? `Target: ${targetBodyType.label}`
+                    : 'Set your target body type'}
+                </Text>
+
+                {!weightManagerPlanDisplay && (
+                  <Text style={[styles.weightManagerEmpty, { color: sectionListTheme.weightManager.meta }]}>
+                    Add your current and target weights to unlock daily targets.
+                  </Text>
+                )}
+
                 <View style={styles.weightManagerContent}>
                   <View style={styles.weightManagerWeights}>
+                    <Text style={[styles.weightManagerLabel, { color: sectionListTheme.weightManager.meta }]}>
+                      Starting
+                    </Text>
+                    <Text style={[styles.weightManagerValue, { color: sectionListTheme.weightManager.text }]}>
+                      {weightManagerStartingDisplay}
+                    </Text>
                     <Text style={[styles.weightManagerLabel, { color: sectionListTheme.weightManager.meta }]}>
                       Current
                     </Text>
                     <Text style={[styles.weightManagerValue, { color: sectionListTheme.weightManager.text }]}>
-                      {currentWeightDisplay}
+                      {weightManagerCurrentDisplay}
                     </Text>
                     <Text style={[styles.weightManagerLabel, { color: sectionListTheme.weightManager.meta }]}>
                       Target
                     </Text>
                     <Text style={[styles.weightManagerValue, { color: sectionListTheme.weightManager.text }]}>
-                      {targetWeightDisplay}
+                      {weightManagerTargetDisplay}
                     </Text>
                   </View>
 
@@ -1172,7 +1246,7 @@ const HomeScreen = () => {
                       ]}
                     >
                       <Text style={[styles.weightManagerCalorieValue, { color: sectionListTheme.weightManager.text }]}>
-                        {weightManagerPlan?.targetCalories ?? '--'}
+                        {weightManagerPlanDisplay?.targetCalories ?? '--'}
                       </Text>
                       <Text style={[styles.weightManagerCalorieLabel, { color: sectionListTheme.weightManager.meta }]}>
                         cal/day
@@ -1182,8 +1256,11 @@ const HomeScreen = () => {
 
                   <View style={styles.weightManagerBodyType}>
                     {renderWeightManagerBodyType()}
+                    <Text style={[styles.weightManagerLabel, { color: sectionListTheme.weightManager.meta }]}>
+                      Target type
+                    </Text>
                     <Text style={[styles.weightManagerBodyLabel, { color: sectionListTheme.weightManager.text }]}>
-                      {targetBodyType?.label || 'Target type'}
+                      {targetBodyType?.label || '--'}
                     </Text>
                   </View>
                 </View>
@@ -1194,7 +1271,7 @@ const HomeScreen = () => {
                       Protein
                     </Text>
                     <Text style={[styles.weightManagerMacroValue, { color: sectionListTheme.weightManager.text }]}>
-                      {formatWeightManagerMacro(weightManagerPlan?.proteinGrams)}
+                      {formatWeightManagerMacro(weightManagerPlanDisplay?.proteinGrams)}
                     </Text>
                   </View>
                   <View style={styles.weightManagerMacroItem}>
@@ -1202,7 +1279,7 @@ const HomeScreen = () => {
                       Carbs
                     </Text>
                     <Text style={[styles.weightManagerMacroValue, { color: sectionListTheme.weightManager.text }]}>
-                      {formatWeightManagerMacro(weightManagerPlan?.carbsGrams)}
+                      {formatWeightManagerMacro(weightManagerPlanDisplay?.carbsGrams)}
                     </Text>
                   </View>
                   <View style={styles.weightManagerMacroItem}>
@@ -1210,14 +1287,27 @@ const HomeScreen = () => {
                       Fat
                     </Text>
                     <Text style={[styles.weightManagerMacroValue, { color: sectionListTheme.weightManager.text }]}>
-                      {formatWeightManagerMacro(weightManagerPlan?.fatGrams)}
+                      {formatWeightManagerMacro(weightManagerPlanDisplay?.fatGrams)}
                     </Text>
                   </View>
                 </View>
+                {isWeightManagerLocked && (
+                  <View pointerEvents="none" style={styles.weightManagerLockOverlay}>
+                    <View style={styles.weightManagerLockScrim} />
+                    <View style={styles.weightManagerLockContent}>
+                      <Ionicons name="lock-closed" size={20} color={sectionListTheme.weightManager.text} />
+                      <Text style={[styles.weightManagerLockTitle, { color: sectionListTheme.weightManager.text }]}>
+                        Upgrade to Premium
+                      </Text>
+                      <Text style={[styles.weightManagerLockSubtitle, { color: sectionListTheme.weightManager.meta }]}>
+                        Unlock weight targets and daily macro goals.
+                      </Text>
+                    </View>
+                  </View>
+                )}
               </View>
             </LinearGradient>
           </Card>
-        )}
 
         {/* Your Habits */}
         <Card
@@ -1718,6 +1808,14 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
     justifyContent: 'space-between',
     marginBottom: spacing.md,
   },
+  weightManagerSubtitle: {
+    ...typography.caption,
+    marginBottom: spacing.sm,
+  },
+  weightManagerEmpty: {
+    ...typography.bodySmall,
+    marginBottom: spacing.md,
+  },
   weightManagerWeights: {
     flex: 1,
   },
@@ -1821,6 +1919,31 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
   weightManagerMacroValue: {
     ...typography.bodySmall,
     fontWeight: '700',
+  },
+  weightManagerLockOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weightManagerLockScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  weightManagerLockContent: {
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  weightManagerLockTitle: {
+    ...typography.bodySmall,
+    fontWeight: '700',
+    marginTop: spacing.xs,
+  },
+  weightManagerLockSubtitle: {
+    ...typography.caption,
+    marginTop: spacing.xs,
+    textAlign: 'center',
   },
     healthPrompt: {
       flexDirection: 'row',
