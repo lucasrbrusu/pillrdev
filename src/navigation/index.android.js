@@ -27,6 +27,7 @@ import FinanceScreen from '../screens/FinanceScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import ChangePasswordScreen from '../screens/ChangePasswordScreen';
+import CurrencyScreen from '../screens/CurrencyScreen';
 import CalendarScreen from '../screens/CalendarScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import AuthScreen from '../screens/AuthScreen';
@@ -45,6 +46,7 @@ import FocusModeScreen from '../screens/FocusModeScreen';
 import CountdownTimerScreen from '../screens/CountdownTimerScreen';
 import InsightsScreen from '../screens/InsightsScreen';
 import BudgetGroupInsightScreen from '../screens/BudgetGroupInsightScreen';
+import SpendingInsightsScreen from '../screens/SpendingInsightsScreen';
 import FriendProfileScreen from '../screens/FriendProfileScreen';
 import PaywallScreen from '../screens/PaywallScreen';
 import WeightManagerScreen from '../screens/WeightManagerScreen';
@@ -264,8 +266,13 @@ const Navigation = () => {
           <Stack.Screen name="Profile" component={ProfileScreen} />
           <Stack.Screen name="Paywall" component={PaywallScreen} />
           <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+          <Stack.Screen name="Currency" component={CurrencyScreen} />
           <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
           <Stack.Screen name="Finance" component={FinanceScreen} />
+          <Stack.Screen
+            name="SpendingInsights"
+            component={SpendingInsightsScreen}
+          />
           <Stack.Screen name="PrivacySecurity" component={PrivacySecurityScreen} />
           <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
           <Stack.Screen

@@ -181,7 +181,6 @@ const FinanceScreen = () => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showIncomeModal, setShowIncomeModal] = useState(false);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
-  const [showChartModal, setShowChartModal] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [showRecurringModal, setShowRecurringModal] = useState(false);
@@ -437,36 +436,6 @@ const FinanceScreen = () => {
   const getCategoryLabel = (categoryId) =>
     expenseCategories.find((cat) => cat.id === categoryId)?.name || categoryId;
 
-  // Simple bar chart data (last 7 days)
-  const chartData = useMemo(() => {
-    const days = [];
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toDateString();
-      const dayTransactions = finances.filter(
-        (t) => new Date(t.date).toDateString() === dateStr
-      );
-      const income = dayTransactions
-        .filter((t) => t.type === 'income')
-        .reduce((sum, t) => sum + t.amount, 0);
-      const expenses = dayTransactions
-        .filter((t) => t.type === 'expense')
-        .reduce((sum, t) => sum + t.amount, 0);
-      days.push({
-        date: date.toLocaleDateString('en-US', { weekday: 'short' }),
-        income,
-        expenses,
-      });
-    }
-    return days;
-  }, [finances]);
-
-  const maxChartValue = Math.max(
-    ...chartData.map((d) => Math.max(d.income, d.expenses)),
-    1
-  );
-
   const shiftSelectedDate = (days) => {
     setSelectedDate((prev) => {
       const next = new Date(prev);
@@ -510,6 +479,12 @@ const FinanceScreen = () => {
   const openBudgetGroupInsight = (groupId) => {
     if (!groupId) return;
     navigation.navigate('BudgetGroupInsight', { groupId });
+  };
+
+  const openSpendingInsights = () => {
+    navigation.navigate('SpendingInsights', {
+      selectedDate: selectedDate.toISOString(),
+    });
   };
 
   const monthlyWindowLabel = formatWindowLabel(monthStart, nextMonthStart);
@@ -596,7 +571,7 @@ const FinanceScreen = () => {
         </View>
 
         {/* Balance Card */}
-        <Card style={styles.balanceCard} onPress={() => setShowChartModal(true)}>
+        <Card style={styles.balanceCard} onPress={openSpendingInsights}>
           <LinearGradient
             colors={balanceGradient}
             start={{ x: 0, y: 0 }}
@@ -647,7 +622,7 @@ const FinanceScreen = () => {
 
         {premiumActive ? (
           <>
-            <Card style={styles.insightsCard}>
+            <Card style={styles.insightsCard} onPress={openSpendingInsights}>
               <View style={styles.insightsHeader}>
                 <View>
                   <Text style={styles.sectionTitle}>Spending insights</Text>
@@ -655,17 +630,30 @@ const FinanceScreen = () => {
                     {monthlyWindowLabel}
                   </Text>
                 </View>
-                <View style={styles.insightsStats}>
-                  <Text style={styles.subduedLabel}>Net</Text>
-                  <Text
-                    style={[
-                      styles.insightsNet,
-                      monthlyIncome - monthlyExpenses < 0 &&
-                        styles.balanceNegative,
-                    ]}
+                <View style={styles.insightsRight}>
+                  <TouchableOpacity
+                    style={styles.inlineLink}
+                    onPress={openSpendingInsights}
                   >
-                    {formatCurrency(monthlyIncome - monthlyExpenses, true)}
-                  </Text>
+                    <Text style={styles.inlineLinkText}>View details</Text>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={16}
+                      color={palette.finance}
+                    />
+                  </TouchableOpacity>
+                  <View style={styles.insightsStats}>
+                    <Text style={styles.subduedLabel}>Net</Text>
+                    <Text
+                      style={[
+                        styles.insightsNet,
+                        monthlyIncome - monthlyExpenses < 0 &&
+                          styles.balanceNegative,
+                      ]}
+                    >
+                      {formatCurrency(monthlyIncome - monthlyExpenses, true)}
+                    </Text>
+                  </View>
                 </View>
               </View>
 
@@ -1369,60 +1357,6 @@ const FinanceScreen = () => {
         </View>
       </Modal>
 
-      {/* Chart Modal */}
-      <Modal
-        visible={showChartModal}
-        onClose={() => setShowChartModal(false)}
-        title="Weekly Overview"
-      >
-        <View style={styles.chartContainer}>
-          <View style={styles.chartBars}>
-            {chartData.map((day, index) => (
-              <View key={index} style={styles.chartDay}>
-                <View style={styles.barContainer}>
-                  <View
-                    style={[
-                      styles.bar,
-                      styles.incomeBar,
-                      { height: (day.income / maxChartValue) * 100 || 2 },
-                    ]}
-                  />
-                  <View
-                    style={[
-                      styles.bar,
-                      styles.expenseBar,
-                      { height: (day.expenses / maxChartValue) * 100 || 2 },
-                    ]}
-                  />
-                </View>
-                <Text style={styles.chartLabel}>{day.date}</Text>
-              </View>
-            ))}
-          </View>
-          <View style={styles.chartLegend}>
-            <View style={styles.legendItem}>
-              <View
-                style={[styles.legendDot, { backgroundColor: palette.income }]}
-              />
-              <Text style={styles.legendText}>Income</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View
-                style={[styles.legendDot, { backgroundColor: palette.expense }]}
-              />
-              <Text style={styles.legendText}>Expenses</Text>
-            </View>
-          </View>
-        </View>
-
-        <Button
-          title="Close"
-          variant="secondary"
-          onPress={() => setShowChartModal(false)}
-          style={styles.closeChartButton}
-        />
-      </Modal>
-
       {/* Date Picker Modal */}
       <PlatformDatePicker
         visible={showDatePicker}
@@ -1627,12 +1561,32 @@ const createStyles = (themeColorsParam, isDark = false) => {
       justifyContent: 'space-between',
       alignItems: 'center',
     },
+    insightsRight: {
+      alignItems: 'flex-end',
+      gap: spacing.xs,
+    },
     insightsSubtitle: {
       ...typography.caption,
       color: subduedText,
     },
     insightsStats: {
       alignItems: 'flex-end',
+    },
+    inlineLink: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+      borderRadius: borderRadius.full,
+      backgroundColor: `${palette.finance}12`,
+      borderWidth: 1,
+      borderColor: `${palette.finance}22`,
+    },
+    inlineLinkText: {
+      ...typography.caption,
+      color: palette.finance,
+      fontWeight: '600',
     },
     insightsNet: {
       ...typography.h3,
@@ -1681,10 +1635,6 @@ const createStyles = (themeColorsParam, isDark = false) => {
     legendValue: {
       ...typography.caption,
       color: subduedText,
-    },
-    legendText: {
-      ...typography.bodySmall,
-      color: text,
     },
     budgetCard: {
       marginBottom: spacing.lg,
@@ -2052,49 +2002,6 @@ const createStyles = (themeColorsParam, isDark = false) => {
     modalButton: {
       flex: 1,
       marginHorizontal: spacing.xs,
-    },
-    chartContainer: {
-      paddingVertical: spacing.lg,
-    },
-    chartBars: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'flex-end',
-      height: 120,
-      marginBottom: spacing.md,
-    },
-    chartDay: {
-      flex: 1,
-      alignItems: 'center',
-    },
-    barContainer: {
-      flexDirection: 'row',
-      alignItems: 'flex-end',
-      marginBottom: spacing.xs,
-    },
-    bar: {
-      width: 12,
-      marginHorizontal: 2,
-      borderRadius: 4,
-      minHeight: 2,
-    },
-    incomeBar: {
-      backgroundColor: palette.income,
-    },
-    expenseBar: {
-      backgroundColor: palette.expense,
-    },
-    chartLabel: {
-      ...typography.caption,
-      color: subduedText,
-    },
-    chartLegend: {
-      flexDirection: 'row',
-      justifyContent: 'center',
-      marginTop: spacing.md,
-    },
-    closeChartButton: {
-      marginBottom: spacing.lg,
     },
     iconButton: {
       padding: spacing.xs,

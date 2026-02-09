@@ -24,6 +24,7 @@ import {
   borderRadius,
   spacing,
   typography,
+  defaultCurrencies,
 } from '../utils/theme';
 
 const getInitials = (name, email) => {
@@ -37,7 +38,16 @@ const getInitials = (name, email) => {
 const EditProfileScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { profile, updateProfile, deleteAccount, themeColors, themeName, tasks, getBestStreak } = useApp();
+  const {
+    profile,
+    updateProfile,
+    deleteAccount,
+    themeColors,
+    themeName,
+    tasks,
+    getBestStreak,
+    userSettings,
+  } = useApp();
   const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
   const isDark = themeName === 'dark';
   const profileTheme = React.useMemo(
@@ -86,16 +96,25 @@ const EditProfileScreen = () => {
   const [sleepGoal, setSleepGoal] = useState(String(profile.dailySleepGoal));
   const [deleting, setDeleting] = useState(false);
 
+  const currentCurrency =
+    defaultCurrencies.find(
+      (currency) => currency.code === userSettings?.defaultCurrencyCode
+    ) || defaultCurrencies[0];
+
   const handleSave = async () => {
-    await updateProfile({
-      name: name.trim(),
-      email: email.trim(),
-      photo,
-      dailyCalorieGoal: parseInt(calorieGoal) || 2000,
-      dailyWaterGoal: parseFloat(waterGoal) || 2,
-      dailySleepGoal: parseInt(sleepGoal) || 8,
-    });
-    navigation.goBack();
+    try {
+      await updateProfile({
+        name: name.trim(),
+        email: email.trim(),
+        photo,
+        dailyCalorieGoal: parseInt(calorieGoal) || 2000,
+        dailyWaterGoal: parseFloat(waterGoal) || 2,
+        dailySleepGoal: parseInt(sleepGoal) || 8,
+      });
+      navigation.goBack();
+    } catch (error) {
+      Alert.alert('Save failed', error?.message || 'Unable to save your changes.');
+    }
   };
 
   const handleChangePhoto = async () => {
@@ -123,6 +142,10 @@ const EditProfileScreen = () => {
 
   const handleExportData = () => {
     Alert.alert('Export Data', 'Your data export would be prepared here');
+  };
+
+  const handleOpenCurrency = () => {
+    navigation.navigate('Currency');
   };
 
   const handleDeleteAccount = () => {
@@ -314,6 +337,43 @@ const EditProfileScreen = () => {
               <Ionicons name="lock-closed-outline" size={18} color="#FFFFFF" />
               <Text style={styles.changePasswordText}>Change Password</Text>
             </LinearGradient>
+          </TouchableOpacity>
+        </Card>
+
+        {/* Currency */}
+        <Card
+          style={[
+            styles.sectionCard,
+            { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder },
+          ]}
+        >
+          <Text style={styles.sectionTitle}>Currency</Text>
+          <Text style={styles.sectionSubtitle}>
+            Choose the default currency used across your finances.
+          </Text>
+          <TouchableOpacity
+            style={styles.settingsRow}
+            onPress={handleOpenCurrency}
+          >
+            <View style={styles.settingsLeft}>
+              <View style={styles.settingsIcon}>
+                <Ionicons name="cash-outline" size={18} color={themeColors.text} />
+              </View>
+              <View>
+                <Text style={styles.settingsLabel}>Default currency</Text>
+                <Text style={styles.settingsValue}>
+                  {currentCurrency.code} · {currentCurrency.name}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.settingsRight}>
+              <Text style={styles.settingsCode}>{currentCurrency.symbol}</Text>
+              <Ionicons
+                name="chevron-forward"
+                size={20}
+                color={themeColors.textLight}
+              />
+            </View>
           </TouchableOpacity>
         </Card>
 
@@ -598,6 +658,11 @@ const createStyles = (themeColorsParam = colors) => {
       marginBottom: spacing.md,
       color: baseText,
     },
+    sectionSubtitle: {
+      ...typography.bodySmall,
+      color: mutedText,
+      marginBottom: spacing.md,
+    },
     formInputContainer: {
       marginBottom: spacing.md,
     },
@@ -627,6 +692,53 @@ const createStyles = (themeColorsParam = colors) => {
     changePasswordText: {
       ...typography.bodySmall,
       color: '#FFFFFF',
+      fontWeight: '700',
+    },
+    settingsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: themeColorsParam?.border || colors.border,
+      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
+    },
+    settingsLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
+      gap: spacing.md,
+    },
+    settingsIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: themeColorsParam?.card || colors.card,
+      borderWidth: 1,
+      borderColor: themeColorsParam?.border || colors.border,
+    },
+    settingsLabel: {
+      ...typography.body,
+      color: baseText,
+      fontWeight: '600',
+    },
+    settingsValue: {
+      ...typography.caption,
+      color: mutedText,
+      marginTop: 2,
+    },
+    settingsRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    settingsCode: {
+      ...typography.body,
+      color: baseText,
       fontWeight: '700',
     },
     actionItem: {
