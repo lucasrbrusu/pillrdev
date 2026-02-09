@@ -16,6 +16,7 @@ import {
   typography,
 } from '../utils/theme';
 import { lookupFoodByBarcode } from '../utils/foodBarcodeLookup';
+import { toLocalDateKey } from '../utils/insights';
 
 
 const MOOD_OPTIONS = [
@@ -123,6 +124,7 @@ const HealthScreen = () => {
   const {
     healthData,
     todayHealth,
+    waterLogs,
     updateTodayHealth,
     addFoodEntry,
     addFoodEntryForDate,
@@ -644,7 +646,15 @@ const HealthScreen = () => {
     return Math.round((total / logged.length) * 10) / 10;
   }, [sleepWeek]);
 
-  const todayWaterLitres = Number(todayHealth.waterIntake) || 0;
+  const waterDateKey = toLocalDateKey(selectedDate);
+  const todayWaterLitres = useMemo(() => {
+    const entries = waterLogs?.[waterDateKey] || [];
+    const totalMl = entries.reduce(
+      (sum, entry) => sum + (Number(entry.amountMl) || 0),
+      0
+    );
+    return Math.max(0, totalMl) / 1000;
+  }, [waterLogs, waterDateKey]);
   const normalizedWaterGoal = Math.max(0, Number(profile.dailyWaterGoal) || 0);
   const waterProgress = normalizedWaterGoal
     ? Math.min(1, todayWaterLitres / normalizedWaterGoal)

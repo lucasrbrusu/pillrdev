@@ -9,6 +9,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Animated,
+  Easing,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +19,8 @@ import { useNavigation } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
 import { toLocalDateKey } from '../utils/insights';
 import { shadows, spacing, borderRadius, typography } from '../utils/theme';
+
+const BOTTLE_HEIGHT = 220;
 
 const QUICK_ADDS = [
   { id: 'glass', label: 'Glass', amount: 250, icon: 'cafe-outline' },
@@ -40,6 +44,10 @@ const WaterLogScreen = () => {
   const isDark = themeName === 'dark';
   const palette = useMemo(() => getPalette(isDark), [isDark]);
   const styles = useMemo(() => createStyles(palette), [palette]);
+  const fillAnim = React.useRef(new Animated.Value(0)).current;
+  const waveAnim = React.useRef(new Animated.Value(0)).current;
+  const pourAnim = React.useRef(new Animated.Value(0)).current;
+  const prevProgressRef = React.useRef(0);
 
   useEffect(() => {
     ensureHealthLoaded();
@@ -69,6 +77,76 @@ const WaterLogScreen = () => {
   const progress = Math.min(1, rawProgress);
   const percent = goalMl > 0 ? Math.round(rawProgress * 100) : 0;
   const goalReached = goalMl > 0 && rawProgress >= 1;
+
+  useEffect(() => {
+    Animated.timing(fillAnim, {
+      toValue: progress,
+      duration: 900,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+
+    if (progress > prevProgressRef.current) {
+      pourAnim.setValue(0);
+      Animated.sequence([
+        Animated.timing(pourAnim, {
+          toValue: 1,
+          duration: 450,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: false,
+        }),
+        Animated.timing(pourAnim, {
+          toValue: 0,
+          duration: 350,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: false,
+        }),
+      ]).start();
+    }
+    prevProgressRef.current = progress;
+  }, [progress, fillAnim, pourAnim]);
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(waveAnim, {
+          toValue: 1,
+          duration: 1800,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: false,
+        }),
+        Animated.timing(waveAnim, {
+          toValue: 0,
+          duration: 1800,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: false,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [waveAnim]);
+
+  const fillHeight = fillAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, BOTTLE_HEIGHT],
+  });
+  const waveTranslate = waveAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-18, 18],
+  });
+  const waveOpacity = fillAnim.interpolate({
+    inputRange: [0, 0.05, 1],
+    outputRange: [0, 0.7, 0.7],
+  });
+  const pourTranslate = pourAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-30, 40],
+  });
+  const pourOpacity = pourAnim.interpolate({
+    inputRange: [0, 0.2, 0.8, 1],
+    outputRange: [0, 0.6, 0.35, 0],
+  });
 
   const formatTime = (value) => {
     const parsed = new Date(value);
@@ -180,14 +258,42 @@ const WaterLogScreen = () => {
             </View>
 
             <View style={styles.bottleWrap}>
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.pourStream,
+                  {
+                    opacity: pourOpacity,
+                    transform: [{ translateY: pourTranslate }],
+                    backgroundColor: palette.bottleFill,
+                  },
+                ]}
+              />
               <View style={styles.bottleCap} />
               <View style={styles.bottleBody}>
-                <View
+                <Animated.View
                   style={[
                     styles.bottleFill,
-                    { height: `${Math.max(0, progress * 100)}%` },
+                    {
+                      height: fillHeight,
+                      backgroundColor: palette.bottleFill,
+                    },
                   ]}
-                />
+                >
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[
+                      styles.bottleWave,
+                      {
+                        opacity: waveOpacity,
+                        transform: [{ translateX: waveTranslate }],
+                        backgroundColor: palette.isDark
+                          ? 'rgba(255,255,255,0.25)'
+                          : 'rgba(255,255,255,0.4)',
+                      },
+                    ]}
+                  />
+                </Animated.View>
                 <View style={styles.bottleGloss} />
               </View>
             </View>
@@ -406,7 +512,7 @@ const createStyles = (palette) =>
     },
     bottleBody: {
       width: 130,
-      height: 220,
+      height: BOTTLE_HEIGHT,
       borderRadius: 36,
       borderWidth: 2,
       borderColor: palette.bottleBorder,
@@ -417,11 +523,19 @@ const createStyles = (palette) =>
     },
     bottleFill: {
       width: '100%',
-      backgroundColor: palette.bottleFill,
       borderTopLeftRadius: 30,
       borderTopRightRadius: 30,
       position: 'absolute',
       bottom: 0,
+      overflow: 'hidden',
+    },
+    bottleWave: {
+      position: 'absolute',
+      top: -6,
+      left: -30,
+      width: 200,
+      height: 16,
+      borderRadius: 10,
     },
     bottleGloss: {
       position: 'absolute',
@@ -438,6 +552,15 @@ const createStyles = (palette) =>
       backgroundColor: palette.successBg,
       borderRadius: borderRadius.lg,
       padding: spacing.md,
+    },
+    pourStream: {
+      position: 'absolute',
+      top: -18,
+      width: 8,
+      height: 50,
+      borderRadius: 4,
+      alignSelf: 'center',
+      zIndex: 2,
     },
     goalText: {
       flex: 1,
