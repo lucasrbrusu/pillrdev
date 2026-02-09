@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
+import { toLocalDateKey } from '../utils/insights';
 import { shadows, spacing, borderRadius, typography } from '../utils/theme';
 
 const QUICK_ADDS = [
@@ -28,7 +29,6 @@ const WaterLogScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const {
-    todayHealth,
     waterLogs,
     addWaterLogEntryForDate,
     deleteWaterLogEntryForDate,
@@ -47,16 +47,8 @@ const WaterLogScreen = () => {
 
   const [customAmount, setCustomAmount] = useState('');
 
-  const todayWaterLitres = Number(todayHealth?.waterIntake) || 0;
   const dailyGoalLitres = Math.max(0, Number(profile?.dailyWaterGoal) || 0);
-  const totalMl = Math.max(0, Math.round(todayWaterLitres * 1000));
-  const goalMl = Math.max(0, Math.round(dailyGoalLitres * 1000));
-  const rawProgress = goalMl > 0 ? totalMl / goalMl : 0;
-  const progress = Math.min(1, rawProgress);
-  const percent = goalMl > 0 ? Math.round(rawProgress * 100) : 0;
-  const goalReached = goalMl > 0 && rawProgress >= 1;
-
-  const dateKey = new Date().toISOString().slice(0, 10);
+  const dateKey = toLocalDateKey(new Date());
 
   const history = useMemo(() => {
     const entries = waterLogs?.[dateKey] || [];
@@ -66,6 +58,17 @@ const WaterLogScreen = () => {
       return bTime - aTime;
     });
   }, [waterLogs, dateKey]);
+  const totalMl = Math.max(
+    0,
+    Math.round(
+      history.reduce((sum, entry) => sum + (Number(entry.amountMl) || 0), 0)
+    )
+  );
+  const goalMl = Math.max(0, Math.round(dailyGoalLitres * 1000));
+  const rawProgress = goalMl > 0 ? totalMl / goalMl : 0;
+  const progress = Math.min(1, rawProgress);
+  const percent = goalMl > 0 ? Math.round(rawProgress * 100) : 0;
+  const goalReached = goalMl > 0 && rawProgress >= 1;
 
   const formatTime = (value) => {
     const parsed = new Date(value);
@@ -182,7 +185,7 @@ const WaterLogScreen = () => {
                 <View
                   style={[
                     styles.bottleFill,
-                    { height: `${Math.max(6, progress * 100)}%` },
+                    { height: `${Math.max(0, progress * 100)}%` },
                   ]}
                 />
                 <View style={styles.bottleGloss} />

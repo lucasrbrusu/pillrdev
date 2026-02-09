@@ -620,17 +620,39 @@ const HealthScreen = () => {
     selectedHealth.sleepTime,
     selectedHealth.wakeTime
   );
-  const normalizedSleepGoal = Math.max(0, Number(profile.dailySleepGoal) || 0);
-  const sleepProgress =
-    normalizedSleepGoal && sleepDurationHours !== null
-      ? Math.min(1, sleepDurationHours / normalizedSleepGoal)
-      : 0;
+  const sleepWeek = useMemo(() => {
+    const baseDate = new Date(`${selectedDateISO}T00:00:00`);
+    const start = new Date(baseDate);
+    start.setDate(baseDate.getDate() - 6);
+    return Array.from({ length: 7 }).map((_, idx) => {
+      const day = new Date(start);
+      day.setDate(start.getDate() + idx);
+      const key = day.toISOString().slice(0, 10);
+      const dayData = healthData[key] || {};
+      const hours = getSleepDurationHours(dayData.sleepTime, dayData.wakeTime);
+      return {
+        key,
+        hours: hours || 0,
+        hasData: hours !== null,
+      };
+    });
+  }, [healthData, selectedDateISO]);
+  const sleepWeekAverage = useMemo(() => {
+    const logged = sleepWeek.filter((day) => day.hasData);
+    if (logged.length === 0) return null;
+    const total = logged.reduce((sum, day) => sum + day.hours, 0);
+    return Math.round((total / logged.length) * 10) / 10;
+  }, [sleepWeek]);
 
   const todayWaterLitres = Number(todayHealth.waterIntake) || 0;
   const normalizedWaterGoal = Math.max(0, Number(profile.dailyWaterGoal) || 0);
   const waterProgress = normalizedWaterGoal
     ? Math.min(1, todayWaterLitres / normalizedWaterGoal)
     : 0;
+  const waterTotalMl = Math.max(0, Math.round(todayWaterLitres * 1000));
+  const waterGoalMl = Math.max(0, Math.round(normalizedWaterGoal * 1000));
+  const waterPercent =
+    normalizedWaterGoal > 0 ? Math.round(waterProgress * 100) : 0;
   const waterValueColor = healthTheme.stats.water.value;
   const sleepValueColor = healthTheme.stats.sleep.value;
   const caloriesConsumed = selectedHealth.calories || 0;
@@ -1486,46 +1508,41 @@ const HealthScreen = () => {
           ]}
           onPress={() => navigation.navigate('SleepLog', { dateISO: selectedDateISO })}
         >
-          <View style={styles.sectionHeader}>
-            <View>
-              <Text style={[styles.sectionTitle, styles.sleepTitle, { color: healthTheme.sleep.title }]}>
-                Sleep Log
-              </Text>
-              <Text style={styles.sleepTapHint}>Tap to view log</Text>
+          <View style={styles.logHeaderRow}>
+            <View style={[styles.logIconWrap, { backgroundColor: healthTheme.stats.sleep.iconBg }]}>
+              <Ionicons name="moon" size={18} color={healthTheme.stats.sleep.iconColor} />
             </View>
-            <View style={styles.sleepHeaderRight}>
-              <Text style={[styles.sleepHeaderValue, { color: sleepValueColor }]}>
-                {sleepDurationHours !== null ? `${sleepDurationHours} hrs` : '--'}
+            <View style={styles.logHeaderText}>
+              <Text style={[styles.logTitle, { color: healthTheme.sleep.title }]}>Sleep Tracker</Text>
+              <Text style={styles.logSubtitle}>
+                {sleepDurationHours !== null ? `${sleepDurationHours} hrs logged` : 'No data today'}
               </Text>
-              <Ionicons name="chevron-forward" size={18} color={healthTheme.sleep.title} />
             </View>
+            <Ionicons name="moon-outline" size={18} color={healthTheme.sleep.title} />
           </View>
-          <View style={styles.sleepSummaryRow}>
-            <Text style={styles.sleepSummaryLabel}>Quality</Text>
-            <Text style={[styles.sleepSummaryValue, { color: sleepValueColor }]}>
-              {selectedHealth.sleepQuality || 'Not logged'}
+
+          <View style={styles.sleepDotsRow}>
+            {sleepWeek.map((day) => (
+              <View
+                key={day.key}
+                style={[
+                  styles.sleepDot,
+                  {
+                    backgroundColor: day.hasData
+                      ? healthTheme.sleep.title
+                      : healthTheme.sleep.logBorder,
+                  },
+                ]}
+              />
+            ))}
+          </View>
+
+          <View style={styles.logActionRow}>
+            <Text style={styles.logActionText}>Tap to log sleep</Text>
+            <Text style={[styles.logPercentText, { color: healthTheme.sleep.title }]}>
+              {sleepWeekAverage !== null ? `${sleepWeekAverage} hr avg` : '7 day average'}
             </Text>
           </View>
-          <View style={styles.sleepSummaryRow}>
-            <Text style={styles.sleepSummaryLabel}>Bedtime</Text>
-            <Text style={styles.sleepSummaryValue}>{selectedHealth.sleepTime || '--:--'}</Text>
-          </View>
-          <View style={styles.sleepSummaryRow}>
-            <Text style={styles.sleepSummaryLabel}>Wake</Text>
-            <Text style={styles.sleepSummaryValue}>{selectedHealth.wakeTime || '--:--'}</Text>
-          </View>
-          <View style={[styles.sleepProgressBar, { backgroundColor: healthTheme.sleep.logBorder }]}>
-            <View
-              style={[
-                styles.sleepProgressFill,
-                { width: `${Math.min(100, Math.max(0, sleepProgress * 100))}%` },
-                { backgroundColor: healthTheme.sleep.title },
-              ]}
-            />
-          </View>
-          <Text style={styles.sleepGoalText}>
-            {normalizedSleepGoal ? `Goal: ${normalizedSleepGoal} hrs/night` : 'Set a sleep goal'}
-          </Text>
         </Card>
 
         {/* Water Intake Section */}
@@ -1537,34 +1554,36 @@ const HealthScreen = () => {
           ]}
           onPress={() => navigation.navigate('WaterLog')}
         >
-          <View style={styles.sectionHeader}>
-            <View>
-              <Text style={[styles.sectionTitle, styles.waterTitle, { color: healthTheme.water.title }]}>
-                Water Intake
-              </Text>
-              <Text style={styles.waterTapHint}>Tap to view log</Text>
+          <View style={styles.logHeaderRow}>
+            <View style={[styles.logIconWrap, { backgroundColor: healthTheme.stats.water.iconBg }]}>
+              <Ionicons name="water" size={18} color={healthTheme.stats.water.iconColor} />
             </View>
-            <View style={styles.waterHeaderRight}>
-              <Text style={[styles.waterCount, { color: healthTheme.water.count }]}>
-                {formatWaterLitres(todayWaterLitres)} / {formatWaterLitres(normalizedWaterGoal)} L
+            <View style={styles.logHeaderText}>
+              <Text style={[styles.logTitle, { color: healthTheme.water.title }]}>Water Intake</Text>
+              <Text style={styles.logSubtitle}>
+                {waterGoalMl > 0
+                  ? `${waterTotalMl}ml / ${waterGoalMl}ml`
+                  : `${waterTotalMl}ml logged`}
               </Text>
-              <Ionicons name="chevron-forward" size={18} color={healthTheme.water.title} />
             </View>
+            <Ionicons name="trending-up" size={18} color={healthTheme.water.title} />
           </View>
-          <View style={styles.waterSummaryRow}>
-            <Text style={styles.waterSummaryLabel}>Today's total</Text>
-            <Text style={[styles.waterSummaryValue, { color: healthTheme.water.count }]}>
-              {formatWaterLitres(todayWaterLitres)} L
-            </Text>
-          </View>
-          <View style={[styles.waterProgressBar, { backgroundColor: healthTheme.water.progressBg }]}>
+
+          <View style={[styles.logProgressBar, { backgroundColor: healthTheme.water.progressBg }]}>
             <View
               style={[
-                styles.waterProgressFill,
+                styles.logProgressFill,
                 { backgroundColor: healthTheme.water.progressFill },
                 { width: `${Math.min(100, Math.max(0, waterProgress * 100))}%` },
               ]}
             />
+          </View>
+
+          <View style={styles.logActionRow}>
+            <Text style={styles.logActionText}>Tap to add water</Text>
+            <Text style={[styles.logPercentText, { color: healthTheme.water.count }]}>
+              {waterGoalMl > 0 ? `${waterPercent}%` : '--'}
+            </Text>
           </View>
         </Card>
       </PlatformScrollView>
@@ -2011,8 +2030,62 @@ const createStyles = (themeColors) => StyleSheet.create({
     marginBottom: spacing.md,
     color: themeColors.text,
   },
-  waterTitle: {
-    marginBottom: spacing.xs,
+  logHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  logIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+  },
+  logHeaderText: {
+    flex: 1,
+  },
+  logTitle: {
+    ...typography.body,
+    fontWeight: '700',
+  },
+  logSubtitle: {
+    ...typography.caption,
+    color: themeColors.textSecondary,
+    marginTop: 2,
+  },
+  logProgressBar: {
+    height: 10,
+    borderRadius: borderRadius.sm,
+    overflow: 'hidden',
+    marginBottom: spacing.md,
+  },
+  logProgressFill: {
+    height: '100%',
+  },
+  logActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  logActionText: {
+    ...typography.caption,
+    color: themeColors.textSecondary,
+  },
+  logPercentText: {
+    ...typography.caption,
+    fontWeight: '700',
+  },
+  sleepDotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  sleepDot: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -2057,114 +2130,6 @@ const createStyles = (themeColors) => StyleSheet.create({
   moodLabelActive: {
     color: themeColors.primary,
     fontWeight: '600',
-  },
-  waterCount: {
-    ...typography.body,
-    fontWeight: '600',
-    marginRight: spacing.sm,
-  },
-  waterHeaderRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  waterTapHint: {
-    ...typography.caption,
-    color: themeColors.textSecondary,
-    marginTop: 0,
-  },
-  waterSummaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  waterSummaryLabel: {
-    ...typography.caption,
-    color: themeColors.textSecondary,
-  },
-  waterSummaryValue: {
-    ...typography.body,
-    fontWeight: '600',
-    color: themeColors.text,
-  },
-  waterProgressBar: {
-    height: 10,
-    borderRadius: borderRadius.sm,
-    backgroundColor: themeColors.inputBackground,
-    overflow: 'hidden',
-    marginBottom: spacing.md,
-  },
-  waterProgressFill: {
-    height: '100%',
-    backgroundColor: themeColors.info,
-  },
-  waterActions: {
-    marginTop: spacing.sm,
-  },
-  waterInput: {
-    marginBottom: spacing.sm,
-  },
-  addWaterButton: {
-    marginTop: spacing.sm,
-    borderRadius: borderRadius.lg,
-    overflow: 'hidden',
-  },
-  waterButtonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.md,
-    borderRadius: borderRadius.lg,
-  },
-  addWaterButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    marginLeft: spacing.sm,
-  },
-  sleepTitle: {
-    marginBottom: spacing.xs,
-  },
-  sleepTapHint: {
-    ...typography.caption,
-    color: themeColors.textSecondary,
-  },
-  sleepHeaderRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  sleepHeaderValue: {
-    ...typography.body,
-    fontWeight: '600',
-    marginRight: spacing.sm,
-  },
-  sleepSummaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  sleepSummaryLabel: {
-    ...typography.caption,
-    color: themeColors.textSecondary,
-  },
-  sleepSummaryValue: {
-    ...typography.body,
-    fontWeight: '600',
-    color: themeColors.text,
-  },
-  sleepProgressBar: {
-    height: 10,
-    borderRadius: borderRadius.sm,
-    overflow: 'hidden',
-    marginTop: spacing.xs,
-    marginBottom: spacing.sm,
-  },
-  sleepProgressFill: {
-    height: '100%',
-  },
-  sleepGoalText: {
-    ...typography.caption,
-    color: themeColors.textSecondary,
   },
   calorieStats: {
     marginBottom: spacing.lg,

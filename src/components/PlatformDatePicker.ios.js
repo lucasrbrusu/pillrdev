@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Modal } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { colors, borderRadius, spacing, typography, shadows } from '../utils/theme';
 
@@ -28,31 +28,45 @@ const PlatformDatePicker = ({
   const handleChange = (_event, selectedDate) => {
     const picked = selectedDate || current;
     setCurrent(picked);
-    onChange?.(picked);
   };
 
-  if (!visible) return null;
+  const handleDone = () => {
+    onChange?.(current);
+    onClose?.();
+  };
+
+  const handleCancel = () => {
+    onClose?.();
+  };
 
   return (
-    <View style={styles.overlay}>
-      <Pressable style={styles.backdrop} onPress={onClose} />
-      <View style={styles.sheet}>
-        <Text style={styles.title}>{title}</Text>
-        <DateTimePicker
-          value={current}
-          mode="date"
-          display="spinner"
-          onChange={handleChange}
-          minimumDate={minimumDate ? normalizeDate(minimumDate) : undefined}
-          maximumDate={maximumDate ? normalizeDate(maximumDate) : undefined}
-          textColor="#FFFFFF"
-          style={styles.picker}
-        />
-        <Pressable style={styles.doneButton} onPress={onClose}>
-          <Text style={[styles.doneText, { color: '#FFFFFF' }]}>Done</Text>
-        </Pressable>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      presentationStyle="overFullScreen"
+      onRequestClose={handleCancel}
+    >
+      <View style={styles.overlay}>
+        <Pressable style={styles.backdrop} onPress={handleCancel} />
+        <View style={styles.sheet}>
+          <Text style={styles.title}>{title}</Text>
+          <DateTimePicker
+            value={current}
+            mode="date"
+            display="spinner"
+            onChange={handleChange}
+            minimumDate={minimumDate ? normalizeDate(minimumDate) : undefined}
+            maximumDate={maximumDate ? normalizeDate(maximumDate) : undefined}
+            textColor="#FFFFFF"
+            style={styles.picker}
+          />
+          <Pressable style={styles.doneButton} onPress={handleDone}>
+            <Text style={[styles.doneText, { color: '#FFFFFF' }]}>Done</Text>
+          </Pressable>
+        </View>
       </View>
-    </View>
+    </Modal>
   );
 };
 

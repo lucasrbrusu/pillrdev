@@ -1,5 +1,5 @@
-import React from 'react';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import React, { useEffect, useRef } from 'react';
+import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { colors } from '../utils/theme';
 
 const normalizeDate = (value) => {
@@ -15,32 +15,39 @@ const PlatformDatePicker = ({
   minimumDate,
   maximumDate,
 }) => {
-  const current = normalizeDate(value);
+  const isOpenRef = useRef(false);
 
-  if (!visible) return null;
+  useEffect(() => {
+    if (!visible || isOpenRef.current) return;
+    isOpenRef.current = true;
+    const current = normalizeDate(value);
 
-  const handleChange = (event, selectedDate) => {
-    const picked = selectedDate || current;
-    if (event.type === 'dismissed') {
-      onClose?.();
-      return;
+    DateTimePickerAndroid.open({
+      value: current,
+      mode: 'date',
+      display: 'default',
+      accentColor: colors.primary,
+      minimumDate: minimumDate ? normalizeDate(minimumDate) : undefined,
+      maximumDate: maximumDate ? normalizeDate(maximumDate) : undefined,
+      onChange: (event, selectedDate) => {
+        const picked = selectedDate || current;
+        if (event.type === 'dismissed') {
+          onClose?.();
+          return;
+        }
+        onChange?.(picked);
+        onClose?.();
+      },
+    });
+  }, [visible, value, minimumDate, maximumDate, onChange, onClose]);
+
+  useEffect(() => {
+    if (!visible) {
+      isOpenRef.current = false;
     }
-    onChange?.(picked);
-    // Close after confirming selection on Android
-    onClose?.();
-  };
+  }, [visible]);
 
-  return (
-    <DateTimePicker
-      value={current}
-      mode="date"
-      display="default"
-      onChange={handleChange}
-      minimumDate={minimumDate ? normalizeDate(minimumDate) : undefined}
-      maximumDate={maximumDate ? normalizeDate(maximumDate) : undefined}
-      accentColor={colors.primary}
-    />
-  );
+  return null;
 };
 
 export default PlatformDatePicker;

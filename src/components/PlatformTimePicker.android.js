@@ -1,5 +1,5 @@
-import React from 'react';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import React, { useEffect, useRef } from 'react';
+import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { colors } from '../utils/theme';
 
 const normalizeDate = (value) => {
@@ -37,31 +37,38 @@ const PlatformTimePicker = ({
   onChange,
   onClose,
 }) => {
-  const current = normalizeDate(value);
+  const isOpenRef = useRef(false);
 
-  if (!visible) return null;
+  useEffect(() => {
+    if (!visible || isOpenRef.current) return;
+    isOpenRef.current = true;
+    const current = normalizeDate(value);
 
-  const handleChange = (event, selectedDate) => {
-    if (event.type === 'dismissed') {
-      onClose?.();
-      return;
+    DateTimePickerAndroid.open({
+      value: current,
+      mode: 'time',
+      is24Hour: false,
+      display: 'default',
+      accentColor: colors.primary,
+      onChange: (event, selectedDate) => {
+        if (event.type === 'dismissed') {
+          onClose?.();
+          return;
+        }
+        const picked = selectedDate || current;
+        onChange?.(picked);
+        onClose?.();
+      },
+    });
+  }, [visible, value, onChange, onClose]);
+
+  useEffect(() => {
+    if (!visible) {
+      isOpenRef.current = false;
     }
-    const picked = selectedDate || current;
-    onChange?.(picked);
-    // Close after confirming selection on Android
-    onClose?.();
-  };
+  }, [visible]);
 
-  return (
-    <DateTimePicker
-      value={current}
-      mode="time"
-      display="default"
-      onChange={handleChange}
-      accentColor={colors.primary}
-      is24Hour={false}
-    />
-  );
+  return null;
 };
 
 export default PlatformTimePicker;
