@@ -100,6 +100,7 @@ const defaultHealthDay = () => ({
   fatGoal: null,
   calories: 0,
   foods: [],
+  waterLogs: [],
   healthDayId: null,
   createdAt: null,
   updatedAt: null,
@@ -454,6 +455,7 @@ export const AppProvider = ({ children }) => {
   const [healthData, setHealthData] = useState({});
   const [todayHealth, setTodayHealth] = useState(defaultHealthDay());
   const [foodLogs, setFoodLogs] = useState({});
+  const [waterLogs, setWaterLogs] = useState({});
   const [weightManagerLogs, setWeightManagerLogs] = useState([]);
 
   // Routine State
@@ -761,6 +763,7 @@ const loadUserDataFromSupabase = async (userId) => {
       setUserStatuses({});
       setBlockedUsers({ blocked: [], blockedBy: [] });
       setFoodLogs({});
+      setWaterLogs({});
       setProfile(defaultProfile);
       setProfileLoaded(false);
       setUserSettings(defaultUserSettings);
@@ -3935,6 +3938,17 @@ const fetchHealthFromSupabase = async (userId, cachedFoodLogs = null) => {
     console.log('Error fetching food entries:', foodError);
   }
 
+  let { data: waterEntries, error: waterError } = await supabase
+    .from('health_water_entries')
+    .select('id, amount_ml, label, created_at, health_day_id, date')
+    .eq('user_id', userId)
+    .order('date', { ascending: true })
+    .order('created_at', { ascending: false });
+
+  if (waterError && !isMissingRelationError(waterError, 'health_water_entries')) {
+    console.log('Error fetching water entries:', waterError);
+  }
+
   const effectiveFoodLogs = cachedFoodLogs || foodLogs || {};
 
   const healthMap = {};
@@ -3956,6 +3970,21 @@ const fetchHealthFromSupabase = async (userId, cachedFoodLogs = null) => {
       proteinGrams: asNumber(row.protein_grams, null),
       carbsGrams: asNumber(row.carbs_grams, null),
       fatGrams: asNumber(row.fat_grams, null),
+      timestamp: row.created_at,
+      healthDayId: row.health_day_id,
+      date: row.date,
+    });
+  });
+
+  const waterMap = {};
+  (waterEntries || []).forEach((row) => {
+    const key = normalizeDateKey(row.date);
+    if (!key) return;
+    if (!waterMap[key]) waterMap[key] = [];
+    waterMap[key].push({
+      id: row.id,
+      amountMl: asNumber(row.amount_ml, 0) || 0,
+      label: row.label || '',
       timestamp: row.created_at,
       healthDayId: row.health_day_id,
       date: row.date,
@@ -4086,6 +4115,7 @@ const fetchHealthFromSupabase = async (userId, cachedFoodLogs = null) => {
   });
 
   setHealthData(healthMap);
+  setWaterLogs(waterMap);
 
   const todayISO = new Date().toISOString().slice(0, 10);
   if (healthMap[todayISO]) {
@@ -4451,6 +4481,151 @@ const deleteFoodEntryForDate = async (dateISO, foodId) => {
 const addFoodEntry = async (food) => {
   const targetDate = new Date().toISOString().slice(0, 10);
   await addFoodEntryForDate(targetDate, food);
+};
+
+const addWaterLogEntryForDate = async (dateISO, entry) => {
+  if (!authUser?.id) {
+    throw new Error('You must be logged in to log water.');
+  }
+  const dayKey = normalizeDateKey(dateISO);
+  const baseDay = healthData[dayKey] || defaultHealthDay();
+
+  const amountMl = asNumber(entry?.amountMl ?? entry?.amount_ml ?? entry?.amount, null);
+  if (!Number.isFinite(amountMl) || amountMl <= 0) {
+    throw new Error('Water amount must be a positive number.');
+  }
+
+  const healthDayRecord = await upsertHealthDayRecord(dayKey, baseDay);
+  const healthDayId = healthDayRecord?.id || baseDay.healthDayId;
+
+  const nowISO = new Date().toISOString();
+  const label = (entry?.label || '').trim();
+  const newEntry = {
+    id: Date.now().toString(),
+    amountMl,
+    label,
+    timestamp: nowISO,
+    date: dayKey,
+    healthDayId,
+  };
+
+  const insertPayload = pruneUndefined({
+    user_id: authUser?.id,
+    health_day_id: healthDayId,
+    date: dayKey,
+    amount_ml: amountMl,
+    label: label || null,
+    created_at: nowISO,
+  });
+
+  let insertError = null;
+  let insertedRow = null;
+  const insertResult = await supabase
+    .from('health_water_entries')
+    .insert(insertPayload)
+    .select()
+    .single();
+  insertError = insertResult.error;
+  insertedRow = insertResult.data;
+
+  if (insertError && !isMissingRelationError(insertError, 'health_water_entries')) {
+    console.log('Error saving water entry:', insertError);
+  }
+
+  const savedEntry = {
+    ...newEntry,
+    id: insertedRow?.id || newEntry.id,
+  };
+
+  setWaterLogs((prev) => {
+    const next = { ...(prev || {}) };
+    const current = next[dayKey] || [];
+    next[dayKey] = [savedEntry, ...current];
+    return next;
+  });
+
+  await updateHealthForDate(dayKey, {
+    waterIntakeDelta: amountMl / 1000,
+    healthDayId,
+    createdAt: healthDayRecord?.created_at || baseDay.createdAt,
+    updatedAt: healthDayRecord?.updated_at || baseDay.updatedAt,
+  });
+};
+
+const deleteWaterLogEntryForDate = async (dateISO, entryId) => {
+  if (!authUser?.id) return;
+  const dayKey = normalizeDateKey(dateISO);
+  const entries = waterLogs?.[dayKey] || [];
+  const target = entries.find((item) => item.id === entryId);
+  if (!target) return;
+
+  if (entryId) {
+    const { error } = await supabase
+      .from('health_water_entries')
+      .delete()
+      .eq('id', entryId);
+    if (error && !isMissingRelationError(error, 'health_water_entries')) {
+      console.log('Error deleting water entry:', error);
+    }
+  }
+
+  setWaterLogs((prev) => {
+    const next = { ...(prev || {}) };
+    next[dayKey] = (next[dayKey] || []).filter((item) => item.id !== entryId);
+    return next;
+  });
+
+  await updateHealthForDate(dayKey, {
+    waterIntakeDelta: -(asNumber(target.amountMl, 0) / 1000),
+  });
+};
+
+const addWaterLogEntry = async (entry) => {
+  const targetDate = new Date().toISOString().slice(0, 10);
+  await addWaterLogEntryForDate(targetDate, entry);
+};
+
+const resetWaterLogForDate = async (dateISO) => {
+  if (!authUser?.id) return;
+  const dayKey = normalizeDateKey(dateISO);
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const nowISO = new Date().toISOString();
+
+  setHealthData((prev) => {
+    const base = prev[dayKey] || defaultHealthDay();
+    const updated = {
+      ...base,
+      waterIntake: 0,
+      updatedAt: nowISO,
+    };
+    return { ...prev, [dayKey]: updated };
+  });
+
+  if (dayKey === todayISO) {
+    setTodayHealth((prev) => ({
+      ...(prev || defaultHealthDay()),
+      waterIntake: 0,
+      updatedAt: nowISO,
+    }));
+  }
+
+  const { error } = await supabase
+    .from('health_water_entries')
+    .delete()
+    .eq('user_id', authUser.id)
+    .eq('date', dayKey);
+
+  if (error && !isMissingRelationError(error, 'health_water_entries')) {
+    console.log('Error resetting water entries:', error);
+  }
+
+  setWaterLogs((prev) => {
+    const next = { ...(prev || {}) };
+    next[dayKey] = [];
+    return next;
+  });
+
+  await updateHealthForDate(dayKey, { waterIntake: 0 });
 };
 
   const getAverageWater = () => {
@@ -7100,6 +7275,7 @@ const mapProfileRow = (row) => {
     healthData,
     todayHealth,
     weightManagerLogs,
+    waterLogs,
     updateTodayHealth,
     updateHealthForDate,
     addWeightManagerLog,
@@ -7107,6 +7283,10 @@ const mapProfileRow = (row) => {
     addFoodEntry,
     addFoodEntryForDate,
     deleteFoodEntryForDate,
+    addWaterLogEntry,
+    addWaterLogEntryForDate,
+    deleteWaterLogEntryForDate,
+    resetWaterLogForDate,
     getAverageWater,
     getAverageSleep,
 

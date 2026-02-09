@@ -50,6 +50,8 @@ import SpendingInsightsScreen from '../screens/SpendingInsightsScreen';
 import FriendProfileScreen from '../screens/FriendProfileScreen';
 import PaywallScreen from '../screens/PaywallScreen';
 import WeightManagerScreen from '../screens/WeightManagerScreen';
+import WaterLogScreen from '../screens/WaterLogScreen';
+import SleepLogScreen from '../screens/SleepLogScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -301,6 +303,8 @@ const Navigation = () => {
           <Stack.Screen name="FocusMode" component={FocusModeScreen} />
           <Stack.Screen name="CountdownTimer" component={CountdownTimerScreen} />
           <Stack.Screen name="WeightManager" component={WeightManagerScreen} />
+          <Stack.Screen name="WaterLog" component={WaterLogScreen} />
+          <Stack.Screen name="SleepLog" component={SleepLogScreen} />
         </Stack.Navigator>
       ) : (
         <Stack.Navigator

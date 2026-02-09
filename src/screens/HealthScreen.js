@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Camera, CameraView, useCameraPermissions } from 'expo-camera';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
-import { Card, Modal, Button, Input, PlatformScrollView, PlatformTimePicker } from '../components';
+import { Card, Modal, Button, Input, PlatformScrollView } from '../components';
 import useWeightManagerOverview from '../hooks/useWeightManagerOverview';
 import {
   colors,
@@ -15,7 +15,6 @@ import {
   spacing,
   typography,
 } from '../utils/theme';
-import { formatTimeFromDate } from '../utils/notifications';
 import { lookupFoodByBarcode } from '../utils/foodBarcodeLookup';
 
 
@@ -260,35 +259,6 @@ const HealthScreen = () => {
   const restoreFoodModalRef = useRef(false);
   const lastMoodIndexRef = useRef(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [waterInput, setWaterInput] = useState('');
-  const [sleepForm, setSleepForm] = useState({
-    sleepTime: null,
-    wakeTime: null,
-    sleepQuality: null,
-  });
-  const [isSavingSleep, setIsSavingSleep] = useState(false);
-
-  const sleepQualities = ['Excellent', 'Good', 'Fair', 'Poor'];
-
-  const handleLogWater = async () => {
-    const amount = parseFloat(waterInput);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      Alert.alert('Enter litres', 'Please enter a positive amount in litres (e.g., 0.25).');
-      return;
-    }
-
-    try {
-      await updateTodayHealth({ waterIntakeDelta: amount });
-      setWaterInput('');
-    } catch (err) {
-      console.log('Error logging water', err);
-      Alert.alert('Unable to log water', 'Please try again.');
-    }
-  };
-
-  const handleSleepQualitySelect = (quality) => {
-    setSleepForm((prev) => ({ ...prev, sleepQuality: quality }));
-  };
 
   const moodOptions = MOOD_OPTIONS.map((option, idx) => ({
     ...option,
@@ -299,50 +269,9 @@ const HealthScreen = () => {
     }),
   }));
 
-  const [showSleepTimePicker, setShowSleepTimePicker] = useState(false);
-  const [sleepTimeTarget, setSleepTimeTarget] = useState(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions
     ? useCameraPermissions()
     : [null, null];
-
-  const openSleepTimePicker = (target) => {
-    setSleepTimeTarget(target);
-    setShowSleepTimePicker(true);
-  };
-
-  const closeSleepTimePicker = () => {
-    setShowSleepTimePicker(false);
-    setSleepTimeTarget(null);
-  };
-
-  const handleSelectSleepTime = (value) => {
-    const normalized =
-      value instanceof Date ? formatTimeFromDate(value) : value;
-    if (sleepTimeTarget === 'sleep') {
-      setSleepForm((prev) => ({ ...prev, sleepTime: normalized }));
-    }
-    if (sleepTimeTarget === 'wake') {
-      setSleepForm((prev) => ({ ...prev, wakeTime: normalized }));
-    }
-  };
-
-  const handleSubmitSleepLog = async () => {
-    if (!sleepForm.sleepTime || !sleepForm.wakeTime || !sleepForm.sleepQuality) {
-      return;
-    }
-    setIsSavingSleep(true);
-    try {
-      await updateHealthForDate(selectedDateISO, {
-        sleepTime: sleepForm.sleepTime,
-        wakeTime: sleepForm.wakeTime,
-        sleepQuality: sleepForm.sleepQuality,
-      });
-    } catch (err) {
-      console.log('Error saving sleep log', err);
-    } finally {
-      setIsSavingSleep(false);
-    }
-  };
 
   const parseGoalValue = (value, allowFloat = false) => {
     const trimmed = value.trim();
@@ -638,19 +567,6 @@ const HealthScreen = () => {
     : defaultCalorieGoal;
 
   useEffect(() => {
-    setSleepForm({
-      sleepTime: selectedHealth.sleepTime,
-      wakeTime: selectedHealth.wakeTime,
-      sleepQuality: selectedHealth.sleepQuality,
-    });
-  }, [
-    selectedDateKey,
-    selectedHealth.sleepTime,
-    selectedHealth.wakeTime,
-    selectedHealth.sleepQuality,
-  ]);
-
-  useEffect(() => {
     const goal = Number.isFinite(selectedHealth.calorieGoal)
       ? selectedHealth.calorieGoal
       : defaultCalorieGoal;
@@ -704,6 +620,11 @@ const HealthScreen = () => {
     selectedHealth.sleepTime,
     selectedHealth.wakeTime
   );
+  const normalizedSleepGoal = Math.max(0, Number(profile.dailySleepGoal) || 0);
+  const sleepProgress =
+    normalizedSleepGoal && sleepDurationHours !== null
+      ? Math.min(1, sleepDurationHours / normalizedSleepGoal)
+      : 0;
 
   const todayWaterLitres = Number(todayHealth.waterIntake) || 0;
   const normalizedWaterGoal = Math.max(0, Number(profile.dailyWaterGoal) || 0);
@@ -1334,7 +1255,6 @@ const HealthScreen = () => {
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        scrollEnabled={!showSleepTimePicker}
       >
         <View style={styles.dateSwitcher}>
           <TouchableOpacity
@@ -1564,127 +1484,49 @@ const HealthScreen = () => {
             styles.sectionCard,
             { backgroundColor: healthTheme.sleep.card, borderColor: healthTheme.sleep.border },
           ]}
+          onPress={() => navigation.navigate('SleepLog', { dateISO: selectedDateISO })}
         >
-          <Text style={[styles.sectionTitle, { color: healthTheme.sleep.title }]}>Sleep</Text>
-          <View style={styles.sleepInputRow}>
-            <View style={styles.sleepInput}>
-              <Text style={styles.sleepLabel}>Sleep Time</Text>
-              <TouchableOpacity
-                style={[
-                  styles.timeButton,
-                  {
-                    backgroundColor: healthTheme.sleep.inputBg,
-                    borderColor: healthTheme.sleep.inputBorder,
-                  },
-                ]}
-                onPress={() => openSleepTimePicker('sleep')}
-              >
-                <Text style={styles.timeButtonText}>
-                  {sleepForm.sleepTime || '--:--'}
-                </Text>
-                <Ionicons name="time-outline" size={18} color={themeColors.textLight} />
-              </TouchableOpacity>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={[styles.sectionTitle, styles.sleepTitle, { color: healthTheme.sleep.title }]}>
+                Sleep Log
+              </Text>
+              <Text style={styles.sleepTapHint}>Tap to view log</Text>
             </View>
-            <View style={styles.sleepInput}>
-              <Text style={styles.sleepLabel}>Wake Time</Text>
-              <TouchableOpacity
-                style={[
-                  styles.timeButton,
-                  {
-                    backgroundColor: healthTheme.sleep.inputBg,
-                    borderColor: healthTheme.sleep.inputBorder,
-                  },
-                ]}
-                onPress={() => openSleepTimePicker('wake')}
-              >
-                <Text style={styles.timeButtonText}>
-                  {sleepForm.wakeTime || '--:--'}
-                </Text>
-                <Ionicons name="time-outline" size={18} color={themeColors.textLight} />
-              </TouchableOpacity>
+            <View style={styles.sleepHeaderRight}>
+              <Text style={[styles.sleepHeaderValue, { color: sleepValueColor }]}>
+                {sleepDurationHours !== null ? `${sleepDurationHours} hrs` : '--'}
+              </Text>
+              <Ionicons name="chevron-forward" size={18} color={healthTheme.sleep.title} />
             </View>
           </View>
-          <View style={styles.sleepQualityRow}>
-            {sleepQualities.map((quality) => (
-              <TouchableOpacity
-                key={quality}
-                style={[
-                  styles.qualityOption,
-                  { backgroundColor: healthTheme.sleep.chipBg },
-                  sleepForm.sleepQuality === quality && [
-                    styles.qualityOptionActive,
-                    { backgroundColor: healthTheme.sleep.chipActiveBg },
-                  ],
-                ]}
-                onPress={() => handleSleepQualitySelect(quality)}
-              >
-                <Text
-                  style={[
-                    styles.qualityText,
-                    { color: healthTheme.sleep.chipText },
-                    sleepForm.sleepQuality === quality && [
-                      styles.qualityTextActive,
-                      { color: healthTheme.sleep.chipActiveText },
-                    ],
-                  ]}
-                >
-                  {quality}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          <View style={styles.sleepSummaryRow}>
+            <Text style={styles.sleepSummaryLabel}>Quality</Text>
+            <Text style={[styles.sleepSummaryValue, { color: sleepValueColor }]}>
+              {selectedHealth.sleepQuality || 'Not logged'}
+            </Text>
           </View>
-          <Button
-            title={isSavingSleep ? 'Saving...' : 'Submit'}
-            onPress={handleSubmitSleepLog}
-            disabled={isSavingSleep || !sleepForm.sleepTime || !sleepForm.wakeTime || !sleepForm.sleepQuality}
-            style={[
-              styles.sleepSubmitButton,
-              { backgroundColor: healthTheme.sleep.chipActiveBg },
-            ]}
-            textStyle={styles.sleepSubmitText}
-          />
-          {selectedHealth.sleepTime && selectedHealth.wakeTime && (
-            <View style={styles.sleepLogContainer}>
-              <Text style={styles.sleepLogTitle}>Logged Sleep</Text>
-              <View
-                style={[
-                  styles.sleepLogCard,
-                  {
-                    backgroundColor: healthTheme.sleep.logBg,
-                    borderColor: healthTheme.sleep.logBorder,
-                  },
-                ]}
-              >
-                <View style={styles.sleepLogRow}>
-                  <Text style={styles.sleepLogLabel}>Sleep</Text>
-                  <Text style={styles.sleepLogValue}>{selectedHealth.sleepTime}</Text>
-                </View>
-                <View style={styles.sleepLogRow}>
-                  <Text style={styles.sleepLogLabel}>Wake</Text>
-                  <Text style={styles.sleepLogValue}>{selectedHealth.wakeTime}</Text>
-                </View>
-                <View style={styles.sleepLogRow}>
-                  <Text style={styles.sleepLogLabel}>Duration</Text>
-                  <Text style={styles.sleepLogValue}>
-                    {sleepDurationHours !== null ? `${sleepDurationHours} hrs` : '--'}
-                  </Text>
-                </View>
-                <View style={styles.sleepLogRow}>
-                  <Text style={styles.sleepLogLabel}>Quality</Text>
-                  <Text style={styles.sleepLogValue}>{selectedHealth.sleepQuality || '--'}</Text>
-                </View>
-              </View>
-            </View>
-          )}
+          <View style={styles.sleepSummaryRow}>
+            <Text style={styles.sleepSummaryLabel}>Bedtime</Text>
+            <Text style={styles.sleepSummaryValue}>{selectedHealth.sleepTime || '--:--'}</Text>
+          </View>
+          <View style={styles.sleepSummaryRow}>
+            <Text style={styles.sleepSummaryLabel}>Wake</Text>
+            <Text style={styles.sleepSummaryValue}>{selectedHealth.wakeTime || '--:--'}</Text>
+          </View>
+          <View style={[styles.sleepProgressBar, { backgroundColor: healthTheme.sleep.logBorder }]}>
+            <View
+              style={[
+                styles.sleepProgressFill,
+                { width: `${Math.min(100, Math.max(0, sleepProgress * 100))}%` },
+                { backgroundColor: healthTheme.sleep.title },
+              ]}
+            />
+          </View>
+          <Text style={styles.sleepGoalText}>
+            {normalizedSleepGoal ? `Goal: ${normalizedSleepGoal} hrs/night` : 'Set a sleep goal'}
+          </Text>
         </Card>
-
-        <PlatformTimePicker
-          visible={showSleepTimePicker}
-          value={sleepTimeTarget === 'sleep' ? sleepForm.sleepTime : sleepTimeTarget === 'wake' ? sleepForm.wakeTime : null}
-          onChange={handleSelectSleepTime}
-          onClose={closeSleepTimePicker}
-          title="Select Time"
-        />
 
         {/* Water Intake Section */}
         <Card
@@ -1693,12 +1535,21 @@ const HealthScreen = () => {
             styles.lastCard,
             { backgroundColor: healthTheme.water.card, borderColor: healthTheme.water.border },
           ]}
+          onPress={() => navigation.navigate('WaterLog')}
         >
           <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: healthTheme.water.title }]}>Water Intake</Text>
-            <Text style={[styles.waterCount, { color: healthTheme.water.count }]}>
-              {formatWaterLitres(todayWaterLitres)} / {formatWaterLitres(normalizedWaterGoal)} L
-            </Text>
+            <View>
+              <Text style={[styles.sectionTitle, styles.waterTitle, { color: healthTheme.water.title }]}>
+                Water Intake
+              </Text>
+              <Text style={styles.waterTapHint}>Tap to view log</Text>
+            </View>
+            <View style={styles.waterHeaderRight}>
+              <Text style={[styles.waterCount, { color: healthTheme.water.count }]}>
+                {formatWaterLitres(todayWaterLitres)} / {formatWaterLitres(normalizedWaterGoal)} L
+              </Text>
+              <Ionicons name="chevron-forward" size={18} color={healthTheme.water.title} />
+            </View>
           </View>
           <View style={styles.waterSummaryRow}>
             <Text style={styles.waterSummaryLabel}>Today's total</Text>
@@ -1714,37 +1565,6 @@ const HealthScreen = () => {
                 { width: `${Math.min(100, Math.max(0, waterProgress * 100))}%` },
               ]}
             />
-          </View>
-          <View style={styles.waterActions}>
-            <Input
-              label="Amount to log (L)"
-              value={waterInput}
-              onChangeText={setWaterInput}
-              placeholder="e.g., 0.25"
-              keyboardType="decimal-pad"
-              style={{
-                backgroundColor: healthTheme.water.inputBg,
-                borderColor: healthTheme.water.inputBorder,
-              }}
-              containerStyle={styles.waterInput}
-            />
-            <TouchableOpacity
-              onPress={handleLogWater}
-              activeOpacity={0.85}
-              style={styles.addWaterButton}
-            >
-              <LinearGradient
-                colors={healthTheme.water.buttonGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.waterButtonGradient}
-              >
-                <Ionicons name="add" size={18} color={healthTheme.water.buttonText} />
-                <Text style={[styles.addWaterButtonText, { color: healthTheme.water.buttonText }]}>
-                  Log Water
-                </Text>
-              </LinearGradient>
-            </TouchableOpacity>
           </View>
         </Card>
       </PlatformScrollView>
@@ -2191,6 +2011,9 @@ const createStyles = (themeColors) => StyleSheet.create({
     marginBottom: spacing.md,
     color: themeColors.text,
   },
+  waterTitle: {
+    marginBottom: spacing.xs,
+  },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -2238,6 +2061,16 @@ const createStyles = (themeColors) => StyleSheet.create({
   waterCount: {
     ...typography.body,
     fontWeight: '600',
+    marginRight: spacing.sm,
+  },
+  waterHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  waterTapHint: {
+    ...typography.caption,
+    color: themeColors.textSecondary,
+    marginTop: 0,
   },
   waterSummaryRow: {
     flexDirection: 'row',
@@ -2288,93 +2121,50 @@ const createStyles = (themeColors) => StyleSheet.create({
     fontWeight: '600',
     marginLeft: spacing.sm,
   },
-  sleepInputRow: {
-    flexDirection: 'row',
-    marginBottom: spacing.md,
-  },
-  sleepInput: {
-    flex: 1,
-    marginRight: spacing.md,
-  },
-  sleepLabel: {
-    ...typography.caption,
+  sleepTitle: {
     marginBottom: spacing.xs,
+  },
+  sleepTapHint: {
+    ...typography.caption,
     color: themeColors.textSecondary,
   },
-  timeButton: {
+  sleepHeaderRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: themeColors.border,
-    backgroundColor: themeColors.inputBackground,
   },
-  timeButtonText: {
+  sleepHeaderValue: {
     ...typography.body,
-    color: themeColors.textSecondary,
+    fontWeight: '600',
+    marginRight: spacing.sm,
   },
-  sleepQualityRow: {
+  sleepSummaryRow: {
     flexDirection: 'row',
-  },
-  sleepLogContainer: {
-    marginTop: spacing.lg,
-  },
-  sleepLogTitle: {
-    ...typography.label,
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: spacing.sm,
-    color: themeColors.text,
   },
-  sleepLogCard: {
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: themeColors.border,
-    backgroundColor: themeColors.inputBackground,
-    padding: spacing.md,
-  },
-  sleepLogRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.xs,
-  },
-  sleepLogLabel: {
-    ...typography.bodySmall,
+  sleepSummaryLabel: {
+    ...typography.caption,
     color: themeColors.textSecondary,
   },
-  sleepLogValue: {
+  sleepSummaryValue: {
     ...typography.body,
     fontWeight: '600',
     color: themeColors.text,
   },
-  sleepSubmitButton: {
-    marginTop: spacing.md,
+  sleepProgressBar: {
+    height: 10,
+    borderRadius: borderRadius.sm,
+    overflow: 'hidden',
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
   },
-  sleepSubmitText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
+  sleepProgressFill: {
+    height: '100%',
   },
-  qualityOption: {
-    flex: 1,
-    paddingVertical: spacing.sm,
-    alignItems: 'center',
-    borderRadius: borderRadius.md,
-    backgroundColor: themeColors.inputBackground,
-    marginHorizontal: spacing.xs,
-    borderWidth: 1,
-    borderColor: themeColors.border,
-  },
-  qualityOptionActive: {
-    backgroundColor: themeColors.primary,
-  },
-  qualityText: {
-    ...typography.bodySmall,
+  sleepGoalText: {
+    ...typography.caption,
     color: themeColors.textSecondary,
-  },
-  qualityTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '600',
   },
   calorieStats: {
     marginBottom: spacing.lg,
