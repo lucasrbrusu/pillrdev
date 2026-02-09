@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Animated, useWindowDimensions } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,6 +7,7 @@ import { Camera, CameraView, useCameraPermissions } from 'expo-camera';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
 import { Card, Modal, Button, Input, PlatformScrollView, PlatformTimePicker } from '../components';
+import useWeightManagerOverview from '../hooks/useWeightManagerOverview';
 import {
   colors,
   shadows,
@@ -17,11 +17,6 @@ import {
 } from '../utils/theme';
 import { formatTimeFromDate } from '../utils/notifications';
 import { lookupFoodByBarcode } from '../utils/foodBarcodeLookup';
-import {
-  computeWeightManagerPlan,
-  WEIGHT_MANAGER_BODY_TYPES,
-  DEFAULT_WEIGHT_MANAGER_UNIT,
-} from '../utils/weightManager';
 
 
 const MOOD_OPTIONS = [
@@ -134,7 +129,6 @@ const HealthScreen = () => {
     addFoodEntryForDate,
     deleteFoodEntryForDate,
     updateHealthForDate,
-    authUser,
     profile,
     isPremium,
     isPremiumUser,
@@ -143,8 +137,6 @@ const HealthScreen = () => {
     themeName,
     themeColors,
     ensureHealthLoaded,
-    ensureWeightManagerLogsLoaded,
-    weightManagerLogs,
   } = useApp();
   const isDark = themeName === 'dark';
   const isPremiumActive = Boolean(
@@ -238,55 +230,7 @@ const HealthScreen = () => {
 
   useEffect(() => {
     ensureHealthLoaded();
-    ensureWeightManagerLogsLoaded();
-  }, [ensureHealthLoaded, ensureWeightManagerLogsLoaded]);
-
-  const weightManagerStorageKey = useMemo(() => {
-    const userId = authUser?.id || profile?.id || profile?.user_id || 'default';
-    return `weight_manager_state:${userId}`;
-  }, [authUser?.id, profile?.id, profile?.user_id]);
-
-  useEffect(() => {
-    let isMounted = true;
-    const loadWeightManagerState = async () => {
-      try {
-        const stored = await AsyncStorage.getItem(weightManagerStorageKey);
-        if (!stored) {
-          const fallback = {
-            weightUnit: profile?.weightManagerUnit || DEFAULT_WEIGHT_MANAGER_UNIT,
-            currentWeight: profile?.weightManagerCurrentWeight,
-            targetWeight: profile?.weightManagerTargetWeight,
-            currentBodyType: profile?.weightManagerCurrentBodyType,
-            targetBodyType: profile?.weightManagerTargetBodyType,
-          };
-          const hasFallback = Object.values(fallback).some(
-            (value) => value !== null && value !== undefined && value !== ''
-          );
-          if (isMounted) setWeightManagerState(hasFallback ? fallback : null);
-          return;
-        }
-        const parsed = JSON.parse(stored);
-        if (isMounted) setWeightManagerState(parsed || null);
-      } catch (err) {
-        console.log('Error loading weight manager state:', err);
-      }
-    };
-
-    loadWeightManagerState();
-    const unsubscribe = navigation.addListener('focus', loadWeightManagerState);
-    return () => {
-      isMounted = false;
-      if (unsubscribe) unsubscribe();
-    };
-  }, [
-    navigation,
-    profile?.weightManagerCurrentBodyType,
-    profile?.weightManagerCurrentWeight,
-    profile?.weightManagerTargetBodyType,
-    profile?.weightManagerTargetWeight,
-    profile?.weightManagerUnit,
-    weightManagerStorageKey,
-  ]);
+  }, [ensureHealthLoaded]);
 
   const [isLookingUpBarcode, setIsLookingUpBarcode] = useState(false);
   const [showFoodModal, setShowFoodModal] = useState(false);
@@ -323,7 +267,6 @@ const HealthScreen = () => {
     sleepQuality: null,
   });
   const [isSavingSleep, setIsSavingSleep] = useState(false);
-  const [weightManagerState, setWeightManagerState] = useState(null);
 
   const sleepQualities = ['Excellent', 'Good', 'Fair', 'Poor'];
 
@@ -771,60 +714,13 @@ const HealthScreen = () => {
   const sleepValueColor = healthTheme.stats.sleep.value;
   const caloriesConsumed = selectedHealth.calories || 0;
   const caloriesRemaining = dailyCalorieGoal - caloriesConsumed;
-  const weightManagerUnit = weightManagerState?.weightUnit || DEFAULT_WEIGHT_MANAGER_UNIT;
-  const weightManagerPlan = useMemo(
-    () =>
-      computeWeightManagerPlan({
-        currentWeight: weightManagerState?.currentWeight,
-        targetWeight: weightManagerState?.targetWeight,
-        unit: weightManagerUnit,
-        currentBodyTypeKey: weightManagerState?.currentBodyType,
-        targetBodyTypeKey: weightManagerState?.targetBodyType,
-      }),
-    [
-      weightManagerState?.currentBodyType,
-      weightManagerState?.currentWeight,
-      weightManagerState?.targetBodyType,
-      weightManagerState?.targetWeight,
-      weightManagerUnit,
-    ]
-  );
-  const weightManagerTargetBody = useMemo(
-    () =>
-      WEIGHT_MANAGER_BODY_TYPES.find(
-        (type) => type.key === weightManagerState?.targetBodyType
-      ),
-    [weightManagerState?.targetBodyType]
-  );
-  const weightManagerLatestLog = useMemo(
-    () => (weightManagerLogs?.length ? weightManagerLogs[0] : null),
-    [weightManagerLogs]
-  );
-  const weightManagerEarliestLog = useMemo(() => {
-    if (!weightManagerLogs?.length) return null;
-    return weightManagerLogs[weightManagerLogs.length - 1];
-  }, [weightManagerLogs]);
-  const startingWeightValue = Number(weightManagerState?.currentWeight);
-  const weightManagerStartingValue = Number.isFinite(startingWeightValue)
-    ? { value: startingWeightValue, unit: weightManagerUnit }
-    : Number.isFinite(weightManagerEarliestLog?.weight)
-      ? {
-          value: weightManagerEarliestLog.weight,
-          unit: weightManagerEarliestLog.unit || weightManagerUnit,
-        }
-      : null;
-  const weightManagerCurrentValue = Number.isFinite(weightManagerLatestLog?.weight)
-    ? { value: weightManagerLatestLog.weight, unit: weightManagerLatestLog.unit || weightManagerUnit }
-    : weightManagerStartingValue;
-  const weightManagerStartingDisplay = weightManagerStartingValue
-    ? `${weightManagerStartingValue.value} ${weightManagerStartingValue.unit}`
-    : '--';
-  const weightManagerCurrentDisplay = weightManagerCurrentValue
-    ? `${weightManagerCurrentValue.value} ${weightManagerCurrentValue.unit}`
-    : '--';
-  const weightManagerTargetDisplay = weightManagerState?.targetWeight
-    ? `${weightManagerState.targetWeight} ${weightManagerUnit}`
-    : '--';
+  const {
+    weightManagerPlan,
+    weightManagerTargetBody,
+    weightManagerStartingDisplay,
+    weightManagerCurrentDisplay,
+    weightManagerTargetDisplay,
+  } = useWeightManagerOverview();
   const macroTotals = (selectedHealth.foods || []).reduce(
     (totals, food) => ({
       protein: totals.protein + (Number(food.proteinGrams) || 0),

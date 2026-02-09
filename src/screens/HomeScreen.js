@@ -10,7 +10,6 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -18,11 +17,7 @@ import { useApp } from '../context/AppContext';
 import { Card } from '../components';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, shadows, borderRadius, spacing, typography } from '../utils/theme';
-import {
-  DEFAULT_WEIGHT_MANAGER_UNIT,
-  WEIGHT_MANAGER_BODY_TYPES,
-  computeWeightManagerPlan,
-} from '../utils/weightManager';
+import useWeightManagerOverview from '../hooks/useWeightManagerOverview';
 
 const MOOD_OPTIONS = [
   { label: 'Depressed', emoji: '😞' },
@@ -46,7 +41,6 @@ const HomeScreen = () => {
   const {
     themeColors,
     profile,
-    authUser,
     habits,
     tasks,
     todayHealth,
@@ -68,8 +62,6 @@ const HomeScreen = () => {
     ensureHomeDataLoaded,
     ensureFriendDataLoaded,
     ensureTaskInvitesLoaded,
-    ensureWeightManagerLogsLoaded,
-    weightManagerLogs,
     themeName,
   } = useApp();
   const isDark = themeName === 'dark';
@@ -184,81 +176,13 @@ const HomeScreen = () => {
   const consumedCalories = todayHealth?.calories || 0;
   const calorieGoal = profile?.dailyCalorieGoal || 2000;
   const remainingCalories = Math.max(calorieGoal - consumedCalories, 0);
-  const weightUnit = weightManagerState?.weightUnit || DEFAULT_WEIGHT_MANAGER_UNIT;
-  const weightManagerPlan = React.useMemo(
-    () =>
-      computeWeightManagerPlan({
-        currentWeight: weightManagerState?.currentWeight,
-        targetWeight: weightManagerState?.targetWeight,
-        unit: weightUnit,
-        currentBodyTypeKey: weightManagerState?.currentBodyType,
-        targetBodyTypeKey: weightManagerState?.targetBodyType,
-      }),
-    [
-      weightManagerState?.currentBodyType,
-      weightManagerState?.currentWeight,
-      weightManagerState?.targetBodyType,
-      weightManagerState?.targetWeight,
-      weightUnit,
-    ]
-  );
-  const profileWeightManagerPlan = React.useMemo(() => {
-    const targetCalories = Number(profile?.weightManagerTargetCalories);
-    const proteinGrams = Number(profile?.weightManagerProteinGrams);
-    const carbsGrams = Number(profile?.weightManagerCarbsGrams);
-    const fatGrams = Number(profile?.weightManagerFatGrams);
-    const hasTargets = [
-      targetCalories,
-      proteinGrams,
-      carbsGrams,
-      fatGrams,
-    ].some((value) => Number.isFinite(value) && value > 0);
-    if (!hasTargets) return null;
-    return {
-      targetCalories: Number.isFinite(targetCalories) && targetCalories > 0 ? targetCalories : null,
-      proteinGrams: Number.isFinite(proteinGrams) && proteinGrams > 0 ? proteinGrams : null,
-      carbsGrams: Number.isFinite(carbsGrams) && carbsGrams > 0 ? carbsGrams : null,
-      fatGrams: Number.isFinite(fatGrams) && fatGrams > 0 ? fatGrams : null,
-    };
-  }, [
-    profile?.weightManagerTargetCalories,
-    profile?.weightManagerProteinGrams,
-    profile?.weightManagerCarbsGrams,
-    profile?.weightManagerFatGrams,
-  ]);
-  const weightManagerPlanDisplay = weightManagerPlan || profileWeightManagerPlan;
-  const weightManagerLatestLog = React.useMemo(
-    () => (weightManagerLogs?.length ? weightManagerLogs[0] : null),
-    [weightManagerLogs]
-  );
-  const weightManagerEarliestLog = React.useMemo(() => {
-    if (!weightManagerLogs?.length) return null;
-    return weightManagerLogs[weightManagerLogs.length - 1];
-  }, [weightManagerLogs]);
-  const startingWeightValue = Number(weightManagerState?.currentWeight);
-  const weightManagerStartingValue = Number.isFinite(startingWeightValue)
-    ? { value: startingWeightValue, unit: weightUnit }
-    : Number.isFinite(weightManagerEarliestLog?.weight)
-      ? {
-          value: weightManagerEarliestLog.weight,
-          unit: weightManagerEarliestLog.unit || weightUnit,
-        }
-      : null;
-  const weightManagerCurrentValue = Number.isFinite(weightManagerLatestLog?.weight)
-    ? { value: weightManagerLatestLog.weight, unit: weightManagerLatestLog.unit || weightUnit }
-    : weightManagerStartingValue;
-  const weightManagerStartingDisplay = weightManagerStartingValue
-    ? `${weightManagerStartingValue.value} ${weightManagerStartingValue.unit}`
-    : '--';
-  const weightManagerCurrentDisplay = weightManagerCurrentValue
-    ? `${weightManagerCurrentValue.value} ${weightManagerCurrentValue.unit}`
-    : '--';
-  const weightManagerTargetDisplay = weightManagerState?.targetWeight
-    ? `${weightManagerState.targetWeight} ${weightUnit}`
-    : '--';
-  const targetBodyType = WEIGHT_MANAGER_BODY_TYPES.find(
-    (type) => type.key === weightManagerState?.targetBodyType
-  );
+  const {
+    weightManagerPlan,
+    weightManagerTargetBody: targetBodyType,
+    weightManagerStartingDisplay,
+    weightManagerCurrentDisplay,
+    weightManagerTargetDisplay,
+  } = useWeightManagerOverview();
   const statGradients = {
     streak: isDark ? ['#C65A1F', '#8D2A00'] : ['#FF7A2D', '#FF4D2D'],
     calories: isDark ? ['#0EA35B', '#06733F'] : ['#19D377', '#00B563'],
@@ -357,61 +281,16 @@ const HomeScreen = () => {
   const [noteTitleDraft, setNoteTitleDraft] = React.useState('');
   const [noteContentDraft, setNoteContentDraft] = React.useState('');
   const [showStreakFrozenModal, setShowStreakFrozenModal] = React.useState(false);
-  const [weightManagerState, setWeightManagerState] = React.useState(null);
-
-  const weightManagerStorageKey = React.useMemo(() => {
-    const userId = authUser?.id || profile?.id || profile?.user_id || 'default';
-    return `weight_manager_state:${userId}`;
-  }, [authUser?.id, profile?.id, profile?.user_id]);
-
-  const loadWeightManagerState = React.useCallback(async () => {
-    try {
-      const stored = await AsyncStorage.getItem(weightManagerStorageKey);
-      if (!stored) {
-        const fallback = {
-          weightUnit: profile?.weightManagerUnit || DEFAULT_WEIGHT_MANAGER_UNIT,
-          currentWeight: profile?.weightManagerCurrentWeight,
-          targetWeight: profile?.weightManagerTargetWeight,
-          currentBodyType: profile?.weightManagerCurrentBodyType,
-          targetBodyType: profile?.weightManagerTargetBodyType,
-        };
-        const hasFallback = Object.values(fallback).some(
-          (value) => value !== null && value !== undefined && value !== ''
-        );
-        setWeightManagerState(hasFallback ? fallback : null);
-        return;
-      }
-      const parsed = JSON.parse(stored);
-      setWeightManagerState(parsed || null);
-    } catch (err) {
-      console.log('Error loading weight manager state:', err);
-    }
-  }, [
-    profile?.weightManagerCurrentBodyType,
-    profile?.weightManagerCurrentWeight,
-    profile?.weightManagerTargetBodyType,
-    profile?.weightManagerTargetWeight,
-    profile?.weightManagerUnit,
-    weightManagerStorageKey,
-  ]);
 
   React.useEffect(() => {
     ensureHomeDataLoaded();
     ensureFriendDataLoaded();
     ensureTaskInvitesLoaded();
-    ensureWeightManagerLogsLoaded();
   }, [
     ensureFriendDataLoaded,
     ensureHomeDataLoaded,
     ensureTaskInvitesLoaded,
-    ensureWeightManagerLogsLoaded,
   ]);
-
-  React.useEffect(() => {
-    loadWeightManagerState();
-    const unsubscribe = navigation.addListener('focus', loadWeightManagerState);
-    return unsubscribe;
-  }, [loadWeightManagerState, navigation]);
 
   const sortedNotes = React.useMemo(() => {
     return (notes || [])
@@ -1210,7 +1089,7 @@ const HomeScreen = () => {
                     : 'Set your target body type'}
                 </Text>
 
-                {!weightManagerPlanDisplay && (
+                {!weightManagerPlan && (
                   <Text style={[styles.weightManagerEmpty, { color: sectionListTheme.weightManager.meta }]}>
                     Add your current and target weights to unlock daily targets.
                   </Text>
@@ -1246,7 +1125,7 @@ const HomeScreen = () => {
                       ]}
                     >
                       <Text style={[styles.weightManagerCalorieValue, { color: sectionListTheme.weightManager.text }]}>
-                        {weightManagerPlanDisplay?.targetCalories ?? '--'}
+                        {weightManagerPlan?.targetCalories ?? '--'}
                       </Text>
                       <Text style={[styles.weightManagerCalorieLabel, { color: sectionListTheme.weightManager.meta }]}>
                         cal/day
@@ -1271,7 +1150,7 @@ const HomeScreen = () => {
                       Protein
                     </Text>
                     <Text style={[styles.weightManagerMacroValue, { color: sectionListTheme.weightManager.text }]}>
-                      {formatWeightManagerMacro(weightManagerPlanDisplay?.proteinGrams)}
+                      {formatWeightManagerMacro(weightManagerPlan?.proteinGrams)}
                     </Text>
                   </View>
                   <View style={styles.weightManagerMacroItem}>
@@ -1279,7 +1158,7 @@ const HomeScreen = () => {
                       Carbs
                     </Text>
                     <Text style={[styles.weightManagerMacroValue, { color: sectionListTheme.weightManager.text }]}>
-                      {formatWeightManagerMacro(weightManagerPlanDisplay?.carbsGrams)}
+                      {formatWeightManagerMacro(weightManagerPlan?.carbsGrams)}
                     </Text>
                   </View>
                   <View style={styles.weightManagerMacroItem}>
@@ -1287,7 +1166,7 @@ const HomeScreen = () => {
                       Fat
                     </Text>
                     <Text style={[styles.weightManagerMacroValue, { color: sectionListTheme.weightManager.text }]}>
-                      {formatWeightManagerMacro(weightManagerPlanDisplay?.fatGrams)}
+                      {formatWeightManagerMacro(weightManagerPlan?.fatGrams)}
                     </Text>
                   </View>
                 </View>

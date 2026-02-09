@@ -113,3 +113,57 @@ export const computeWeightManagerPlan = ({
     estimatedDays,
   };
 };
+
+export const getWeightManagerOverview = ({
+  state,
+  logs,
+  unitFallback = DEFAULT_WEIGHT_MANAGER_UNIT,
+} = {}) => {
+  const weightManagerUnit = state?.weightUnit || unitFallback;
+  const weightManagerPlan = computeWeightManagerPlan({
+    currentWeight: state?.currentWeight,
+    targetWeight: state?.targetWeight,
+    unit: weightManagerUnit,
+    currentBodyTypeKey: state?.currentBodyType,
+    targetBodyTypeKey: state?.targetBodyType,
+  });
+  const weightManagerTargetBody = WEIGHT_MANAGER_BODY_TYPES.find(
+    (type) => type.key === state?.targetBodyType
+  );
+  const weightManagerLatestLog = logs?.length ? logs[0] : null;
+  const weightManagerEarliestLog = logs?.length ? logs[logs.length - 1] : null;
+  const startingWeightValue = Number(state?.currentWeight);
+  const weightManagerStartingValue = Number.isFinite(startingWeightValue)
+    ? { value: startingWeightValue, unit: weightManagerUnit }
+    : Number.isFinite(weightManagerEarliestLog?.weight)
+      ? {
+          value: weightManagerEarliestLog.weight,
+          unit: weightManagerEarliestLog.unit || weightManagerUnit,
+        }
+      : null;
+  const weightManagerCurrentValue = Number.isFinite(weightManagerLatestLog?.weight)
+    ? { value: weightManagerLatestLog.weight, unit: weightManagerLatestLog.unit || weightManagerUnit }
+    : weightManagerStartingValue;
+  const weightManagerStartingDisplay = weightManagerStartingValue
+    ? `${weightManagerStartingValue.value} ${weightManagerStartingValue.unit}`
+    : '--';
+  const weightManagerCurrentDisplay = weightManagerCurrentValue
+    ? `${weightManagerCurrentValue.value} ${weightManagerCurrentValue.unit}`
+    : '--';
+  const weightManagerTargetDisplay = state?.targetWeight
+    ? `${state.targetWeight} ${weightManagerUnit}`
+    : '--';
+
+  return {
+    weightManagerUnit,
+    weightManagerPlan,
+    weightManagerTargetBody,
+    weightManagerLatestLog,
+    weightManagerEarliestLog,
+    weightManagerStartingValue,
+    weightManagerCurrentValue,
+    weightManagerStartingDisplay,
+    weightManagerCurrentDisplay,
+    weightManagerTargetDisplay,
+  };
+};
