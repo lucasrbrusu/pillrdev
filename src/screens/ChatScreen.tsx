@@ -206,6 +206,10 @@ export default function ChatScreen() {
     try {
       const res = await sendToAgent(text, conversationId);
 
+      if (res.conversationId) {
+      setConversationId(res.conversationId);
+      }
+      
       const botMsg: ChatMsg = {
         id: `a-${Date.now()}`,
         role: "assistant",
