@@ -1,6 +1,7 @@
-﻿import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -125,6 +126,34 @@ export default function ChatScreen() {
   ]);
   const [pendingProposals, setPendingProposals] = useState<ProposalRow[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const typingAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!sending) return;
+    typingAnim.setValue(0);
+    const loop = Animated.loop(
+      Animated.timing(typingAnim, {
+        toValue: 1,
+        duration: 900,
+        useNativeDriver: true,
+      })
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [sending, typingAnim]);
+
+  const dotOneOpacity = typingAnim.interpolate({
+    inputRange: [0, 0.33, 0.66, 1],
+    outputRange: [0.35, 1, 0.35, 0.35],
+  });
+  const dotTwoOpacity = typingAnim.interpolate({
+    inputRange: [0, 0.33, 0.66, 1],
+    outputRange: [0.35, 0.35, 1, 0.35],
+  });
+  const dotThreeOpacity = typingAnim.interpolate({
+    inputRange: [0, 0.33, 0.66, 1],
+    outputRange: [1, 0.35, 0.35, 1],
+  });
 
 
   const quickActions = [
@@ -380,6 +409,22 @@ export default function ChatScreen() {
             }
             ListFooterComponent={
               <View style={styles.footer}>
+                {sending ? (
+                  <View style={styles.typingWrap}>
+                    <View style={styles.assistantRow}>
+                      <LinearGradient colors={primaryGradient} style={styles.assistantAvatar}>
+                        <Ionicons name="sparkles" size={14} color="#fff" />
+                      </LinearGradient>
+                      <View style={[styles.assistantBubble, styles.typingBubble]}>
+                        <View style={styles.typingDots}>
+                          <Animated.View style={[styles.typingDot, { opacity: dotOneOpacity }]} />
+                          <Animated.View style={[styles.typingDot, { opacity: dotTwoOpacity }]} />
+                          <Animated.View style={[styles.typingDot, { opacity: dotThreeOpacity }]} />
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                ) : null}
                 <View style={styles.quickActions}>
                   <ScrollView
                     horizontal
@@ -622,6 +667,25 @@ const createStyles = (palette: typeof colors, isDark: boolean) => {
       fontSize: 11,
       color: palette.textSecondary,
     },
+    typingWrap: {
+      marginVertical: 6,
+      alignSelf: "flex-start",
+    },
+    typingBubble: {
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+    },
+    typingDots: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    typingDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: palette.textSecondary,
+    },
     footer: {
       paddingTop: 8,
       paddingBottom: 4,
@@ -822,3 +886,9 @@ const createStyles = (palette: typeof colors, isDark: boolean) => {
     },
   });
 };
+
+
+
+
+
+
