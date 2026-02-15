@@ -18,9 +18,9 @@ export type Proposal = {
 
 export type ProposalRow = Proposal;
 
-export async function callAgent(message: string) {
+export async function callAgent(message: string, conversationId?: string | null) {
   const { data, error } = await supabase.functions.invoke("agent", {
-    body: { message },
+    body: { message, conversationId }, // <--- add this
   });
 
   if (error) throw error;
@@ -32,9 +32,10 @@ export async function callAgent(message: string) {
   };
 }
 
+
 // ChatScreen expects sendToAgent, so make it an alias
-export async function sendToAgent(message: string) {
-  return callAgent(message);
+export async function sendToAgent(message: string, conversationId?: string | null) {
+  return callAgent(message, conversationId);
 }
 
 // If you ever return proposal IDs from the agent, ChatScreen uses this

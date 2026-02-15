@@ -124,6 +124,8 @@ export default function ChatScreen() {
     },
   ]);
   const [pendingProposals, setPendingProposals] = useState<ProposalRow[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+
 
   const quickActions = [
     {
@@ -202,7 +204,7 @@ export default function ChatScreen() {
     setMessages((prev) => [...prev, userMsg]);
 
     try {
-      const res = await sendToAgent(text);
+      const res = await sendToAgent(text, conversationId);
 
       const botMsg: ChatMsg = {
         id: `a-${Date.now()}`,
