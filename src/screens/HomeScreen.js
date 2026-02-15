@@ -20,18 +20,18 @@ import { colors, shadows, borderRadius, spacing, typography } from '../utils/the
 import useWeightManagerOverview from '../hooks/useWeightManagerOverview';
 
 const MOOD_OPTIONS = [
-  { label: 'Depressed', emoji: '😞' },
-  { label: 'Extremely Sad', emoji: '😢' },
-  { label: 'Very Sad', emoji: '😔' },
-  { label: 'Quite Sad', emoji: '🙁' },
-  { label: 'Sad', emoji: '😟' },
-  { label: 'Little Sad', emoji: '😕' },
-  { label: 'Neutral', emoji: '😐' },
-  { label: 'A Bit Happy', emoji: '🙂' },
-  { label: 'Happy', emoji: '😊' },
-  { label: 'Very Happy', emoji: '😄' },
-  { label: 'Extremely Happy', emoji: '😁' },
-  { label: 'Overjoyed', emoji: '🤩' },
+  { key: 'happy', label: 'Happy', emoji: '\u{1F60A}', tone: 'positive', color: '#FFD166' },
+  { key: 'loved', label: 'Loved', emoji: '\u{1F970}', tone: 'positive', color: '#FF8FAB' },
+  { key: 'peaceful', label: 'Peaceful', emoji: '\u{1F60C}', tone: 'positive', color: '#A7F3D0' },
+  { key: 'excited', label: 'Excited', emoji: '\u{1F929}', tone: 'positive', color: '#FDBA74' },
+  { key: 'confident', label: 'Confident', emoji: '\u{1F60E}', tone: 'positive', color: '#60A5FA' },
+  { key: 'celebrating', label: 'Celebrating', emoji: '\u{1F973}', tone: 'positive', color: '#F472B6' },
+  { key: 'tired', label: 'Tired', emoji: '\u{1F634}', tone: 'neutral', color: '#A1A1AA' },
+  { key: 'okay', label: 'Okay', emoji: '\u{1F610}', tone: 'neutral', color: '#FACC15' },
+  { key: 'thoughtful', label: 'Thoughtful', emoji: '\u{1F914}', tone: 'neutral', color: '#C084FC' },
+  { key: 'sad', label: 'Sad', emoji: '\u{1F622}', tone: 'negative', color: '#93C5FD' },
+  { key: 'anxious', label: 'Anxious', emoji: '\u{1F630}', tone: 'negative', color: '#F59E0B' },
+  { key: 'frustrated', label: 'Frustrated', emoji: '\u{1F624}', tone: 'negative', color: '#F87171' },
 ];
 
 const HomeScreen = () => {
@@ -62,6 +62,8 @@ const HomeScreen = () => {
     ensureHomeDataLoaded,
     ensureFriendDataLoaded,
     ensureTaskInvitesLoaded,
+    ensureHealthLoaded,
+    healthData,
     themeName,
   } = useApp();
   const isDark = themeName === 'dark';
@@ -169,9 +171,29 @@ const HomeScreen = () => {
     .slice(0, 3);
   const groceryPreview = groceries.filter((g) => !g.completed).slice(0, 3);
 
-  const currentMood = todayHealth.mood
-    ? MOOD_OPTIONS[Math.max(0, Math.min(MOOD_OPTIONS.length - 1, todayHealth.mood - 1))]
-    : null;
+  const normalizeMoodIndex = React.useCallback((value) => {
+    if (!Number.isFinite(value)) return null;
+    return Math.min(MOOD_OPTIONS.length - 1, Math.max(0, value - 1));
+  }, []);
+  const moodEntries = React.useMemo(() => {
+    const entries = [];
+    Object.entries(healthData || {}).forEach(([dateKey, data]) => {
+      const idx = normalizeMoodIndex(data?.mood);
+      if (idx !== null) {
+        entries.push({
+          dateKey,
+          mood: MOOD_OPTIONS[idx],
+        });
+      }
+    });
+    entries.sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+    return entries;
+  }, [healthData, normalizeMoodIndex]);
+  const miniGardenFlowers = React.useMemo(
+    () => moodEntries.slice(-5).map((entry) => entry.mood),
+    [moodEntries]
+  );
+  const totalMoodCount = moodEntries.length;
   const bestStreak = getBestStreak ? getBestStreak() : 0;
   const consumedCalories = todayHealth?.calories || 0;
   const calorieGoal = profile?.dailyCalorieGoal || 2000;
@@ -286,9 +308,11 @@ const HomeScreen = () => {
     ensureHomeDataLoaded();
     ensureFriendDataLoaded();
     ensureTaskInvitesLoaded();
+    ensureHealthLoaded();
   }, [
     ensureFriendDataLoaded,
     ensureHomeDataLoaded,
+    ensureHealthLoaded,
     ensureTaskInvitesLoaded,
   ]);
 
@@ -1020,37 +1044,69 @@ const HomeScreen = () => {
             style={[styles.sectionGradient, { borderColor: sectionListTheme.health.border }]}
           >
             <View style={styles.sectionContent}>
-          <View style={styles.sectionListHeader}>
-            <View style={styles.sectionListTitleRow}>
-              <View
-                style={[
-                  styles.sectionListIcon,
-                  { backgroundColor: sectionListTheme.health.iconBg },
-                ]}
-              >
-                <Ionicons name="heart" size={16} color={sectionListTheme.health.iconColor} />
+              <View style={styles.moodOverviewHeader}>
+                <View style={styles.moodOverviewHeaderLeft}>
+                  <View
+                    style={[
+                      styles.sectionListIcon,
+                      { backgroundColor: sectionListTheme.health.iconBg },
+                    ]}
+                  >
+                    <Ionicons name="flower" size={16} color={sectionListTheme.health.iconColor} />
+                  </View>
+                  <View>
+                    <Text style={[styles.sectionListTitle, { color: sectionListTheme.health.text }]}>
+                      Mood Garden
+                    </Text>
+                    <Text style={[styles.moodOverviewSubtitle, { color: sectionListTheme.health.meta }]}>
+                      How are you feeling?
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.moodOverviewSparkle}>
+                  <Ionicons name="sparkles" size={16} color="#FDE68A" />
+                </View>
               </View>
-              <Text style={[styles.sectionListTitle, { color: sectionListTheme.health.text }]}>
-                Today's Health
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={sectionListTheme.health.text} />
-          </View>
-          {currentMood ? (
-            <View style={styles.healthContent}>
-              <Text style={styles.moodEmoji}>{currentMood.emoji}</Text>
-              <Text style={[styles.moodLabel, { color: sectionListTheme.health.text }]}>
-                Today's mood
-              </Text>
-            </View>
-          ) : (
-            <View style={styles.healthPrompt}>
-              <Ionicons name="heart-outline" size={20} color={sectionListTheme.health.text} />
-              <Text style={[styles.healthPromptText, { color: sectionListTheme.health.meta }]}>
-                Check in with your health and mood today
-              </Text>
-            </View>
-          )}
+
+              <View style={styles.moodOverviewPreview}>
+                <LinearGradient
+                  colors={['rgba(255,255,255,0.55)', 'rgba(255,255,255,0.25)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.moodOverviewPreviewGradient}
+                >
+                  {miniGardenFlowers.length ? (
+                    <View style={styles.moodOverviewRow}>
+                      {miniGardenFlowers.map((flower, idx) => (
+                        <View key={`${flower.key}-${idx}`} style={styles.moodOverviewFlower}>
+                          <View
+                            style={[
+                              styles.moodOverviewHead,
+                              { backgroundColor: flower.color },
+                            ]}
+                          >
+                            <Text style={styles.moodOverviewEmoji}>{flower.emoji}</Text>
+                          </View>
+                          <View style={styles.moodOverviewStem} />
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={[styles.moodOverviewPlaceholder, { color: sectionListTheme.health.meta }]}>
+                      Tap to plant your first flower.
+                    </Text>
+                  )}
+                </LinearGradient>
+              </View>
+
+              <View style={styles.moodOverviewFooter}>
+                <Text style={[styles.moodOverviewHint, { color: sectionListTheme.health.meta }]}>
+                  Tap to plant today's mood
+                </Text>
+                <Text style={styles.moodOverviewCount}>
+                  {totalMoodCount} flowers planted
+                </Text>
+              </View>
             </View>
           </LinearGradient>
         </Card>
@@ -1657,16 +1713,79 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
     tasksOverviewDot: {
       backgroundColor: '#FFFFFF',
     },
-  healthContent: {
+  moodOverviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  moodOverviewHeaderLeft: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  moodEmoji: {
-    fontSize: 24,
-    marginRight: spacing.sm,
+  moodOverviewSubtitle: {
+    ...typography.bodySmall,
+    marginTop: 2,
   },
-  moodLabel: {
-    ...typography.body,
+  moodOverviewSparkle: {
+    width: 32,
+    height: 32,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  moodOverviewPreview: {
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+    marginBottom: spacing.sm,
+  },
+  moodOverviewPreviewGradient: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  moodOverviewRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+  },
+  moodOverviewFlower: {
+    alignItems: 'center',
+  },
+  moodOverviewHead: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.8)',
+    marginBottom: 2,
+  },
+  moodOverviewEmoji: {
+    fontSize: 13,
+  },
+  moodOverviewStem: {
+    width: 3,
+    height: 16,
+    borderRadius: 2,
+    backgroundColor: '#22C55E',
+  },
+  moodOverviewPlaceholder: {
+    ...typography.bodySmall,
+  },
+  moodOverviewFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  moodOverviewHint: {
+    ...typography.caption,
+  },
+  moodOverviewCount: {
+    ...typography.caption,
+    fontWeight: '700',
+    color: '#FBCFE8',
   },
   moodSummaryRow: {
     flexDirection: 'row',
@@ -2500,5 +2619,6 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
 };
 
 export default HomeScreen;
+
 
 

@@ -20,95 +20,31 @@ import { toLocalDateKey } from '../utils/insights';
 
 
 const MOOD_OPTIONS = [
-  { label: 'Depressed', emoji: '😞' },
-  { label: 'Extremely Sad', emoji: '😢' },
-  { label: 'Very Sad', emoji: '😔' },
-  { label: 'Quite Sad', emoji: '🙁' },
-  { label: 'Sad', emoji: '😟' },
-  { label: 'Little Sad', emoji: '😕' },
-  { label: 'Neutral', emoji: '😐' },
-  { label: 'A Bit Happy', emoji: '🙂' },
-  { label: 'Happy', emoji: '😊' },
-  { label: 'Very Happy', emoji: '😄' },
-  { label: 'Extremely Happy', emoji: '😁' },
-  { label: 'Overjoyed', emoji: '🤩' },
+  { key: 'happy', label: 'Happy', emoji: '\u{1F60A}', tone: 'positive', color: '#FFD166', bg: '#FFF4CC', accent: '#F59E0B' },
+  { key: 'loved', label: 'Loved', emoji: '\u{1F970}', tone: 'positive', color: '#FF8FAB', bg: '#FFE4EC', accent: '#F472B6' },
+  { key: 'peaceful', label: 'Peaceful', emoji: '\u{1F60C}', tone: 'positive', color: '#A7F3D0', bg: '#E8FFF6', accent: '#10B981' },
+  { key: 'excited', label: 'Excited', emoji: '\u{1F929}', tone: 'positive', color: '#FDBA74', bg: '#FFEAD5', accent: '#F97316' },
+  { key: 'confident', label: 'Confident', emoji: '\u{1F60E}', tone: 'positive', color: '#60A5FA', bg: '#E0F2FF', accent: '#3B82F6' },
+  { key: 'celebrating', label: 'Celebrating', emoji: '\u{1F973}', tone: 'positive', color: '#F472B6', bg: '#FFE4F0', accent: '#EC4899' },
+  { key: 'tired', label: 'Tired', emoji: '\u{1F634}', tone: 'neutral', color: '#A1A1AA', bg: '#F3F4F6', accent: '#6B7280' },
+  { key: 'okay', label: 'Okay', emoji: '\u{1F610}', tone: 'neutral', color: '#FACC15', bg: '#FEF3C7', accent: '#D97706' },
+  { key: 'thoughtful', label: 'Thoughtful', emoji: '\u{1F914}', tone: 'neutral', color: '#C084FC', bg: '#F3E8FF', accent: '#8B5CF6' },
+  { key: 'sad', label: 'Sad', emoji: '\u{1F622}', tone: 'negative', color: '#93C5FD', bg: '#DBEAFE', accent: '#3B82F6' },
+  { key: 'anxious', label: 'Anxious', emoji: '\u{1F630}', tone: 'negative', color: '#F59E0B', bg: '#FEF3C7', accent: '#D97706' },
+  { key: 'frustrated', label: 'Frustrated', emoji: '\u{1F624}', tone: 'negative', color: '#F87171', bg: '#FEE2E2', accent: '#EF4444' },
 ];
 
-const MOOD_THEMES = [
-  {
-    accent: '#5B66E8',
-    background: '#A9B3FF',
-    gradient: ['#7C85FF', '#5B66E8'],
-    backgroundGradient: ['#A9B3FF', '#E3E6FF'],
-  },
-  {
-    accent: '#6B74F0',
-    background: '#B3B9FF',
-    gradient: ['#8B93FF', '#6B74F0'],
-    backgroundGradient: ['#B3B9FF', '#E5E7FF'],
-  },
-  {
-    accent: '#7A71F0',
-    background: '#BFB4FF',
-    gradient: ['#9A8CFF', '#7A71F0'],
-    backgroundGradient: ['#BFB4FF', '#EDE7FF'],
-  },
-  {
-    accent: '#8A70F0',
-    background: '#C9B4FF',
-    gradient: ['#A98DFF', '#8A70F0'],
-    backgroundGradient: ['#C9B4FF', '#EEE6FF'],
-  },
-  {
-    accent: '#6F7FEF',
-    background: '#AEC2FF',
-    gradient: ['#88A0FF', '#6F7FEF'],
-    backgroundGradient: ['#AEC2FF', '#E4ECFF'],
-  },
-  {
-    accent: '#7C8DEB',
-    background: '#B6C3FF',
-    gradient: ['#9FB1FF', '#7C8DEB'],
-    backgroundGradient: ['#B6C3FF', '#E6ECFF'],
-  },
-  {
-    accent: '#8E96A8',
-    background: '#C9CFDA',
-    gradient: ['#B5BCCB', '#8E96A8'],
-    backgroundGradient: ['#C9CFDA', '#ECEFF5'],
-  },
-  {
-    accent: '#52C6A8',
-    background: '#AEEFD4',
-    gradient: ['#7DE6C8', '#52C6A8'],
-    backgroundGradient: ['#AEEFD4', '#E5FFF4'],
-  },
-  {
-    accent: '#38C985',
-    background: '#A5F0CB',
-    gradient: ['#63E3A4', '#38C985'],
-    backgroundGradient: ['#A5F0CB', '#E1FFF1'],
-  },
-  {
-    accent: '#FFB24A',
-    background: '#FFD19B',
-    gradient: ['#FFC76F', '#FFB24A'],
-    backgroundGradient: ['#FFD19B', '#FFEFDA'],
-  },
-  {
-    accent: '#FF8A3D',
-    background: '#FFC2A0',
-    gradient: ['#FFA358', '#FF8A3D'],
-    backgroundGradient: ['#FFC2A0', '#FFE5D7'],
-  },
-  {
-    accent: '#FF4FA0',
-    background: '#FFADD6',
-    gradient: ['#FF6BC0', '#FF4FA0'],
-    backgroundGradient: ['#FFADD6', '#FFE1F0'],
-  },
-];
-
+const seededRandom = (seed) => {
+  let value = 0;
+  const str = String(seed || '');
+  for (let i = 0; i < str.length; i += 1) {
+    value = (value * 31 + str.charCodeAt(i)) % 100000;
+  }
+  return () => {
+    value = (value * 9301 + 49297) % 233280;
+    return value / 233280;
+  };
+};
 // Basic offline mapping so scans can populate fields without a network call.
 // Replace/extend this with your own lookup or API integration.
 const BARCODE_FOOD_MAP = {
@@ -183,6 +119,9 @@ const HealthScreen = () => {
         consumed: isDark ? '#FDBA74' : '#F97316',
         ring: isDark ? '#34D399' : '#10B981',
         ringBg: baseCard,
+        heroGradient: isDark ? ['#0F766E', '#16A34A'] : ['#22C55E', '#16A34A'],
+        heroText: '#FFFFFF',
+        buttonGradient: isDark ? ['#34D399', '#6EE7B7'] : ['#86EFAC', '#34D399'],
       },
       food: {
         card: baseCard,
@@ -227,6 +166,19 @@ const HealthScreen = () => {
       },
     };
   }, [isDark, themeColors]);
+  const gardenTheme = useMemo(
+    () => ({
+      headerGradient: isDark ? ['#3A235A', '#2D1E3D'] : ['#FF7FA7', '#FFB36B'],
+      skyGradient: isDark ? ['#1E2339', '#2B2F4A'] : ['#EAF4FF', '#F9FCFF'],
+      groundGradient: isDark ? ['#1F4D3A', '#2F6B52'] : ['#A7F3D0', '#86EFAC'],
+      card: isDark ? '#1B1F33' : '#FFFFFF',
+      border: isDark ? 'rgba(255,255,255,0.12)' : '#EFEAF7',
+      muted: isDark ? 'rgba(255,255,255,0.7)' : themeColors.textSecondary,
+      soft: isDark ? 'rgba(255,255,255,0.08)' : '#F5F7FF',
+      sun: isDark ? '#FCD34D' : '#F59E0B',
+    }),
+    [isDark, themeColors]
+  );
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
 
   useEffect(() => {
@@ -254,22 +206,16 @@ const HealthScreen = () => {
   const [scannerMessage, setScannerMessage] = useState('');
   const [showMoodModal, setShowMoodModal] = useState(false);
   const [selectedMoodIndex, setSelectedMoodIndex] = useState(null);
-  const heroScale = useRef(new Animated.Value(1)).current;
-  const moodButtonScalesRef = useRef(
-    MOOD_OPTIONS.map(() => new Animated.Value(1))
-  );
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [plantedMoodKey, setPlantedMoodKey] = useState(null);
+  const sunSpin = useRef(new Animated.Value(0)).current;
+  const breeze = useRef(new Animated.Value(0)).current;
+  const confettiAnim = useRef(new Animated.Value(0)).current;
+  const plantAnim = useRef(new Animated.Value(0)).current;
   const restoreFoodModalRef = useRef(false);
-  const lastMoodIndexRef = useRef(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
 
-  const moodOptions = MOOD_OPTIONS.map((option, idx) => ({
-    ...option,
-    ...(MOOD_THEMES[idx] || {
-      accent: colors.primary,
-      background: colors.primaryLight,
-      gradient: [colors.primaryLight, colors.primary],
-    }),
-  }));
+  const moodOptions = MOOD_OPTIONS;
 
   const [cameraPermission, requestCameraPermission] = useCameraPermissions
     ? useCameraPermissions()
@@ -418,6 +364,15 @@ const HealthScreen = () => {
     setFoodGramsEaten('');
     setFoodBasis(null);
     setShowFoodModal(false);
+  };
+
+  const handleOpenAddMeal = () => {
+    if (showGoalModal) {
+      setShowGoalModal(false);
+      setTimeout(() => setShowFoodModal(true), 250);
+      return;
+    }
+    setShowFoodModal(true);
   };
 
   const handleRelogFood = async (food) => {
@@ -705,80 +660,189 @@ const HealthScreen = () => {
     return colors.danger;
   };
 
-  const currentMoodIndex = () => {
-    if (typeof selectedHealth.mood === 'number') {
-      return Math.min(moodOptions.length - 1, Math.max(0, selectedHealth.mood - 1));
-    }
-    return 6;
+  const normalizeMoodIndex = (value) => {
+    if (typeof value !== 'number') return null;
+    return Math.min(moodOptions.length - 1, Math.max(0, value - 1));
   };
 
-  const activeMoodIndex = selectedMoodIndex ?? currentMoodIndex();
-  const activeMood =
-    moodOptions[activeMoodIndex] || moodOptions[6] || moodOptions[0];
-  const moodAccent = activeMood.accent;
-  const moodGradient = activeMood.gradient;
-  const moodBackgroundGradient =
-    activeMood.backgroundGradient || [activeMood.background, '#FFFFFF'];
-  const moodBackground = moodBackgroundGradient[0];
+  const currentMoodIndex = () => {
+    const idx = normalizeMoodIndex(selectedHealth.mood);
+    return idx !== null ? idx : 7;
+  };
+
+  const activeMoodIndex =
+    typeof selectedMoodIndex === 'number' ? selectedMoodIndex : currentMoodIndex();
+
+  const moodEntries = useMemo(() => {
+    const entries = [];
+    Object.entries(healthData || {}).forEach(([dateKey, day]) => {
+      const idx = normalizeMoodIndex(day?.mood);
+      if (idx === null) return;
+      entries.push({
+        dateKey,
+        moodIndex: idx,
+        mood: moodOptions[idx],
+      });
+    });
+    entries.sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+    return entries;
+  }, [healthData, moodOptions]);
+
+  const totalMoodCount = moodEntries.length;
+  const positiveCount = moodEntries.filter((entry) => entry.mood?.tone === 'positive').length;
+  const gardenHealthPercent =
+    totalMoodCount > 0 ? Math.round((positiveCount / totalMoodCount) * 100) : 0;
+
+  const gardenStatus = useMemo(() => {
+    if (gardenHealthPercent >= 70) {
+      return { label: 'Thriving Garden', emoji: '\u{1F338}' };
+    }
+    if (gardenHealthPercent >= 40) {
+      return { label: 'Growing Garden', emoji: '\u{1F331}' };
+    }
+    return { label: 'Needs care', emoji: '\u{1F499}' };
+  }, [gardenHealthPercent]);
+
+  const gardenInsight = useMemo(() => {
+    if (totalMoodCount === 0) {
+      return 'Plant your first flower today to start your mood garden.';
+    }
+    if (gardenHealthPercent >= 70) {
+      return 'Your garden is thriving! Keep nurturing those positive vibes.';
+    }
+    if (gardenHealthPercent >= 40) {
+      return 'Your garden is growing. A few joyful moments can help it bloom.';
+    }
+    return 'Your garden needs care. Try a small act of kindness for yourself today.';
+  }, [gardenHealthPercent, totalMoodCount]);
+
+  const gardenFlowers = useMemo(() => {
+    const slice = moodEntries.slice(-12);
+    return slice.map((entry, idx) => {
+      const rand = seededRandom(`${entry.dateKey}-${entry.mood?.key}-${idx}`);
+      const left = 12 + rand() * 76;
+      const top = 98 + rand() * 44;
+      const stemHeight = 14 + rand() * 16;
+      const sway = 2 + rand() * 4;
+      const size = 22 + rand() * 10;
+      return {
+        ...entry,
+        left,
+        top,
+        stemHeight,
+        sway,
+        size,
+      };
+    });
+  }, [moodEntries]);
+
+  const miniGardenFlowers = useMemo(
+    () => moodEntries.slice(-5).map((entry) => entry.mood),
+    [moodEntries]
+  );
+
+  const weeklyGarden = useMemo(() => {
+    const days = [];
+    for (let i = 6; i >= 0; i -= 1) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const key = date.toISOString().slice(0, 10);
+      const idx = normalizeMoodIndex(healthData?.[key]?.mood);
+      const label = date.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 1);
+      days.push({
+        key,
+        label,
+        mood: idx !== null ? moodOptions[idx] : null,
+      });
+    }
+    return days;
+  }, [healthData, moodOptions]);
+
+  const weeklyMoodCount = weeklyGarden.filter((day) => day.mood).length;
+  const sunRotate = sunSpin.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+  const breezeRotate = breeze.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['-1deg', '1deg'],
+  });
+
+  const confettiPieces = useMemo(() => {
+    const palette = ['#FCD34D', '#F472B6', '#60A5FA', '#34D399', '#F97316'];
+    return Array.from({ length: 12 }).map((_, idx) => {
+      const rand = seededRandom(`confetti-${idx}`);
+      return {
+        id: `confetti-${idx}`,
+        left: 6 + rand() * 88,
+        size: 6 + rand() * 6,
+        color: palette[idx % palette.length],
+      };
+    });
+  }, []);
 
   useEffect(() => {
-    heroScale.setValue(1);
-    Animated.sequence([
-      Animated.timing(heroScale, {
-        toValue: 1.06,
-        duration: 160,
-        useNativeDriver: true,
-      }),
-      Animated.spring(heroScale, {
+    const sunLoop = Animated.loop(
+      Animated.timing(sunSpin, {
         toValue: 1,
-        friction: 4,
-        tension: 140,
+        duration: 14000,
         useNativeDriver: true,
-      }),
-    ]).start();
-  }, [activeMoodIndex, heroScale]);
+      })
+    );
+    const breezeLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(breeze, {
+          toValue: 1,
+          duration: 2400,
+          useNativeDriver: true,
+        }),
+        Animated.timing(breeze, {
+          toValue: 0,
+          duration: 2400,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    sunLoop.start();
+    breezeLoop.start();
+    return () => {
+      sunLoop.stop();
+      breezeLoop.stop();
+    };
+  }, [breeze, sunSpin]);
+
+  const triggerConfetti = () => {
+    setShowConfetti(true);
+    confettiAnim.setValue(0);
+    Animated.timing(confettiAnim, {
+      toValue: 1,
+      duration: 1200,
+      useNativeDriver: true,
+    }).start(() => {
+      setShowConfetti(false);
+      confettiAnim.setValue(0);
+    });
+  };
+
+  const triggerPlantAnimation = (dateKey) => {
+    setPlantedMoodKey(dateKey);
+    plantAnim.setValue(0);
+    Animated.spring(plantAnim, {
+      toValue: 1,
+      friction: 5,
+      tension: 120,
+      useNativeDriver: true,
+    }).start();
+  };
 
   const openMoodPicker = () => {
     const initialIndex = currentMoodIndex();
     setSelectedMoodIndex(initialIndex);
-    lastMoodIndexRef.current = initialIndex;
     setShowMoodModal(true);
   };
 
   const handleMoodSelect = (idx) => {
     setSelectedMoodIndex(idx);
-    const scale = moodButtonScalesRef.current[idx];
-    if (scale) {
-      scale.setValue(1);
-      Animated.sequence([
-        Animated.timing(scale, {
-          toValue: 1.08,
-          duration: 120,
-          useNativeDriver: true,
-        }),
-        Animated.spring(scale, {
-          toValue: 1,
-          friction: 4,
-          tension: 160,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-    if (
-      lastMoodIndexRef.current !== null &&
-      lastMoodIndexRef.current !== idx
-    ) {
-      const previousScale =
-        moodButtonScalesRef.current[lastMoodIndexRef.current];
-      if (previousScale) {
-        Animated.timing(previousScale, {
-          toValue: 1,
-          duration: 120,
-          useNativeDriver: true,
-        }).start();
-      }
-    }
-    lastMoodIndexRef.current = idx;
   };
 
   useEffect(() => {
@@ -791,12 +855,65 @@ const HealthScreen = () => {
   const handleMoodSave = async () => {
     const idx = typeof selectedMoodIndex === 'number' ? selectedMoodIndex : currentMoodIndex();
     await updateHealthForDate(selectedDateISO, { mood: idx + 1 });
+    triggerPlantAnimation(selectedDateISO);
+    if (moodOptions[idx]?.tone === 'positive') {
+      triggerConfetti();
+      setTimeout(() => setShowMoodModal(false), 1200);
+      return;
+    }
     setShowMoodModal(false);
   };
 
   const formatMacroValue = (value) => {
     if (value === null || value === undefined) return 'N/A';
     return `${value}g`;
+  };
+
+  const formatFoodTime = (food) => {
+    const timestamp = food?.created_at || food?.createdAt || food?.timestamp || null;
+    if (!timestamp) return null;
+    const parsed = new Date(timestamp);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  };
+
+  const renderMacroProgressRow = ({ label, total, goal, tint }) => {
+    const safeTotal = Number.isFinite(total) ? total : 0;
+    const safeGoal = Number.isFinite(goal) ? goal : null;
+    const ratio =
+      safeGoal && safeGoal > 0 ? Math.min(1, safeTotal / safeGoal) : 0;
+    const displayValue = safeGoal
+      ? `${Math.round(safeTotal)}/${Math.round(safeGoal)}g`
+      : 'Set goal';
+
+    return (
+      <View key={label} style={styles.goalMacroRow}>
+        <View style={styles.goalMacroRowHeader}>
+          <Text style={[styles.goalMacroLabel, { color: themeColors.text }]}>
+            {label}
+          </Text>
+          <Text style={[styles.goalMacroValue, { color: themeColors.textSecondary }]}>
+            {displayValue}
+          </Text>
+        </View>
+        <View
+          style={[
+            styles.goalMacroTrack,
+            { backgroundColor: themeColors.border },
+          ]}
+        >
+          <View
+            style={[
+              styles.goalMacroFill,
+              {
+                backgroundColor: tint,
+                width: `${Math.max(0, Math.min(1, ratio)) * 100}%`,
+              },
+            ]}
+          />
+        </View>
+      </View>
+    );
   };
 
   const normalizeHistoryFood = (food, dateKey) => {
@@ -985,6 +1102,25 @@ const HealthScreen = () => {
     macroRemainders: macroRemaining,
     dateKey: selectedDateISO,
   });
+  const goalStatTints = {
+    goal: {
+      bg: isDark ? '#0F2A1F' : '#E8F9EF',
+      text: isDark ? '#6EE7B7' : '#16A34A',
+    },
+    eaten: {
+      bg: isDark ? '#162438' : '#EAF2FF',
+      text: isDark ? '#7DD3FC' : '#2563EB',
+    },
+    left: {
+      bg: isDark ? '#3A2716' : '#FFF1E5',
+      text: isDark ? '#FDBA74' : '#F97316',
+    },
+  };
+  const macroTints = {
+    protein: isDark ? '#60A5FA' : '#3B82F6',
+    carbs: isDark ? '#FDBA74' : '#F97316',
+    fat: isDark ? '#34D399' : '#10B981',
+  };
 
   const cardWidthStyle = swipeCardWidth ? { width: swipeCardWidth } : null;
   const swipeCardStyle = swipeCardWidth ? styles.swipeCard : null;
@@ -1010,6 +1146,7 @@ const HealthScreen = () => {
           borderColor: healthTheme.calorie.border,
         },
       ]}
+      onPress={() => setShowGoalModal(true)}
     >
       <View style={styles.sectionHeader}>
         <Text style={[styles.sectionTitle, { color: healthTheme.calorie.title }]}>
@@ -1403,85 +1540,12 @@ const HealthScreen = () => {
           </View>
         </View>
 
-        {/* Food Section */}
-        <Card
-          style={[
-            styles.sectionCard,
-            {
-              backgroundColor: healthTheme.food.card,
-              borderColor: healthTheme.food.border,
-            },
-          ]}
-        >
-          <Text style={[styles.sectionTitle, { color: healthTheme.food.title }]}>
-            Food for{' '}
-            {selectedDate.toDateString() === new Date().toDateString()
-              ? 'Today'
-              : selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-          </Text>
-          {selectedHealth.foods && selectedHealth.foods.length > 0 ? (
-            <View style={styles.foodList}>
-              {selectedHealth.foods.map((food, idx) => (
-                <View
-                  key={food.id || food.timestamp || `${food.name}-${idx}`}
-                  style={[
-                    styles.foodItem,
-                    {
-                      backgroundColor: healthTheme.food.itemBg,
-                      borderColor: healthTheme.food.itemBorder,
-                    },
-                  ]}
-                >
-                  <View style={styles.foodInfo}>
-                    <Text style={styles.foodName}>{food.name}</Text>
-                    <Text style={[styles.foodCal, { color: healthTheme.food.title }]}>
-                      {food.calories} cal
-                    </Text>
-                    <Text style={styles.foodMacros}>
-                      Protein: {formatMacroValue(food.proteinGrams)} | Carbs: {formatMacroValue(food.carbsGrams)} | Fat: {formatMacroValue(food.fatGrams)}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => {
-                      const updatedFoods = (selectedHealth.foods || []).filter(
-                        (f) => f.id !== food.id
-                      );
-                      const totalCalories = updatedFoods.reduce(
-                        (sum, f) => sum + (f.calories || 0),
-                        0
-                      );
-                      deleteFoodEntryForDate(selectedDateISO, food.id);
-                    }}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons name="trash-outline" size={18} color={themeColors.danger} />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-          ) : (
-            <Text style={styles.foodEmpty}>No food logged yet.</Text>
-          )}
-
-          <TouchableOpacity
-            style={[
-              styles.logFoodButton,
-              { borderColor: healthTheme.food.buttonBorder },
-            ]}
-            onPress={() => setShowFoodModal(true)}
-          >
-            <Ionicons name="add" size={18} color={healthTheme.food.buttonText} />
-            <Text style={[styles.logFoodText, { color: healthTheme.food.buttonText }]}>
-              Log Food
-            </Text>
-          </TouchableOpacity>
-        </Card>
-
         {/* Mood Section */}
         <Card
           style={[
             styles.sectionCard,
-            { backgroundColor: healthTheme.mood.card, borderColor: healthTheme.mood.border },
+            styles.moodOverviewCard,
+            { backgroundColor: 'transparent', borderColor: healthTheme.mood.border },
           ]}
         >
           <TouchableOpacity
@@ -1489,24 +1553,72 @@ const HealthScreen = () => {
             onPress={openMoodPicker}
             style={styles.moodTouchable}
           >
-            <Text style={[styles.sectionTitle, { color: healthTheme.mood.title }]}>
-              How are you feeling?
-            </Text>
-            {selectedHealth.mood ? (
-              <View style={styles.moodSummary}>
-                <Text style={styles.moodSummaryEmoji}>
-                  {moodOptions[currentMoodIndex()].emoji}
-                </Text>
-                <Text style={styles.moodSummaryLabel}>
-                  Today's mood
-                </Text>
-                <Text style={styles.moodHint}>Tap to change</Text>
+            <LinearGradient
+              colors={['#FFF1F6', '#FFF6E9']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.moodOverviewGradient}
+              pointerEvents="none"
+            />
+
+            <View style={styles.moodOverviewHeader}>
+              <View style={styles.moodOverviewLeft}>
+                <View style={styles.moodOverviewIcon}>
+                  <Ionicons name="flower" size={14} color={healthTheme.mood.title} />
+                </View>
+                <View>
+                  <Text style={[styles.moodOverviewTitle, { color: themeColors.text }]}>
+                    Mood Garden
+                  </Text>
+                  <Text style={[styles.moodOverviewSubtitle, { color: healthTheme.mood.text }]}>
+                    How are you feeling?
+                  </Text>
+                </View>
               </View>
-            ) : (
-              <Text style={[styles.moodPlaceholder, { color: healthTheme.mood.text }]}>
-                Check in your mood with us!
+              <View style={styles.moodOverviewSparkle}>
+                <Ionicons name="sparkles" size={16} color="#F59E0B" />
+              </View>
+            </View>
+
+            <View style={styles.moodPreviewCard}>
+              <LinearGradient
+                colors={['#D9F1FF', '#E3F8EC']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.moodPreviewGradient}
+              >
+                {miniGardenFlowers.length ? (
+                  <View style={styles.moodPreviewRow}>
+                    {miniGardenFlowers.map((flower, idx) => (
+                      <View key={`${flower.key}-${idx}`} style={styles.moodPreviewFlower}>
+                        <View
+                          style={[
+                            styles.moodPreviewHead,
+                            { backgroundColor: flower.color },
+                          ]}
+                        >
+                          <Text style={styles.moodPreviewEmoji}>{flower.emoji}</Text>
+                        </View>
+                        <View style={styles.moodPreviewStem} />
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={[styles.moodPlaceholder, { color: healthTheme.mood.text }]}>
+                    Tap to plant your first flower.
+                  </Text>
+                )}
+              </LinearGradient>
+            </View>
+
+            <View style={styles.moodFooterRow}>
+              <Text style={[styles.moodFooterHint, { color: healthTheme.mood.text }]}>
+                Tap to plant today's mood
               </Text>
-            )}
+              <Text style={styles.moodFooterCount}>
+                {totalMoodCount} flowers planted
+              </Text>
+            </View>
           </TouchableOpacity>
         </Card>
 
@@ -1604,66 +1716,272 @@ const HealthScreen = () => {
         onClose={handleCancelNutritionGoals}
         title="Daily Goals"
         fullScreen
+        hideHeader
+        contentStyle={styles.goalModalScroll}
+        contentContainerStyle={styles.goalModalContent}
       >
-        <Input
-          label="Calories (cal)"
-          value={calorieGoalInput}
-          onChangeText={setCalorieGoalInput}
-          placeholder={`${defaultCalorieGoal}`}
-          keyboardType="numeric"
-          containerStyle={styles.goalModalInput}
-        />
-        <Input
-          label="Protein (g)"
-          value={proteinGoalInput}
-          onChangeText={setProteinGoalInput}
-          placeholder="e.g., 120"
-          keyboardType="decimal-pad"
-          containerStyle={styles.goalModalInput}
-        />
-        <Input
-          label="Carbs (g)"
-          value={carbsGoalInput}
-          onChangeText={setCarbsGoalInput}
-          placeholder="e.g., 200"
-          keyboardType="decimal-pad"
-          containerStyle={styles.goalModalInput}
-        />
-        <Input
-          label="Fat (g)"
-          value={fatGoalInput}
-          onChangeText={setFatGoalInput}
-          placeholder="e.g., 60"
-          keyboardType="decimal-pad"
-          containerStyle={styles.goalModalInput}
-        />
-        <View style={styles.modalButtons}>
-          <Button
-            title="Cancel"
-            variant="secondary"
-            onPress={handleCancelNutritionGoals}
-            disabled={isSavingGoals}
-            style={styles.modalButton}
-          />
-          <Button
-            title="Save Goals"
-            onPress={handleSaveNutritionGoals}
-            disabled={isSavingGoals}
-            style={styles.modalButton}
-          />
+        <View style={styles.goalHero}>
+          <LinearGradient
+            colors={healthTheme.calorie.heroGradient}
+            style={[
+              styles.goalHeroGradient,
+              { paddingTop: spacing.xl + insets.top },
+            ]}
+          >
+            <View style={styles.goalHeroHeader}>
+              <TouchableOpacity
+                style={styles.goalHeroIconButton}
+                onPress={handleCancelNutritionGoals}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+              <View style={styles.goalHeroTitleWrap}>
+                <Text style={styles.goalHeroTitle}>Calorie Tracker</Text>
+                <Text style={styles.goalHeroSubtitle}>Track your daily nutrition</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.goalHeroIconButton}
+                onPress={handleSaveNutritionGoals}
+                disabled={isSavingGoals}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="checkmark" size={22} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+          </LinearGradient>
         </View>
-        <TouchableOpacity
-          onPress={handleClearNutritionGoals}
-          disabled={isSavingGoals}
-          style={styles.goalClearButton}
-        >
-          <Text style={[styles.goalClearText, { color: themeColors.textSecondary }]}>
-            Clear goals
+
+        <View style={styles.goalSummaryCard}>
+          <View style={[styles.goalRingWrap, styles.goalRingWrapCard]}>
+            <View
+              style={[
+                styles.goalRing,
+                {
+                  borderColor: themeColors.border || colors.border,
+                  backgroundColor: themeColors.inputBackground || colors.inputBackground,
+                },
+              ]}
+            >
+              <View style={[styles.goalRingIcon, { backgroundColor: themeColors.card || colors.card }]}>
+                <Ionicons name="flame" size={18} color="#F97316" />
+              </View>
+              <Text style={[styles.goalRingValue, { color: themeColors.text }]}>
+                {caloriesConsumed}
+              </Text>
+              <Text style={[styles.goalRingSub, { color: themeColors.textSecondary }]}>
+                of {dailyCalorieGoal || 0} cal
+              </Text>
+            </View>
+          </View>
+
+          <View style={[styles.goalStatsRow, styles.goalStatsRowInner]}>
+            <View style={[styles.goalStatCard, { backgroundColor: goalStatTints.goal.bg }]}>
+              <Text style={[styles.goalStatLabel, { color: themeColors.textSecondary }]}>
+                Goal
+              </Text>
+              <Text style={[styles.goalStatValue, { color: goalStatTints.goal.text }]}>
+                {dailyCalorieGoal || 0}
+              </Text>
+              <Text style={[styles.goalStatUnit, { color: themeColors.textSecondary }]}>
+                cal
+              </Text>
+            </View>
+            <View style={[styles.goalStatCard, { backgroundColor: goalStatTints.eaten.bg }]}>
+              <Text style={[styles.goalStatLabel, { color: themeColors.textSecondary }]}>
+                Eaten
+              </Text>
+              <Text style={[styles.goalStatValue, { color: goalStatTints.eaten.text }]}>
+                {caloriesConsumed}
+              </Text>
+              <Text style={[styles.goalStatUnit, { color: themeColors.textSecondary }]}>
+                cal
+              </Text>
+            </View>
+            <View style={[styles.goalStatCard, { backgroundColor: goalStatTints.left.bg }]}>
+              <Text style={[styles.goalStatLabel, { color: themeColors.textSecondary }]}>
+                Left
+              </Text>
+              <Text style={[styles.goalStatValue, { color: goalStatTints.left.text }]}>
+                {Math.max(caloriesRemaining, 0)}
+              </Text>
+              <Text style={[styles.goalStatUnit, { color: themeColors.textSecondary }]}>
+                cal
+              </Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            activeOpacity={0.9}
+            style={styles.addMealButtonInlineCard}
+            onPress={handleOpenAddMeal}
+          >
+          <LinearGradient
+            colors={healthTheme.calorie.buttonGradient}
+            style={styles.addMealButton}
+          >
+              <Ionicons name="add" size={20} color="#FFFFFF" />
+              <Text style={styles.addMealButtonText}>Add Meal</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
+          <View style={styles.goalMacroHeader}>
+            <Text style={[styles.goalSectionTitle, { color: themeColors.text }]}>
+              Macronutrients
+            </Text>
+            <Text style={[styles.goalSectionMeta, { color: themeColors.textSecondary }]}>
+              Today
+            </Text>
+          </View>
+          {renderMacroProgressRow({
+            label: 'Protein',
+            total: macroTotals.protein,
+            goal: macroGoals.protein,
+            tint: macroTints.protein,
+          })}
+          {renderMacroProgressRow({
+            label: 'Carbs',
+            total: macroTotals.carbs,
+            goal: macroGoals.carbs,
+            tint: macroTints.carbs,
+          })}
+          {renderMacroProgressRow({
+            label: 'Fat',
+            total: macroTotals.fat,
+            goal: macroGoals.fat,
+            tint: macroTints.fat,
+          })}
+        </View>
+
+        <View style={styles.goalCard}>
+          <View style={styles.goalMealsHeader}>
+            <Text style={[styles.goalSectionTitle, { color: themeColors.text }]}>
+              Today's meals
+            </Text>
+            <TouchableOpacity
+              style={styles.goalMealsAdd}
+              onPress={handleOpenAddMeal}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="add" size={18} color={healthTheme.calorie.ring} />
+            </TouchableOpacity>
+          </View>
+          {selectedHealth.foods && selectedHealth.foods.length > 0 ? (
+            <View style={styles.goalMealsList}>
+              {selectedHealth.foods.map((food, idx) => {
+                const time = formatFoodTime(food);
+                return (
+                  <View
+                    key={food.id || food.timestamp || `${food.name}-${idx}`}
+                    style={[
+                      styles.goalMealItem,
+                      {
+                        backgroundColor: themeColors.inputBackground || colors.inputBackground,
+                        borderColor: themeColors.border || colors.border,
+                      },
+                    ]}
+                  >
+                    <View style={styles.goalMealIcon}>
+                      <Ionicons name="restaurant" size={18} color={healthTheme.calorie.title} />
+                    </View>
+                    <View style={styles.goalMealInfo}>
+                      <Text style={[styles.goalMealName, { color: themeColors.text }]}>
+                        {food.name}
+                      </Text>
+                      <Text style={[styles.goalMealMeta, { color: themeColors.textSecondary }]}>
+                        {time || 'Logged meal'}
+                      </Text>
+                    </View>
+                    <Text style={[styles.goalMealCalories, { color: themeColors.text }]}>
+                      {food.calories ?? 0} cal
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          ) : (
+            <Text style={[styles.goalEmptyText, { color: themeColors.textSecondary }]}>
+              No meals logged yet.
+            </Text>
+          )}
+        </View>
+
+        <View style={styles.goalTipCard}>
+          <Text style={[styles.goalTipLabel, { color: themeColors.textSecondary }]}>
+            Nutrition Tip
           </Text>
-        </TouchableOpacity>
+          <Text style={[styles.goalTipText, { color: themeColors.text }]}>
+            {healthTip}
+          </Text>
+        </View>
+
+        <View style={[styles.goalCard, styles.goalEditorCard]}>
+          <Text style={[styles.goalSectionTitle, { color: themeColors.text }]}>
+            Daily goals
+          </Text>
+          <Text style={[styles.goalSectionSubtitle, { color: themeColors.textSecondary }]}>
+            Customize your calories and macros for this day.
+          </Text>
+          <Input
+            label="Calories (cal)"
+            value={calorieGoalInput}
+            onChangeText={setCalorieGoalInput}
+            placeholder={`${defaultCalorieGoal}`}
+            keyboardType="numeric"
+            containerStyle={styles.goalModalInput}
+          />
+          <Input
+            label="Protein (g)"
+            value={proteinGoalInput}
+            onChangeText={setProteinGoalInput}
+            placeholder="e.g., 120"
+            keyboardType="decimal-pad"
+            containerStyle={styles.goalModalInput}
+          />
+          <Input
+            label="Carbs (g)"
+            value={carbsGoalInput}
+            onChangeText={setCarbsGoalInput}
+            placeholder="e.g., 200"
+            keyboardType="decimal-pad"
+            containerStyle={styles.goalModalInput}
+          />
+          <Input
+            label="Fat (g)"
+            value={fatGoalInput}
+            onChangeText={setFatGoalInput}
+            placeholder="e.g., 60"
+            keyboardType="decimal-pad"
+            containerStyle={styles.goalModalInput}
+          />
+          <View style={styles.modalButtons}>
+            <Button
+              title="Cancel"
+              variant="secondary"
+              onPress={handleCancelNutritionGoals}
+              disabled={isSavingGoals}
+              style={styles.modalButton}
+            />
+            <Button
+              title="Save Goals"
+              onPress={handleSaveNutritionGoals}
+              disabled={isSavingGoals}
+              style={styles.modalButton}
+            />
+          </View>
+          <TouchableOpacity
+            onPress={handleClearNutritionGoals}
+            disabled={isSavingGoals}
+            style={styles.goalClearButton}
+          >
+            <Text style={[styles.goalClearText, { color: themeColors.textSecondary }]}>
+              Clear goals
+            </Text>
+          </TouchableOpacity>
+        </View>
       </Modal>
 
-      {/* Log Food Modal */}
+      {/* Add Meal Modal */}
       <Modal
         visible={showFoodModal}
         onClose={() => {
@@ -1676,7 +1994,7 @@ const HealthScreen = () => {
           setFoodGramsEaten('');
           setFoodBasis(null);
         }}
-        title="Log Food"
+        title="Add Meal"
         fullScreen
       >
         <Input
@@ -1807,7 +2125,7 @@ const HealthScreen = () => {
             style={styles.modalButton}
           />
           <Button
-            title="Log Food"
+            title="Add Meal"
             onPress={handleLogFood}
             disabled={!foodName.trim()}
             style={styles.modalButton}
@@ -1885,96 +2203,242 @@ const HealthScreen = () => {
       <Modal
         visible={showMoodModal}
         onClose={() => setShowMoodModal(false)}
-        title="How are you feeling?"
         fullScreen
-        containerStyle={{ backgroundColor: moodBackground }}
+        hideHeader
+        contentStyle={styles.gardenModalScroll}
+        contentContainerStyle={styles.gardenModalContent}
+        containerStyle={{ backgroundColor: gardenTheme.card }}
       >
-        <View style={styles.moodModalContent} pointerEvents="box-none">
+        <View>
           <LinearGradient
-            colors={moodBackgroundGradient}
+            colors={gardenTheme.headerGradient}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={styles.moodBackground}
-            pointerEvents="none"
-          />
-          <View style={styles.moodHero}>
-            <Animated.View
-              style={[
-                styles.moodPreviewHalo,
-                { transform: [{ scale: heroScale }] },
-              ]}
-            >
-              <LinearGradient
-                colors={moodGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.moodPreviewHaloGradient}
+            style={[styles.gardenHeader, { paddingTop: insets.top + spacing.lg }]}
+          >
+            <View style={styles.gardenHeaderRow}>
+              <TouchableOpacity
+                style={styles.gardenBackButton}
+                onPress={() => setShowMoodModal(false)}
               >
-                <Text style={styles.moodPreviewEmoji}>{activeMood.emoji}</Text>
-              </LinearGradient>
-            </Animated.View>
-            <Text style={[styles.moodPreviewLabel, { color: moodAccent }]}>
-              {activeMood.label}
-            </Text>
-          </View>
+                <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+              <View style={styles.gardenHeaderBadge}>
+                <Ionicons name="flower" size={14} color="#FFFFFF" />
+                <Text style={styles.gardenHeaderBadgeText}>
+                  {totalMoodCount} flowers
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.gardenTitle}>Your Mood Garden</Text>
+            <Text style={styles.gardenSubtitle}>Plant a flower for each feeling</Text>
+          </LinearGradient>
 
-          <View style={styles.moodGrid}>
-            {moodOptions.map((option, idx) => {
-              const isActive = activeMoodIndex === idx;
-              return (
-                <TouchableOpacity
-                  key={option.label}
-                  style={[
-                    styles.moodEmojiButton,
-                    isActive && styles.moodEmojiButtonActive,
-                    isActive && { borderColor: option.accent, shadowColor: option.accent },
-                  ]}
-                  onPress={() => handleMoodSelect(idx)}
-                  activeOpacity={0.85}
-                >
+          <View
+            style={[
+              styles.gardenCard,
+              { backgroundColor: gardenTheme.card, borderColor: gardenTheme.border },
+            ]}
+          >
+            <View style={styles.gardenHealthRow}>
+              <View>
+                <Text style={[styles.gardenHealthLabel, { color: gardenTheme.muted }]}>
+                  Garden Health
+                </Text>
+                <Text style={[styles.gardenHealthValue, { color: themeColors.text }]}>
+                  {gardenHealthPercent}% {gardenStatus.label} {gardenStatus.emoji}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.gardenScene}>
+              <LinearGradient colors={gardenTheme.skyGradient} style={styles.gardenSky} />
+              <Animated.View style={[styles.gardenSunOrb, { transform: [{ rotate: sunRotate }] }]}>
+                <Ionicons name="sunny" size={18} color={gardenTheme.sun} />
+              </Animated.View>
+
+              {showConfetti && (
+                <View style={styles.confettiLayer} pointerEvents="none">
+                  {confettiPieces.map((piece) => {
+                    const translateY = confettiAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [-10, 140],
+                    });
+                    const opacity = confettiAnim.interpolate({
+                      inputRange: [0, 0.7, 1],
+                      outputRange: [1, 1, 0],
+                    });
+                    return (
+                      <Animated.View
+                        key={piece.id}
+                        style={[
+                          styles.confettiPiece,
+                          {
+                            left: `${piece.left}%`,
+                            width: piece.size,
+                            height: piece.size,
+                            backgroundColor: piece.color,
+                            opacity,
+                            transform: [{ translateY }],
+                          },
+                        ]}
+                      />
+                    );
+                  })}
+                </View>
+              )}
+
+              {gardenFlowers.map((flower) => {
+                const swayRotation = breeze.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [`-${flower.sway}deg`, `${flower.sway}deg`],
+                });
+                const isPlanted = flower.dateKey === plantedMoodKey;
+                const plantScale = isPlanted
+                  ? plantAnim.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] })
+                  : 1;
+                return (
                   <Animated.View
+                    key={`${flower.dateKey}-${flower.moodIndex}`}
                     style={[
-                      styles.moodEmojiButtonFill,
+                      styles.flowerWrap,
                       {
+                        left: `${flower.left}%`,
+                        top: flower.top,
                         transform: [
-                          { scale: moodButtonScalesRef.current[idx] || 1 },
+                          { rotate: breezeRotate },
+                          { rotate: swayRotation },
+                          { scale: plantScale },
                         ],
                       },
                     ]}
                   >
-                    <LinearGradient
-                    colors={isActive ? option.gradient : [themeColors.card, themeColors.card]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.moodEmojiButtonGradient}
+                    <View
+                      style={[
+                        styles.flowerHead,
+                        {
+                          width: flower.size,
+                          height: flower.size,
+                          borderRadius: flower.size / 2,
+                          backgroundColor: flower.mood?.color,
+                        },
+                      ]}
                     >
-                      <Text
-                        style={[
-                          styles.moodEmoji,
-                          isActive && styles.moodEmojiActive,
-                        ]}
-                      >
-                        {option.emoji}
-                      </Text>
-                    </LinearGradient>
+                      <Text style={styles.flowerEmoji}>{flower.mood?.emoji}</Text>
+                    </View>
+                    <View style={[styles.flowerStem, { height: flower.stemHeight }]} />
                   </Animated.View>
-                </TouchableOpacity>
-              );
-            })}
+                );
+              })}
+
+              <LinearGradient
+                colors={gardenTheme.groundGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.gardenGround}
+              />
+            </View>
           </View>
 
-          <View style={styles.modalButtons}>
-            <Button
-              title="Cancel"
-              variant="secondary"
-              onPress={() => setShowMoodModal(false)}
-              style={styles.modalButton}
-            />
-            <Button
-              title="Save Mood"
-              onPress={handleMoodSave}
-              style={styles.modalButton}
-            />
+          <View
+            style={[
+              styles.weekCard,
+              { backgroundColor: gardenTheme.card, borderColor: gardenTheme.border },
+            ]}
+          >
+            <View style={styles.weekHeader}>
+              <View style={styles.weekHeaderLeft}>
+                <Ionicons name="calendar" size={16} color={themeColors.primary} />
+                <Text style={[styles.weekHeaderTitle, { color: themeColors.text }]}>
+                  This Week
+                </Text>
+              </View>
+              <Text style={[styles.weekHeaderMeta, { color: themeColors.primary }]}>
+                {weeklyMoodCount} moods logged
+              </Text>
+            </View>
+            <View style={styles.weekCalendarRow}>
+              {weeklyGarden.map((day) => (
+                <View key={day.key} style={styles.weekDay}>
+                  <View
+                    style={[
+                      styles.weekFlower,
+                      { backgroundColor: day.mood ? day.mood.color : gardenTheme.soft },
+                    ]}
+                  >
+                    <Text style={styles.weekFlowerEmoji}>{day.mood?.emoji || ''}</Text>
+                  </View>
+                  <Text style={[styles.weekLabel, { color: gardenTheme.muted }]}>{day.label}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          <View
+            style={[
+              styles.moodPickerCard,
+              { backgroundColor: gardenTheme.card, borderColor: gardenTheme.border },
+            ]}
+          >
+            <Text style={[styles.moodPickerTitle, { color: themeColors.text }]}>
+              How are you feeling today?
+            </Text>
+            <Text style={[styles.moodPickerSubtitle, { color: gardenTheme.muted }]}>
+              Select your mood to plant a flower in your garden.
+            </Text>
+            <View style={styles.moodPickerGrid}>
+              {moodOptions.map((option, idx) => {
+                const isActive = activeMoodIndex === idx;
+                return (
+                    <TouchableOpacity
+                      key={option.key}
+                      style={[
+                        styles.moodPickerItem,
+                        { backgroundColor: option.bg, borderColor: isActive ? option.accent : 'transparent' },
+                      ]}
+                      onPress={() => handleMoodSelect(idx)}
+                      activeOpacity={0.85}
+                    >
+                    <Text style={styles.moodPickerEmoji}>{option.emoji}</Text>
+                    <Text style={[styles.moodPickerLabel, { color: themeColors.text }]}>
+                      {option.label}
+                    </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+            </View>
+            <View style={styles.modalButtons}>
+              <Button
+                title="Cancel"
+                variant="secondary"
+                onPress={() => setShowMoodModal(false)}
+                style={styles.modalButton}
+              />
+              <Button
+                title="Plant Flower"
+                onPress={handleMoodSave}
+                style={styles.modalButton}
+              />
+            </View>
+          </View>
+
+          <View
+            style={[
+              styles.insightCard,
+              { backgroundColor: gardenTheme.soft, borderColor: gardenTheme.border },
+            ]}
+          >
+            <View style={styles.insightHeader}>
+              <View style={styles.insightIcon}>
+                <Ionicons name="sparkles" size={16} color={themeColors.primary} />
+              </View>
+              <Text style={[styles.insightTitle, { color: themeColors.text }]}>
+                Your Mood Insights
+              </Text>
+            </View>
+            <Text style={[styles.insightText, { color: gardenTheme.muted }]}>
+              {gardenInsight}
+            </Text>
           </View>
         </View>
       </Modal>
@@ -1993,6 +2457,7 @@ const createStyles = (themeColors) => StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: spacing.xl,
+    paddingTop: spacing.lg,
     paddingBottom: 100,
   },
   statsRow: {
@@ -2117,30 +2582,6 @@ const createStyles = (themeColors) => StyleSheet.create({
     ...typography.caption,
     fontWeight: '600',
   },
-  moodRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  moodOption: {
-    alignItems: 'center',
-    padding: spacing.sm,
-    borderRadius: borderRadius.md,
-  },
-  moodOptionActive: {
-    backgroundColor: themeColors.primaryLight,
-  },
-  moodEmoji: {
-    fontSize: 28,
-    marginBottom: spacing.xs,
-  },
-  moodLabel: {
-    ...typography.caption,
-    color: themeColors.textSecondary,
-  },
-  moodLabelActive: {
-    color: themeColors.primary,
-    fontWeight: '600',
-  },
   calorieStats: {
     marginBottom: spacing.lg,
   },
@@ -2185,6 +2626,281 @@ const createStyles = (themeColors) => StyleSheet.create({
     marginBottom: spacing.xs,
   },
   healthTipText: {
+    ...typography.bodySmall,
+    lineHeight: 18,
+  },
+  goalModalScroll: {
+    paddingHorizontal: 0,
+  },
+  goalModalContent: {
+    paddingTop: 0,
+  },
+  goalHero: {
+    marginBottom: spacing.lg,
+  },
+  goalHeroGradient: {
+    paddingTop: spacing.xl,
+    paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.xxl,
+    borderBottomLeftRadius: borderRadius.xxl,
+    borderBottomRightRadius: borderRadius.xxl,
+    overflow: 'hidden',
+  },
+  goalHeroHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  goalHeroIconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+  },
+  goalHeroTitleWrap: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  goalHeroTitle: {
+    ...typography.h2,
+    color: '#FFFFFF',
+  },
+  goalHeroSubtitle: {
+    ...typography.bodySmall,
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginTop: 2,
+  },
+  goalRingWrap: {
+    marginTop: spacing.lg,
+    alignItems: 'center',
+  },
+  goalRingWrapCard: {
+    marginTop: 0,
+  },
+  goalRing: {
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+    borderWidth: 10,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  goalRingIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    marginBottom: spacing.xs,
+  },
+  goalRingValue: {
+    ...typography.h2,
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  goalRingSub: {
+    ...typography.caption,
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginTop: spacing.xs,
+  },
+  goalStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.xl,
+    marginTop: -spacing.md,
+    marginBottom: spacing.lg,
+  },
+  goalStatsRowInner: {
+    paddingHorizontal: 0,
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+  },
+  goalSummaryCard: {
+    marginHorizontal: spacing.xl,
+    marginTop: -spacing.md,
+    padding: spacing.lg,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: themeColors.border || colors.border,
+    backgroundColor: themeColors.card || colors.card,
+    ...shadows.medium,
+    marginBottom: spacing.lg,
+  },
+  goalStatCard: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.lg,
+    marginHorizontal: spacing.xs,
+    ...shadows.small,
+  },
+  goalStatLabel: {
+    ...typography.caption,
+  },
+  goalStatValue: {
+    ...typography.h3,
+    fontWeight: '700',
+  },
+  goalStatUnit: {
+    ...typography.caption,
+    marginTop: 2,
+  },
+  goalCard: {
+    marginHorizontal: spacing.xl,
+    padding: spacing.lg,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: themeColors.border || colors.border,
+    backgroundColor: themeColors.card || colors.card,
+    ...shadows.small,
+    marginBottom: spacing.lg,
+  },
+  goalEditorCard: {
+    paddingTop: spacing.lg,
+  },
+  goalSectionTitle: {
+    ...typography.h3,
+    fontWeight: '700',
+  },
+  goalSectionSubtitle: {
+    ...typography.bodySmall,
+    marginTop: spacing.xs,
+    marginBottom: spacing.md,
+  },
+  goalSectionMeta: {
+    ...typography.caption,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  goalMacroHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+  },
+  goalMacroRow: {
+    marginBottom: spacing.md,
+  },
+  goalMacroRowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  goalMacroLabel: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+  },
+  goalMacroValue: {
+    ...typography.caption,
+    fontWeight: '600',
+  },
+  goalMacroTrack: {
+    height: 8,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  goalMacroFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
+  goalMealsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  goalMealsAdd: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: themeColors.inputBackground || colors.inputBackground,
+    borderWidth: 1,
+    borderColor: themeColors.border || colors.border,
+  },
+  goalMealsList: {
+    marginBottom: spacing.sm,
+  },
+  goalMealItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    borderWidth: 1,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.sm,
+  },
+  goalMealIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: themeColors.card || colors.card,
+  },
+  goalMealInfo: {
+    flex: 1,
+    marginLeft: spacing.md,
+  },
+  goalMealName: {
+    ...typography.body,
+    fontWeight: '600',
+  },
+  goalMealMeta: {
+    ...typography.caption,
+    marginTop: 2,
+  },
+  goalMealCalories: {
+    ...typography.bodySmall,
+    fontWeight: '700',
+  },
+  goalEmptyText: {
+    ...typography.bodySmall,
+    marginBottom: spacing.sm,
+  },
+  addMealButtonInlineCard: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+    alignSelf: 'stretch',
+  },
+  addMealButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.lg,
+    width: '100%',
+    ...shadows.medium,
+  },
+  addMealButtonText: {
+    ...typography.body,
+    color: '#FFFFFF',
+    fontWeight: '600',
+    marginLeft: spacing.sm,
+  },
+  goalTipCard: {
+    marginHorizontal: spacing.xl,
+    padding: spacing.lg,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: themeColors.border || colors.border,
+    backgroundColor: themeColors.inputBackground || colors.inputBackground,
+    marginBottom: spacing.xl,
+  },
+  goalTipLabel: {
+    ...typography.caption,
+    marginBottom: spacing.xs,
+  },
+  goalTipText: {
     ...typography.bodySmall,
     lineHeight: 18,
   },
@@ -2421,59 +3137,6 @@ const createStyles = (themeColors) => StyleSheet.create({
     marginTop: spacing.xs,
     textAlign: 'center',
   },
-  foodList: {
-    marginBottom: spacing.md,
-    paddingTop: 0,
-  },
-  foodListTitle: {
-    ...typography.label,
-    marginBottom: spacing.sm,
-  },
-  foodEmpty: {
-    ...typography.bodySmall,
-    color: themeColors.textSecondary,
-    marginBottom: spacing.md,
-  },
-  foodItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderWidth: 1,
-    borderRadius: borderRadius.lg,
-    marginBottom: spacing.sm,
-  },
-  foodInfo: {
-    flex: 1,
-  },
-  foodName: {
-    ...typography.body,
-    color: themeColors.text,
-  },
-  foodCal: {
-    ...typography.bodySmall,
-    color: themeColors.textSecondary,
-  },
-  foodMacros: {
-    ...typography.caption,
-    color: themeColors.textSecondary,
-    marginTop: 2,
-  },
-  logFoodButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.md,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: themeColors.border,
-    borderStyle: 'dashed',
-  },
-  logFoodText: {
-    ...typography.body,
-    color: themeColors.textSecondary,
-    marginLeft: spacing.sm,
-  },
   dateSwitcher: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2490,20 +3153,141 @@ const createStyles = (themeColors) => StyleSheet.create({
     color: themeColors.text,
   },
   moodTouchable: {
-    paddingVertical: spacing.sm,
+    padding: spacing.lg,
   },
-  moodSummary: {
+  moodOverviewCard: {
+    padding: 0,
+    overflow: 'hidden',
+  },
+  moodOverviewGradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  moodOverviewHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.sm,
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
   },
-  moodSummaryEmoji: {
-    fontSize: 42,
+  moodOverviewLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  moodSummaryLabel: {
+  moodOverviewIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    marginRight: spacing.sm,
+  },
+  moodOverviewTitle: {
     ...typography.body,
+    fontWeight: '700',
+  },
+  moodOverviewSubtitle: {
+    ...typography.bodySmall,
+    marginTop: 2,
+  },
+  moodOverviewSparkle: {
+    width: 30,
+    height: 30,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.6)',
+  },
+  moodPreviewCard: {
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+    marginBottom: spacing.md,
+  },
+  moodPreviewGradient: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  moodPreviewRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+  },
+  moodPreviewFlower: {
+    alignItems: 'center',
+  },
+  moodPreviewHead: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    marginBottom: 2,
+  },
+  moodPreviewEmoji: {
+    fontSize: 14,
+  },
+  moodPreviewStem: {
+    width: 3,
+    height: 18,
+    borderRadius: 2,
+    backgroundColor: '#22C55E',
+  },
+  moodFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  moodFooterHint: {
+    ...typography.caption,
+  },
+  moodFooterCount: {
+    ...typography.caption,
+    fontWeight: '700',
+    color: '#EC4899',
+  },
+  moodHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  moodSubtle: {
+    ...typography.bodySmall,
     marginTop: spacing.xs,
+  },
+  moodCountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.full,
+    backgroundColor: themeColors.inputBackground,
+    borderWidth: 1,
+    borderColor: themeColors.border,
+  },
+  moodCountText: {
+    ...typography.caption,
     fontWeight: '600',
-    color: themeColors.text,
+    marginLeft: spacing.xs,
+  },
+  miniGardenRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    marginBottom: spacing.xs,
+  },
+  miniFlower: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  miniFlowerEmoji: {
+    fontSize: 16,
   },
   moodHint: {
     ...typography.caption,
@@ -2515,85 +3299,259 @@ const createStyles = (themeColors) => StyleSheet.create({
     color: themeColors.textSecondary,
     marginTop: spacing.sm,
   },
-  moodModalContent: {
-    alignItems: 'center',
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.xl,
-    flex: 1,
-    position: 'relative',
-    marginHorizontal: -spacing.xl,
+  gardenModalScroll: {
+    paddingHorizontal: 0,
+  },
+  gardenModalContent: {
+    paddingBottom: spacing.xxxl,
+  },
+  gardenHeader: {
     paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.xl,
+    borderBottomLeftRadius: borderRadius.xxl,
+    borderBottomRightRadius: borderRadius.xxl,
+    overflow: 'hidden',
   },
-  moodBackground: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  moodHero: {
+  gardenHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: spacing.md,
     marginBottom: spacing.md,
   },
-  moodPreviewHalo: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    ...shadows.large,
-  },
-  moodPreviewHaloGradient: {
-    flex: 1,
-    borderRadius: 60,
+  gardenBackButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.18)',
   },
-  moodPreviewEmoji: {
-    fontSize: 52,
+  gardenHeaderBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.full,
+    backgroundColor: 'rgba(255,255,255,0.22)',
   },
-  moodPreviewLabel: {
-    ...typography.h3,
-    marginTop: spacing.md,
+  gardenHeaderBadgeText: {
+    ...typography.caption,
+    color: '#FFFFFF',
+    marginLeft: spacing.xs,
+    fontWeight: '600',
+  },
+  gardenTitle: {
+    ...typography.h2,
+    color: '#FFFFFF',
+  },
+  gardenSubtitle: {
+    ...typography.bodySmall,
+    color: 'rgba(255,255,255,0.85)',
+    marginTop: spacing.xs,
+  },
+  gardenCard: {
+    marginHorizontal: spacing.xl,
+    marginTop: -spacing.lg,
+    padding: spacing.lg,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    ...shadows.medium,
+  },
+  gardenHealthRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: spacing.md,
-    textAlign: 'center',
-    letterSpacing: 0.3,
   },
-  moodGrid: {
-    width: '100%',
+  gardenHealthLabel: {
+    ...typography.caption,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  gardenHealthValue: {
+    ...typography.body,
+    fontWeight: '700',
+    marginTop: spacing.xs,
+  },
+  gardenSunOrb: {
+    position: 'absolute',
+    top: 12,
+    right: 16,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  gardenScene: {
+    height: 220,
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  gardenSky: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  gardenGround: {
+    position: 'absolute',
+    bottom: 10,
+    alignSelf: 'center',
+    height: 120,
+    width: '88%',
+    borderRadius: 80,
+    zIndex: 1,
+  },
+  flowerWrap: {
+    position: 'absolute',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  flowerStem: {
+    width: 3,
+    borderRadius: 2,
+    backgroundColor: '#22C55E',
+  },
+  flowerHead: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    marginBottom: -4,
+  },
+  flowerEmoji: {
+    fontSize: 14,
+  },
+  confettiLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 3,
+  },
+  confettiPiece: {
+    position: 'absolute',
+    top: 0,
+    borderRadius: 3,
+  },
+  weekCard: {
+    marginHorizontal: spacing.xl,
+    marginTop: spacing.lg,
+    padding: spacing.lg,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    ...shadows.small,
+  },
+  weekHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  weekHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  weekHeaderTitle: {
+    ...typography.body,
+    fontWeight: '600',
+    marginLeft: spacing.xs,
+  },
+  weekHeaderMeta: {
+    ...typography.caption,
+    fontWeight: '600',
+  },
+  weekCalendarRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  weekDay: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  weekFlower: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.xs,
+  },
+  weekFlowerEmoji: {
+    fontSize: 14,
+  },
+  weekLabel: {
+    ...typography.caption,
+    textTransform: 'uppercase',
+  },
+  moodPickerCard: {
+    marginHorizontal: spacing.xl,
+    marginTop: spacing.lg,
+    padding: spacing.lg,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    ...shadows.small,
+  },
+  moodPickerTitle: {
+    ...typography.h3,
+  },
+  moodPickerSubtitle: {
+    ...typography.bodySmall,
+    marginTop: spacing.xs,
+    marginBottom: spacing.md,
+  },
+  moodPickerGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    marginTop: spacing.md,
-    marginBottom: spacing.lg,
   },
-  moodEmojiButton: {
-    width: '22%',
-    aspectRatio: 1,
+  moodPickerItem: {
+    width: '23%',
+    alignItems: 'center',
     borderRadius: borderRadius.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.08)',
-    backgroundColor: 'transparent',
-    overflow: 'hidden',
-    marginBottom: spacing.md,
-  },
-  moodEmojiButtonActive: {
+    paddingVertical: spacing.md,
+    marginBottom: spacing.sm,
     borderWidth: 2,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
   },
-  moodEmojiButtonFill: {
-    flex: 1,
-    borderRadius: borderRadius.lg,
+  moodPickerEmoji: {
+    fontSize: 22,
   },
-  moodEmojiButtonGradient: {
-    flex: 1,
+  moodPickerLabel: {
+    ...typography.caption,
+    marginTop: spacing.xs,
+    textAlign: 'center',
+  },
+  insightCard: {
+    marginHorizontal: spacing.xl,
+    marginTop: spacing.lg,
+    padding: spacing.lg,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    marginBottom: spacing.xl,
+  },
+  insightHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  insightIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: borderRadius.lg,
+    backgroundColor: themeColors.inputBackground,
+    marginRight: spacing.sm,
   },
-  moodEmoji: {
-    fontSize: 30,
+  insightTitle: {
+    ...typography.body,
+    fontWeight: '700',
   },
-  moodEmojiActive: {
-    fontSize: 32,
+  insightText: {
+    ...typography.bodySmall,
+    lineHeight: 18,
   },
   modalButtons: {
     flexDirection: 'row',
@@ -2728,3 +3686,4 @@ const createStyles = (themeColors) => StyleSheet.create({
 });
 
 export default HealthScreen;
+
