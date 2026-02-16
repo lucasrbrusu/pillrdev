@@ -3261,16 +3261,25 @@ const mapExternalProfile = (row) => ({
   );
 
 const fetchHabitsFromSupabase = async (userId, _groupListParam) => {
-  // Get all habits
-  const habitSelectFields =
-    'id, title, category, description, repeat, days, streak, created_at, notification_ids';
+  const habitSelectBase =
+    'id, title, category, description, repeat, days, streak, created_at, notification_ids, color';
+  const habitSelectAdvanced = `${habitSelectBase}, habit_type, goal_period, goal_value, goal_unit, time_range, reminders_enabled, reminder_times, reminder_message, task_days_mode, task_days_count, month_days, show_memo_after_completion, chart_type, start_date, end_date`;
+
   let { data: habitRows, error: habitError } = await supabase
     .from('habits')
-    .select(habitSelectFields)
+    .select(habitSelectAdvanced)
     .eq('user_id', userId)
     .order('created_at', { ascending: true });
 
-  if (habitError && isMissingColumnError(habitError, 'notification_ids')) {
+  if (habitError && isMissingColumnError(habitError)) {
+    ({ data: habitRows, error: habitError } = await supabase
+      .from('habits')
+      .select(habitSelectBase)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true }));
+  }
+
+  if (habitError && isMissingColumnError(habitError)) {
     ({ data: habitRows, error: habitError } = await supabase
       .from('habits')
       .select('id, title, category, description, repeat, days, streak, created_at')
@@ -3286,24 +3295,48 @@ const fetchHabitsFromSupabase = async (userId, _groupListParam) => {
   seedNotificationCacheFromRows('habit', habitRows || []);
 
   // Get all completions for this user
-  const { data: completionRows, error: completionError } = await supabase
+  let { data: completionRows, error: completionError } = await supabase
     .from('habit_completions')
-    .select('habit_id, date')
+    .select('habit_id, date, amount')
     .eq('user_id', userId);
+
+  if (completionError && isMissingColumnError(completionError, 'amount')) {
+    ({ data: completionRows, error: completionError } = await supabase
+      .from('habit_completions')
+      .select('habit_id, date')
+      .eq('user_id', userId));
+  }
 
   if (completionError) {
     console.log('Error fetching habit completions:', completionError);
   }
 
-  const completedByHabit = {};
+  const completionRowsByHabit = {};
+  const progressByHabit = {};
   (completionRows || []).forEach((row) => {
     const key = row.habit_id;
     const dateString = new Date(row.date).toDateString();
-    if (!completedByHabit[key]) completedByHabit[key] = [];
-    completedByHabit[key].push(dateString);
+    if (!completionRowsByHabit[key]) completionRowsByHabit[key] = [];
+    completionRowsByHabit[key].push({
+      dateString,
+      amount: row.amount,
+    });
+    if (!progressByHabit[key]) progressByHabit[key] = {};
+    progressByHabit[key][dateString] = Number(row.amount) || 0;
   });
 
-  const mappedHabits = (habitRows || []).map((h) => ({
+  const mappedHabits = (habitRows || []).map((h) => {
+    const goalValue = Number(h.goal_value) || 1;
+    const isQuitHabit = (h.habit_type || 'build') === 'quit';
+    const completedDates = (completionRowsByHabit[h.id] || [])
+      .filter((entry) => {
+        if (entry.amount === null || entry.amount === undefined) return true;
+        const amount = Number(entry.amount) || 0;
+        return isQuitHabit ? amount <= goalValue : amount >= goalValue;
+      })
+      .map((entry) => entry.dateString);
+
+    return {
     id: h.id,
     title: h.title,
     category: h.category,
@@ -3312,8 +3345,26 @@ const fetchHabitsFromSupabase = async (userId, _groupListParam) => {
     days: h.days || [],
     streak: h.streak || 0,
     createdAt: h.created_at,
-    completedDates: completedByHabit[h.id] || [],
-  }));
+    completedDates,
+    progressByDate: progressByHabit[h.id] || {},
+    habitType: h.habit_type || 'build',
+    goalPeriod: h.goal_period || 'day',
+    goalValue,
+    goalUnit: h.goal_unit || 'times',
+    timeRange: h.time_range || 'all_day',
+    remindersEnabled: h.reminders_enabled ?? false,
+    reminderTimes: Array.isArray(h.reminder_times) ? h.reminder_times : [],
+    reminderMessage: h.reminder_message || '',
+    taskDaysMode: h.task_days_mode || 'every_day',
+    taskDaysCount: Number(h.task_days_count) || 3,
+    monthDays: Array.isArray(h.month_days) ? h.month_days : [],
+    showMemoAfterCompletion: h.show_memo_after_completion ?? false,
+    chartType: h.chart_type || 'bar',
+    startDate: h.start_date || null,
+    endDate: h.end_date || null,
+    color: h.color || colors.habits,
+  };
+  });
 
   setHabits(mappedHabits);
 };
@@ -3339,19 +3390,57 @@ const addHabit = async (habit) => {
     throw new Error('You must be logged in to create a habit.');
   }
 
-  const { data, error } = await supabase
+  const baseInsert = {
+    user_id: authUser.id,
+    title: habit.title,
+    category: habit.category || 'Personal',
+    description: habit.description || null,
+    repeat: habit.repeat || 'Daily',
+    days: habit.days || [],
+    streak: 0,
+    color: habit.color || colors.habits,
+  };
+  const advancedInsert = {
+    habit_type: habit.habitType,
+    goal_period: habit.goalPeriod,
+    goal_value: habit.goalValue,
+    goal_unit: habit.goalUnit,
+    time_range: habit.timeRange,
+    reminders_enabled: habit.remindersEnabled,
+    reminder_times: habit.reminderTimes,
+    reminder_message: habit.reminderMessage,
+    task_days_mode: habit.taskDaysMode,
+    task_days_count: habit.taskDaysCount,
+    month_days: habit.monthDays,
+    show_memo_after_completion: habit.showMemoAfterCompletion,
+    chart_type: habit.chartType,
+    start_date: habit.startDate,
+    end_date: habit.endDate,
+  };
+
+  let { data, error } = await supabase
     .from('habits')
-    .insert({
-      user_id: authUser.id,
-      title: habit.title,
-      category: habit.category || 'Personal',
-      description: habit.description || null,
-      repeat: habit.repeat || 'Daily',
-      days: habit.days || [],
-      streak: 0,
-    })
+    .insert({ ...baseInsert, ...advancedInsert })
     .select()
     .single();
+
+  if (error && isMissingColumnError(error)) {
+    ({ data, error } = await supabase
+      .from('habits')
+      .insert(baseInsert)
+      .select()
+      .single());
+  }
+
+  if (error && isMissingColumnError(error, 'color')) {
+    const legacyInsert = { ...baseInsert };
+    delete legacyInsert.color;
+    ({ data, error } = await supabase
+      .from('habits')
+      .insert(legacyInsert)
+      .select()
+      .single());
+  }
 
   if (error) {
     console.log('Error adding habit:', error);
@@ -3374,20 +3463,48 @@ const updateHabit = async (habitId, updates) => {
   if (!authUser?.id) return;
 
   const updateData = {};
-  ['title', 'category', 'description', 'repeat', 'days', 'streak'].forEach(
-    (key) => {
-      if (updates[key] !== undefined) {
-        updateData[key] = updates[key];
-      }
-    }
-  );
+  const directFields = ['title', 'category', 'description', 'repeat', 'days', 'streak', 'color'];
+  const legacyDirectFields = ['title', 'category', 'description', 'repeat', 'days', 'streak'];
+  directFields.forEach((key) => {
+    if (updates[key] !== undefined) updateData[key] = updates[key];
+  });
+  if (updates.habitType !== undefined) updateData.habit_type = updates.habitType;
+  if (updates.goalPeriod !== undefined) updateData.goal_period = updates.goalPeriod;
+  if (updates.goalValue !== undefined) updateData.goal_value = updates.goalValue;
+  if (updates.goalUnit !== undefined) updateData.goal_unit = updates.goalUnit;
+  if (updates.timeRange !== undefined) updateData.time_range = updates.timeRange;
+  if (updates.remindersEnabled !== undefined) updateData.reminders_enabled = updates.remindersEnabled;
+  if (updates.reminderTimes !== undefined) updateData.reminder_times = updates.reminderTimes;
+  if (updates.reminderMessage !== undefined) updateData.reminder_message = updates.reminderMessage;
+  if (updates.taskDaysMode !== undefined) updateData.task_days_mode = updates.taskDaysMode;
+  if (updates.taskDaysCount !== undefined) updateData.task_days_count = updates.taskDaysCount;
+  if (updates.monthDays !== undefined) updateData.month_days = updates.monthDays;
+  if (updates.showMemoAfterCompletion !== undefined)
+    updateData.show_memo_after_completion = updates.showMemoAfterCompletion;
+  if (updates.chartType !== undefined) updateData.chart_type = updates.chartType;
+  if (updates.startDate !== undefined) updateData.start_date = updates.startDate;
+  if (updates.endDate !== undefined) updateData.end_date = updates.endDate;
 
   if (Object.keys(updateData).length > 0) {
-    const { error } = await supabase
+    let { error } = await supabase
       .from('habits')
       .update(updateData)
       .eq('id', habitId)
       .eq('user_id', authUser.id);
+
+    if (error && isMissingColumnError(error)) {
+      const fallbackData = {};
+      legacyDirectFields.forEach((key) => {
+        if (updates[key] !== undefined) fallbackData[key] = updates[key];
+      });
+      if (Object.keys(fallbackData).length) {
+        ({ error } = await supabase
+          .from('habits')
+          .update(fallbackData)
+          .eq('id', habitId)
+          .eq('user_id', authUser.id));
+      }
+    }
 
     if (error) {
       console.log('Error updating habit:', error);
@@ -3451,6 +3568,10 @@ const toggleHabitCompletion = async (habitId) => {
       ...habit,
       completedDates: newCompletedDates,
       streak: Math.max((habit.streak || 0) - 1, 0),
+      progressByDate: {
+        ...(habit.progressByDate || {}),
+        [todayKey]: 0,
+      },
     };
 
     setHabits((prev) =>
@@ -3467,13 +3588,25 @@ const toggleHabitCompletion = async (habitId) => {
   }
 
   // Mark as completed for today
-  const { error } = await supabase
+  const completionAmount = Number(habit.goalValue) || 1;
+  let { error } = await supabase
     .from('habit_completions')
     .insert({
       habit_id: habitId,
       user_id: authUser.id,
       date: todayISO,
+      amount: completionAmount,
     });
+
+  if (error && isMissingColumnError(error, 'amount')) {
+    ({ error } = await supabase
+      .from('habit_completions')
+      .insert({
+        habit_id: habitId,
+        user_id: authUser.id,
+        date: todayISO,
+      }));
+  }
 
   if (error) {
     console.log('Error adding habit completion:', error);
@@ -3492,6 +3625,10 @@ const toggleHabitCompletion = async (habitId) => {
     ...habit,
     completedDates: newCompletedDates,
     streak: newStreak,
+    progressByDate: {
+      ...(habit.progressByDate || {}),
+      [todayKey]: completionAmount,
+    },
   };
 
   setHabits((prev) =>
@@ -3506,6 +3643,105 @@ const toggleHabitCompletion = async (habitId) => {
 
   if (streakFrozen) {
     await persistStreakFrozenState(false);
+  }
+};
+
+const setHabitProgress = async (habitId, amount = 0, dateISO = null) => {
+  if (!authUser?.id || !habitId) return;
+
+  const dateValue = dateISO || new Date().toISOString().slice(0, 10);
+  const dateKey = new Date(dateValue).toDateString();
+  const todayKey = new Date().toDateString();
+  const numericAmount = Math.max(0, Number(amount) || 0);
+  const habit = habits.find((item) => item.id === habitId);
+  if (!habit) return;
+  const goalValue = Math.max(Number(habit.goalValue) || 1, 1);
+  const isQuit = (habit.habitType || 'build') === 'quit';
+  const shouldComplete = numericAmount > 0 && (isQuit ? numericAmount <= goalValue : numericAmount >= goalValue);
+  const wasCompleted = (habit.completedDates || []).includes(dateKey);
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayKey = yesterday.toDateString();
+  const wasCompletedYesterday = (habit.completedDates || []).includes(yesterdayKey);
+  const isTargetToday = dateKey === todayKey;
+
+  await supabase
+    .from('habit_completions')
+    .delete()
+    .eq('habit_id', habitId)
+    .eq('user_id', authUser.id)
+    .eq('date', dateValue);
+
+  if (numericAmount > 0) {
+    let { error } = await supabase
+      .from('habit_completions')
+      .insert({
+        habit_id: habitId,
+        user_id: authUser.id,
+        date: dateValue,
+        amount: numericAmount,
+      });
+    if (error && isMissingColumnError(error, 'amount')) {
+      ({ error } = await supabase
+        .from('habit_completions')
+        .insert({
+          habit_id: habitId,
+          user_id: authUser.id,
+          date: dateValue,
+        }));
+    }
+    if (error) {
+      console.log('Error setting habit progress:', error);
+    }
+  }
+
+  setHabits((prev) =>
+    prev.map((item) => {
+      if (item.id !== habitId) return item;
+      let nextCompletedDates = item.completedDates || [];
+      if (shouldComplete && !nextCompletedDates.includes(dateKey)) {
+        nextCompletedDates = [...nextCompletedDates, dateKey];
+      }
+      if (!shouldComplete && nextCompletedDates.includes(dateKey)) {
+        nextCompletedDates = nextCompletedDates.filter((value) => value !== dateKey);
+      }
+
+      let nextStreak = item.streak || 0;
+      if (isTargetToday && shouldComplete && !wasCompleted) {
+        nextStreak = wasCompletedYesterday ? nextStreak + 1 : 1;
+      }
+      if (isTargetToday && !shouldComplete && wasCompleted) {
+        nextStreak = Math.max(nextStreak - 1, 0);
+      }
+
+      return {
+        ...item,
+        completedDates: nextCompletedDates,
+        streak: nextStreak,
+        progressByDate: {
+          ...(item.progressByDate || {}),
+          [dateKey]: numericAmount,
+        },
+      };
+    })
+  );
+
+  if (isTargetToday) {
+    const nextStreak = shouldComplete
+      ? wasCompleted
+        ? habit.streak || 0
+        : wasCompletedYesterday
+          ? (habit.streak || 0) + 1
+          : 1
+      : wasCompleted
+        ? Math.max((habit.streak || 0) - 1, 0)
+        : habit.streak || 0;
+
+    await supabase
+      .from('habits')
+      .update({ streak: nextStreak })
+      .eq('id', habitId)
+      .eq('user_id', authUser.id);
   }
 };
 
@@ -6919,32 +7155,54 @@ const mapProfileRow = (row) => {
     const habitsToSchedule = habits || [];
     if (!habitsToSchedule.length) return [];
 
+    const parseReminderTime = (value) => {
+      if (!value || typeof value !== 'string') {
+        return { hour: HABIT_REMINDER_TIME.hour, minute: HABIT_REMINDER_TIME.minute };
+      }
+      const match = value.trim().match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?/i);
+      if (!match) {
+        return { hour: HABIT_REMINDER_TIME.hour, minute: HABIT_REMINDER_TIME.minute };
+      }
+      let hour = parseInt(match[1], 10);
+      const minute = parseInt(match[2] || '0', 10) || 0;
+      const suffix = (match[3] || '').toUpperCase();
+      if (suffix === 'PM' && hour < 12) hour += 12;
+      if (suffix === 'AM' && hour === 12) hour = 0;
+      return { hour, minute };
+    };
+
     const candidates = [];
     for (const habit of habitsToSchedule) {
+      if (habit.remindersEnabled === false) continue;
+
       const days = Array.isArray(habit.days) && habit.days.length ? habit.days : [];
       const scheduleDaily =
         habit.repeat === 'Daily' || days.length === 0 || days.length === 7;
       const habitTitle = habit.title || 'Habit';
+      const reminderTimes =
+        Array.isArray(habit.reminderTimes) && habit.reminderTimes.length
+          ? habit.reminderTimes
+          : [`${HABIT_REMINDER_TIME.hour}:${HABIT_REMINDER_TIME.minute}`];
 
       if (scheduleDaily) {
-        const nextTime = getNextDailyOccurrence(
-          HABIT_REMINDER_TIME.hour,
-          HABIT_REMINDER_TIME.minute
-        );
-        candidates.push({
-          itemType: 'habit',
-          itemId: habit.id,
-          kind: 'habit',
-          priority: 3,
-          sortTimeMs: nextTime.getTime(),
-          title: 'Habit reminder',
-          body: `${habitTitle} - due today.`,
-          data: { type: 'habit', id: habit.id },
-          trigger: {
-            hour: HABIT_REMINDER_TIME.hour,
-            minute: HABIT_REMINDER_TIME.minute,
-            repeats: true,
-          },
+        reminderTimes.forEach((time) => {
+          const parsed = parseReminderTime(time);
+          const nextTime = getNextDailyOccurrence(parsed.hour, parsed.minute);
+          candidates.push({
+            itemType: 'habit',
+            itemId: habit.id,
+            kind: 'habit',
+            priority: 3,
+            sortTimeMs: nextTime.getTime(),
+            title: 'Habit reminder',
+            body: habit.reminderMessage || `${habitTitle} - due today.`,
+            data: { type: 'habit', id: habit.id },
+            trigger: {
+              hour: parsed.hour,
+              minute: parsed.minute,
+              repeats: true,
+            },
+          });
         });
         continue;
       }
@@ -6956,49 +7214,48 @@ const mapProfileRow = (row) => {
       });
 
       if (!weekdaysToSchedule.size) {
-        const nextTime = getNextDailyOccurrence(
-          HABIT_REMINDER_TIME.hour,
-          HABIT_REMINDER_TIME.minute
-        );
-        candidates.push({
-          itemType: 'habit',
-          itemId: habit.id,
-          kind: 'habit',
-          priority: 3,
-          sortTimeMs: nextTime.getTime(),
-          title: 'Habit reminder',
-          body: `${habitTitle} - due today.`,
-          data: { type: 'habit', id: habit.id },
-          trigger: {
-            hour: HABIT_REMINDER_TIME.hour,
-            minute: HABIT_REMINDER_TIME.minute,
-            repeats: true,
-          },
+        reminderTimes.forEach((time) => {
+          const parsed = parseReminderTime(time);
+          const nextTime = getNextDailyOccurrence(parsed.hour, parsed.minute);
+          candidates.push({
+            itemType: 'habit',
+            itemId: habit.id,
+            kind: 'habit',
+            priority: 3,
+            sortTimeMs: nextTime.getTime(),
+            title: 'Habit reminder',
+            body: habit.reminderMessage || `${habitTitle} - due today.`,
+            data: { type: 'habit', id: habit.id },
+            trigger: {
+              hour: parsed.hour,
+              minute: parsed.minute,
+              repeats: true,
+            },
+          });
         });
         continue;
       }
 
       for (const weekday of weekdaysToSchedule) {
-        const nextTime = getNextWeeklyOccurrence(
-          weekday,
-          HABIT_REMINDER_TIME.hour,
-          HABIT_REMINDER_TIME.minute
-        );
-        candidates.push({
-          itemType: 'habit',
-          itemId: habit.id,
-          kind: 'habit',
-          priority: 3,
-          sortTimeMs: nextTime.getTime(),
-          title: 'Habit reminder',
-          body: `${habitTitle} - due today.`,
-          data: { type: 'habit', id: habit.id },
-          trigger: {
-            weekday,
-            hour: HABIT_REMINDER_TIME.hour,
-            minute: HABIT_REMINDER_TIME.minute,
-            repeats: true,
-          },
+        reminderTimes.forEach((time) => {
+          const parsed = parseReminderTime(time);
+          const nextTime = getNextWeeklyOccurrence(weekday, parsed.hour, parsed.minute);
+          candidates.push({
+            itemType: 'habit',
+            itemId: habit.id,
+            kind: 'habit',
+            priority: 3,
+            sortTimeMs: nextTime.getTime(),
+            title: 'Habit reminder',
+            body: habit.reminderMessage || `${habitTitle} - due today.`,
+            data: { type: 'habit', id: habit.id },
+            trigger: {
+              weekday,
+              hour: parsed.hour,
+              minute: parsed.minute,
+              repeats: true,
+            },
+          });
         });
       }
     }
@@ -7359,6 +7616,7 @@ const mapProfileRow = (row) => {
     updateHabit,
     deleteHabit,
     toggleHabitCompletion,
+    setHabitProgress,
     isHabitCompletedToday,
     getBestStreak,
     getTodayHabitsCount,
