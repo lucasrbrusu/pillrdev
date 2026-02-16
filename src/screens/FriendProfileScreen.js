@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { colors, spacing, borderRadius, typography, shadows } from '../utils/theme';
 import { Card, Modal } from '../components';
 import { useApp } from '../context/AppContext';
+import { supabase } from '../utils/supabaseClient';
 
 const formatRelative = (value) => {
   if (!value) return '';
@@ -57,12 +58,6 @@ const ACTIVITY_GRADIENTS = {
   ],
 };
 
-const DEFAULT_MUTUAL_ACTIVITIES = [
-  { id: 'meditation', title: 'Morning meditation', type: 'Habit', streak: 5 },
-  { id: 'meeting-prep', title: 'Team meeting prep', type: 'Task', streak: 3 },
-  { id: 'workout', title: 'Workout routine', type: 'Habit', streak: 7 },
-];
-
 const FriendProfileScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
@@ -81,6 +76,13 @@ const FriendProfileScreen = () => {
     getUserProfileById,
     groups,
     themeName,
+    authUser,
+    tasks,
+    groupHabits,
+    groupHabitCompletions,
+    groupRoutines,
+    ensureTasksLoaded,
+    ensureGroupDataLoaded,
   } = useApp();
   const insets = useSafeAreaInsets();
   const isDark = themeName === 'dark';
@@ -94,6 +96,9 @@ const FriendProfileScreen = () => {
   const [reportDescription, setReportDescription] = useState('');
   const [reporting, setReporting] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [sharedTaskIds, setSharedTaskIds] = useState([]);
+  const [sharedTaskParticipantCounts, setSharedTaskParticipantCounts] = useState({});
+  const [loadingSharedActivities, setLoadingSharedActivities] = useState(false);
 
   const relationship = getFriendRelationship(friendId);
   const blocked = relationship?.blocked || isUserBlocked(friendId);
@@ -165,10 +170,87 @@ const FriendProfileScreen = () => {
       ),
     [groups, friendId]
   );
-  const mutualActivities =
-    profileData?.mutualActivities?.length > 0
-      ? profileData.mutualActivities
-      : DEFAULT_MUTUAL_ACTIVITIES;
+  const mutualGroupIds = useMemo(
+    () => new Set(mutualGroups.map((group) => group.id).filter(Boolean)),
+    [mutualGroups]
+  );
+  const mutualActivities = useMemo(() => {
+    if (!friendId || !authUser?.id) return [];
+    const list = [];
+    const seen = new Set();
+
+    const addActivity = (activity) => {
+      if (!activity?.id || seen.has(activity.id)) return;
+      seen.add(activity.id);
+      list.push(activity);
+    };
+
+    const sharedHabitCount = (habitId) => {
+      const completions = groupHabitCompletions?.[habitId] || [];
+      if (!completions.length) return 0;
+      const friendDates = new Set();
+      const myDates = new Set();
+      completions.forEach((completion) => {
+        if (!completion?.date) return;
+        if (completion.userId === authUser.id) {
+          myDates.add(completion.date);
+        } else if (completion.userId === friendId) {
+          friendDates.add(completion.date);
+        }
+      });
+      let sharedCount = 0;
+      myDates.forEach((date) => {
+        if (friendDates.has(date)) sharedCount += 1;
+      });
+      return sharedCount;
+    };
+
+    (groupHabits || []).forEach((habit) => {
+      if (!mutualGroupIds.has(habit.groupId)) return;
+      addActivity({
+        id: `habit:${habit.id}`,
+        title: habit.title,
+        type: 'Habit',
+        streak: sharedHabitCount(habit.id),
+      });
+    });
+
+    (groupRoutines || []).forEach((routine) => {
+      if (!mutualGroupIds.has(routine.groupId)) return;
+      addActivity({
+        id: `routine:${routine.id}`,
+        title: routine.name,
+        type: 'Routine',
+        streak: Array.isArray(routine.tasks) ? routine.tasks.length : 0,
+      });
+    });
+
+    if (sharedTaskIds.length) {
+      const sharedSet = new Set(sharedTaskIds);
+      (tasks || []).forEach((task) => {
+        const baseId = task.sharedTaskId || task.id;
+        if (!sharedSet.has(baseId)) return;
+        addActivity({
+          id: `task:${baseId}`,
+          title: task.title,
+          type: 'Task',
+          streak: sharedTaskParticipantCounts[baseId] || 2,
+        });
+      });
+    }
+
+    return list;
+  }, [
+    authUser?.id,
+    friendId,
+    groupHabits,
+    groupHabitCompletions,
+    groupRoutines,
+    mutualGroupIds,
+    sharedTaskIds,
+    sharedTaskParticipantCounts,
+    tasks,
+  ]);
   const activityGradients = isDark ? ACTIVITY_GRADIENTS.dark : ACTIVITY_GRADIENTS.light;
 
   useEffect(() => {
@@ -200,6 +282,79 @@ const FriendProfileScreen = () => {
       isMounted = false;
     };
   }, [friendId, getUserProfileById]);
+
+  useEffect(() => {
+    ensureTasksLoaded?.();
+    ensureGroupDataLoaded?.();
+  }, [ensureGroupDataLoaded, ensureTasksLoaded]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadSharedTasks = async () => {
+      if (!friendId || !authUser?.id) {
+        if (isMounted) {
+          setSharedTaskIds([]);
+          setSharedTaskParticipantCounts({});
+          setLoadingSharedActivities(false);
+        }
+        return;
+      }
+
+      setLoadingSharedActivities(true);
+      try {
+        const { data, error } = await supabase
+          .from('task_participants')
+          .select('task_id, user_id')
+          .in('user_id', [authUser.id, friendId]);
+
+        if (error) {
+          if (error.code !== '42P01') {
+            console.log('Error fetching shared task participants:', error);
+          }
+          if (isMounted) {
+            setSharedTaskIds([]);
+            setSharedTaskParticipantCounts({});
+          }
+          return;
+        }
+
+        const byTask = new Map();
+        (data || []).forEach((row) => {
+          if (!row?.task_id || !row?.user_id) return;
+          const existing = byTask.get(row.task_id) || new Set();
+          existing.add(row.user_id);
+          byTask.set(row.task_id, existing);
+        });
+
+        const sharedIds = [];
+        const participantCounts = {};
+        byTask.forEach((userSet, taskId) => {
+          if (userSet.has(authUser.id) && userSet.has(friendId)) {
+            sharedIds.push(taskId);
+            participantCounts[taskId] = userSet.size;
+          }
+        });
+
+        if (isMounted) {
+          setSharedTaskIds(sharedIds);
+          setSharedTaskParticipantCounts(participantCounts);
+        }
+      } catch (err) {
+        if (isMounted) {
+          setSharedTaskIds([]);
+          setSharedTaskParticipantCounts({});
+        }
+      } finally {
+        if (isMounted) setLoadingSharedActivities(false);
+      }
+    };
+
+    loadSharedTasks();
+    return () => {
+      isMounted = false;
+    };
+  }, [authUser?.id, friendId]);
 
   const isOnline = !blocked && isUserOnline(friendId);
   const statusDotColor = blocked
@@ -576,7 +731,11 @@ const FriendProfileScreen = () => {
                   View all
                 </Text>
               </View>
-              {mutualActivities.length === 0 ? (
+              {loadingSharedActivities ? (
+                <View style={themedStyles.loadingState}>
+                  <ActivityIndicator size="small" color={themeColors?.primary || colors.primary} />
+                </View>
+              ) : mutualActivities.length === 0 ? (
                 <Text style={themedStyles.emptyText}>No shared activities yet.</Text>
               ) : (
                 <View style={themedStyles.activitiesList}>
