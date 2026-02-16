@@ -1997,6 +1997,122 @@ const mapExternalProfile = (row) => ({
     [authUser?.id, refreshGroupData, isMissingRelationError]
   );
 
+  const updateGroupName = useCallback(
+    async (groupId, name) => {
+      if (!authUser?.id) throw new Error('You must be logged in to update a group.');
+      if (!groupId) throw new Error('Missing group.');
+      const trimmedName = (name || '').trim();
+      if (!trimmedName) throw new Error('Group name is required.');
+
+      const { data: groupRow, error: groupError } = await supabase
+        .from('groups')
+        .select('id, owner_id')
+        .eq('id', groupId)
+        .single();
+
+      if (groupError || !groupRow) {
+        console.log('Error loading group before update:', groupError);
+        throw new Error('Unable to update this group right now.');
+      }
+
+      if (groupRow.owner_id !== authUser.id) {
+        throw new Error('Only the group admin can update this group.');
+      }
+
+      const { error } = await supabase
+        .from('groups')
+        .update({ name: trimmedName })
+        .eq('id', groupId);
+
+      if (error) {
+        console.log('Error updating group:', error);
+        throw new Error(error.message || 'Unable to update group.');
+      }
+
+      await refreshGroupData(authUser.id);
+      return true;
+    },
+    [authUser?.id, refreshGroupData]
+  );
+
+  const removeGroupMember = useCallback(
+    async (groupId, memberId) => {
+      if (!authUser?.id) throw new Error('You must be logged in to remove a member.');
+      if (!groupId || !memberId) throw new Error('Missing group or member.');
+
+      const { data: groupRow, error: groupError } = await supabase
+        .from('groups')
+        .select('id, owner_id')
+        .eq('id', groupId)
+        .single();
+
+      if (groupError || !groupRow) {
+        console.log('Error loading group before removing member:', groupError);
+        throw new Error('Unable to update this group right now.');
+      }
+
+      if (groupRow.owner_id !== authUser.id) {
+        throw new Error('Only the group admin can remove members.');
+      }
+
+      if (memberId === groupRow.owner_id) {
+        throw new Error('You cannot remove the group admin.');
+      }
+
+      const { error } = await supabase
+        .from('group_members')
+        .delete()
+        .eq('group_id', groupId)
+        .eq('user_id', memberId);
+
+      if (error) {
+        console.log('Error removing group member:', error);
+        throw new Error(error.message || 'Unable to remove member.');
+      }
+
+      await refreshGroupData(authUser.id);
+      return true;
+    },
+    [authUser?.id, refreshGroupData]
+  );
+
+  const leaveGroup = useCallback(
+    async (groupId) => {
+      if (!authUser?.id) throw new Error('You must be logged in to leave a group.');
+      if (!groupId) throw new Error('Missing group.');
+
+      const { data: groupRow, error: groupError } = await supabase
+        .from('groups')
+        .select('id, owner_id')
+        .eq('id', groupId)
+        .single();
+
+      if (groupError || !groupRow) {
+        console.log('Error loading group before leaving:', groupError);
+        throw new Error('Unable to leave this group right now.');
+      }
+
+      if (groupRow.owner_id === authUser.id) {
+        throw new Error('Admins must delete the group instead of leaving.');
+      }
+
+      const { error } = await supabase
+        .from('group_members')
+        .delete()
+        .eq('group_id', groupId)
+        .eq('user_id', authUser.id);
+
+      if (error) {
+        console.log('Error leaving group:', error);
+        throw new Error(error.message || 'Unable to leave this group.');
+      }
+
+      await refreshGroupData(authUser.id);
+      return true;
+    },
+    [authUser?.id, refreshGroupData]
+  );
+
   const fetchGroupHabits = useCallback(
     async (userIdParam, groupListParam) => {
       const userId = userIdParam || authUser?.id;
@@ -7369,6 +7485,9 @@ const mapProfileRow = (row) => {
     addTaskToGroupRoutine,
     removeTaskFromGroupRoutine,
     reorderGroupRoutineTasks,
+    removeGroupMember,
+    leaveGroup,
+    updateGroupName,
 
     // Profile
     revenueCatPremium,

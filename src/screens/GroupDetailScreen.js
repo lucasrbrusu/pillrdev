@@ -63,6 +63,7 @@ const GroupDetailScreen = () => {
   const themedStyles = useMemo(() => createStyles(themeColors || colors), [themeColors]);
 
   const group = groups.find((g) => g.id === groupId);
+  const isAdmin = group?.ownerId === authUser?.id;
   const groupHabitsForGroup = (groupHabits || []).filter((h) => h.groupId === groupId);
   const groupRoutinesForGroup = (groupRoutines || []).filter((r) => r.groupId === groupId);
   const memberList = useMemo(
@@ -190,6 +191,7 @@ const GroupDetailScreen = () => {
       ]
     );
   };
+
 
   const openInviteModal = () => {
     if (!isPremiumUser) {
@@ -452,6 +454,12 @@ const GroupDetailScreen = () => {
               <Ionicons name="chevron-back" size={22} color={themedStyles.heroIconColor} />
             </TouchableOpacity>
             <View style={themedStyles.heroActions}>
+              <TouchableOpacity
+                style={themedStyles.heroIconButton}
+                onPress={() => navigation.navigate('GroupDetails', { groupId })}
+              >
+                <Ionicons name="ellipsis-horizontal" size={20} color={themedStyles.heroIconColor} />
+              </TouchableOpacity>
               {group?.ownerId === authUser?.id ? (
                 <TouchableOpacity
                   style={themedStyles.heroIconButton}
@@ -533,7 +541,7 @@ const GroupDetailScreen = () => {
             <Card style={themedStyles.sectionCard}>
               <View style={themedStyles.sectionHeader}>
                 <Text style={themedStyles.sectionTitle}>Members Leaderboard</Text>
-                {group?.ownerId === authUser?.id ? (
+                {isAdmin ? (
                   <TouchableOpacity style={themedStyles.iconButton} onPress={openInviteModal}>
                     <Ionicons name="add" size={18} color={themedStyles.iconColor} />
                   </TouchableOpacity>
@@ -568,7 +576,14 @@ const GroupDetailScreen = () => {
                         </Text>
                       </View>
                       <View style={themedStyles.leaderText}>
-                        <Text style={themedStyles.memberName}>{member.name || 'Member'}</Text>
+                        <View style={themedStyles.memberNameRow}>
+                          <Text style={themedStyles.memberName}>{member.name || 'Member'}</Text>
+                          {member.id === group?.ownerId ? (
+                            <View style={themedStyles.adminBadge}>
+                              <Text style={themedStyles.adminBadgeText}>Admin</Text>
+                            </View>
+                          ) : null}
+                        </View>
                         <Text style={themedStyles.memberMeta}>
                           {member.username ? `@${member.username}` : 'No username'}
                         </Text>
@@ -1009,9 +1024,25 @@ const createStyles = (themeColorsParam = colors) => {
       color: baseText,
       fontWeight: '700',
     },
+    memberNameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+    },
     memberMeta: {
       ...typography.bodySmall,
       color: subdued,
+    },
+    adminBadge: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      borderRadius: borderRadius.full,
+      backgroundColor: themeColorsParam?.primaryLight || colors.primaryLight,
+    },
+    adminBadgeText: {
+      ...typography.caption,
+      color: baseText,
+      fontWeight: '700',
     },
     leaderRow: {
       flexDirection: 'row',

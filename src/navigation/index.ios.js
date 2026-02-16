@@ -34,6 +34,7 @@ import HelpSupportScreen from '../screens/HelpSupportScreen';
 import FriendsScreen from '../screens/FriendsScreen';
 import GroupsScreen from '../screens/GroupsScreen';
 import GroupDetailScreen from '../screens/GroupDetailScreen';
+import GroupDetailsScreen from '../screens/GroupDetailsScreen';
 import ChatScreen from '../screens/ChatScreen';
 import FocusModeScreen from '../screens/FocusModeScreen';
 import CountdownTimerScreen from '../screens/CountdownTimerScreen';
@@ -287,6 +288,7 @@ const Navigation = () => {
           <Stack.Screen name="FriendProfile" component={FriendProfileScreen} />
           <Stack.Screen name="Groups" component={GroupsScreen} />
           <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />
+          <Stack.Screen name="GroupDetails" component={GroupDetailsScreen} />
           <Stack.Screen name="Insights" component={InsightsScreen} />
           <Stack.Screen name="Chat" component={ChatScreen} />
           <Stack.Screen name="FocusMode" component={FocusModeScreen} />
