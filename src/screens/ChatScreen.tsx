@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -32,6 +32,8 @@ type ChatMsg = {
   text: string;
   time?: string;
 };
+
+const TOP_SAFE_AREA_EDGES = ["top"] as const;
 
 function prettyActionTitle(actionType: string) {
   switch (actionType) {
@@ -109,10 +111,13 @@ export default function ChatScreen() {
   const palette = themeColors || colors;
   const bottomInset = Math.max(insets.bottom, 12);
   const styles = useMemo(() => createStyles(palette, isDark), [palette, isDark]);
-  const primaryGradient = [
-    palette.primaryGradientStart || palette.primary,
-    palette.primaryGradientEnd || palette.primary,
-  ];
+  const primaryGradient = useMemo(
+    () => [
+      palette.primaryGradientStart || palette.primary,
+      palette.primaryGradientEnd || palette.primary,
+    ],
+    [palette.primaryGradientStart, palette.primaryGradientEnd, palette.primary]
+  );
 
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -126,7 +131,7 @@ export default function ChatScreen() {
   ]);
   const [pendingProposals, setPendingProposals] = useState<ProposalRow[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const typingAnim = useRef(new Animated.Value(0)).current;
+  const [typingAnim] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     if (!sending) return;
@@ -156,63 +161,69 @@ export default function ChatScreen() {
   });
 
 
-  const quickActions = [
-    {
-      id: "quick-task",
-      label: "Create a task",
-      prompt: "Create a task for tomorrow at 6pm.",
-    },
-    {
-      id: "quick-habit",
-      label: "Add a habit",
-      prompt: "Add a daily habit to stretch for 10 minutes.",
-    },
-    {
-      id: "quick-health",
-      label: "Log my health",
-      prompt: "Log my health for today.",
-    },
-    {
-      id: "quick-reminder",
-      label: "Set reminder",
-      prompt: "Set a reminder for tomorrow morning.",
-    },
-  ];
+  const quickActions = useMemo(
+    () => [
+      {
+        id: "quick-task",
+        label: "Create a task",
+        prompt: "Create a task for tomorrow at 6pm.",
+      },
+      {
+        id: "quick-habit",
+        label: "Add a habit",
+        prompt: "Add a daily habit to stretch for 10 minutes.",
+      },
+      {
+        id: "quick-health",
+        label: "Log my health",
+        prompt: "Log my health for today.",
+      },
+      {
+        id: "quick-reminder",
+        label: "Set reminder",
+        prompt: "Set a reminder for tomorrow morning.",
+      },
+    ],
+    []
+  );
 
-  const suggestedActions = [
-    {
-      id: "suggest-morning",
-      label: "Add a morning routine",
-      icon: "sunny-outline",
-      tint: isDark ? "rgba(245, 158, 11, 0.2)" : "#FFF4D6",
-      iconColor: palette.routine || "#F59E0B",
-      prompt: "Create a morning routine with 3 steps.",
-    },
-    {
-      id: "suggest-water",
-      label: "Track water intake",
-      icon: "water-outline",
-      tint: isDark ? "rgba(59, 130, 246, 0.2)" : "#E8F3FF",
-      iconColor: palette.info || "#3B82F6",
-      prompt: "Log 500ml of water today.",
-    },
-    {
-      id: "suggest-reminder",
-      label: "Set a reminder",
-      icon: "notifications-outline",
-      tint: isDark ? "rgba(16, 185, 129, 0.2)" : "#E6F7F1",
-      iconColor: palette.finance || "#10B981",
-      prompt: "Set a reminder for this evening.",
-    },
-    {
-      id: "suggest-meal",
-      label: "Log a meal",
-      icon: "restaurant-outline",
-      tint: isDark ? "rgba(236, 72, 153, 0.2)" : "#FDE7F3",
-      iconColor: palette.health || "#EC4899",
-      prompt: "Log a meal for lunch today.",
-    },
-  ];
+  const suggestedActions = useMemo(
+    () => [
+      {
+        id: "suggest-morning",
+        label: "Add a morning routine",
+        icon: "sunny-outline",
+        tint: isDark ? "rgba(245, 158, 11, 0.2)" : "#FFF4D6",
+        iconColor: palette.routine || "#F59E0B",
+        prompt: "Create a morning routine with 3 steps.",
+      },
+      {
+        id: "suggest-water",
+        label: "Track water intake",
+        icon: "water-outline",
+        tint: isDark ? "rgba(59, 130, 246, 0.2)" : "#E8F3FF",
+        iconColor: palette.info || "#3B82F6",
+        prompt: "Log 500ml of water today.",
+      },
+      {
+        id: "suggest-reminder",
+        label: "Set a reminder",
+        icon: "notifications-outline",
+        tint: isDark ? "rgba(16, 185, 129, 0.2)" : "#E6F7F1",
+        iconColor: palette.finance || "#10B981",
+        prompt: "Set a reminder for this evening.",
+      },
+      {
+        id: "suggest-meal",
+        label: "Log a meal",
+        icon: "restaurant-outline",
+        tint: isDark ? "rgba(236, 72, 153, 0.2)" : "#FDE7F3",
+        iconColor: palette.health || "#EC4899",
+        prompt: "Log a meal for lunch today.",
+      },
+    ],
+    [isDark, palette.routine, palette.info, palette.finance, palette.health]
+  );
 
   const pendingItems = pendingProposals.filter((p) => p.status === "pending");
 
@@ -317,7 +328,7 @@ export default function ChatScreen() {
 
   if (!isPremiumActive) {
     return (
-      <SafeAreaView edges={["top"]} style={styles.screen}>
+      <SafeAreaView edges={TOP_SAFE_AREA_EDGES} style={styles.screen}>
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <LinearGradient colors={primaryGradient} style={styles.headerAvatar}>
@@ -360,7 +371,7 @@ export default function ChatScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 0}
     >
-      <SafeAreaView edges={["top"]} style={styles.screen}>
+      <SafeAreaView edges={TOP_SAFE_AREA_EDGES} style={styles.screen}>
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <LinearGradient colors={primaryGradient} style={styles.headerAvatar}>
