@@ -206,7 +206,6 @@ const RoutineScreen = () => {
       }),
       [isDark, themeColors]
     );
-    const modalTopPadding = Math.max(spacing.lg, insets.top);
     const sectionThemes = useMemo(
       () => ({
         routine: {
@@ -1366,35 +1365,17 @@ const RoutineScreen = () => {
                   <TouchableOpacity
                     style={[
                       styles.modalButton,
-                      styles.secondaryButton,
-                      {
-                        backgroundColor: palette.mutedSurface,
-                        borderColor: palette.cardBorder,
-                      },
-                    ]}
-                    onPress={closeRoutineModal}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.secondaryButtonText, { color: palette.textMuted }]}>
-                      Cancel
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.modalButton,
                       styles.primaryButton,
+                      { backgroundColor: palette.routine },
                       routineCreateDisabled && styles.primaryButtonDisabled,
                     ]}
                     onPress={handleCreateRoutine}
                     disabled={routineCreateDisabled}
                     activeOpacity={0.85}
                   >
-                    <LinearGradient
-                      colors={[palette.routine, themeColors.primary]}
-                      style={styles.primaryButtonInner}
-                    >
+                    <View style={styles.primaryButtonInner}>
                       <Text style={styles.primaryButtonText}>Create Routine</Text>
-                    </LinearGradient>
+                    </View>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -1421,37 +1402,34 @@ const RoutineScreen = () => {
           fullScreen
           hideHeader
           showCloseButton={false}
+          contentStyle={{ paddingHorizontal: 0 }}
         >
-          <View style={[styles.modalScreen, { paddingTop: modalTopPadding }]}>
-            <View
-              style={[
-                styles.modalCard,
-                { backgroundColor: choreModal.surface, borderColor: choreModal.border },
-              ]}
-            >
-              <LinearGradient colors={choreModal.gradient} style={styles.modalHeader}>
-                <View style={styles.modalHeaderContent}>
-                  <View style={[styles.modalIconBadge, { backgroundColor: choreModal.iconBg }]}>
-                    <Ionicons name="list" size={18} color={choreModal.headerText} />
-                  </View>
-                  <View style={styles.modalHeaderText}>
-                    <Text style={[styles.modalTitle, { color: choreModal.headerText }]}>
-                      Add Chore
-                    </Text>
-                    <Text style={[styles.modalSubtitle, { color: choreModal.headerSubText }]}>
-                      Stay on top of your tasks
-                    </Text>
-                  </View>
-                </View>
-                <TouchableOpacity
-                  style={[styles.modalCloseButton, { backgroundColor: choreModal.closeBg }]}
-                  onPress={closeChoreModal}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="close" size={18} color={choreModal.headerText} />
-                </TouchableOpacity>
-              </LinearGradient>
-              <View style={styles.modalBody}>
+          <View
+            style={[
+              styles.createRoutineScreen,
+              { backgroundColor: palette.background, paddingTop: insets.top + spacing.sm },
+            ]}
+          >
+            <View style={styles.createRoutineTop}>
+              <TouchableOpacity
+                style={[
+                  styles.createRoutineTopButton,
+                  { borderColor: choreModal.border, backgroundColor: choreModal.surface },
+                ]}
+                onPress={closeChoreModal}
+              >
+                <Ionicons name="chevron-back" size={20} color={choreModal.accent} />
+              </TouchableOpacity>
+              <Text style={[styles.createRoutineTitle, { color: choreModal.accent }]}>Add Chore</Text>
+              <View style={styles.createRoutineTopSpacer} />
+            </View>
+            <View style={styles.createRoutineBody}>
+              <View
+                style={[
+                  styles.createRoutineSectionCard,
+                  { backgroundColor: choreModal.surface, borderColor: choreModal.border },
+                ]}
+              >
                 <Input
                   label="Chore Name"
                   value={choreName}
@@ -1519,6 +1497,13 @@ const RoutineScreen = () => {
                     );
                   })}
                 </View>
+              </View>
+              <View
+                style={[
+                  styles.createRoutineSectionCard,
+                  { backgroundColor: choreModal.surface, borderColor: choreModal.border },
+                ]}
+              >
                 <View style={styles.modalButtons}>
                   <TouchableOpacity
                     style={[
@@ -1621,37 +1606,36 @@ const RoutineScreen = () => {
         fullScreen
         hideHeader
         showCloseButton={false}
+        contentStyle={{ paddingHorizontal: 0 }}
       >
-        <View style={[styles.modalScreen, { paddingTop: modalTopPadding }]}>
-          <View
-            style={[
-              styles.modalCard,
-              { backgroundColor: reminderModal.surface, borderColor: reminderModal.border },
-            ]}
-          >
-            <LinearGradient colors={reminderModal.gradient} style={styles.modalHeader}>
-              <View style={styles.modalHeaderContent}>
-                <View style={[styles.modalIconBadge, { backgroundColor: reminderModal.iconBg }]}>
-                  <Ionicons name="notifications" size={18} color={reminderModal.headerText} />
-                </View>
-                <View style={styles.modalHeaderText}>
-                  <Text style={[styles.modalTitle, { color: reminderModal.headerText }]}>
-                    Add Reminder
-                  </Text>
-                  <Text style={[styles.modalSubtitle, { color: reminderModal.headerSubText }]}>
-                    Never forget important things
-                  </Text>
-                </View>
-              </View>
-              <TouchableOpacity
-                style={[styles.modalCloseButton, { backgroundColor: reminderModal.closeBg }]}
-                onPress={closeReminderModal}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="close" size={18} color={reminderModal.headerText} />
-              </TouchableOpacity>
-            </LinearGradient>
-            <View style={styles.modalBody}>
+        <View
+          style={[
+            styles.createRoutineScreen,
+            { backgroundColor: palette.background, paddingTop: insets.top + spacing.sm },
+          ]}
+        >
+          <View style={styles.createRoutineTop}>
+            <TouchableOpacity
+              style={[
+                styles.createRoutineTopButton,
+                { borderColor: reminderModal.border, backgroundColor: reminderModal.surface },
+              ]}
+              onPress={closeReminderModal}
+            >
+              <Ionicons name="chevron-back" size={20} color={reminderModal.accent} />
+            </TouchableOpacity>
+            <Text style={[styles.createRoutineTitle, { color: reminderModal.accent }]}>
+              Add Reminder
+            </Text>
+            <View style={styles.createRoutineTopSpacer} />
+          </View>
+          <View style={styles.createRoutineBody}>
+            <View
+              style={[
+                styles.createRoutineSectionCard,
+                { backgroundColor: reminderModal.surface, borderColor: reminderModal.border },
+              ]}
+            >
               <Input
                 label="Reminder Name"
                 value={reminderName}
@@ -1684,6 +1668,13 @@ const RoutineScreen = () => {
                 ]}
                 inputStyle={styles.modalInputText}
               />
+            </View>
+            <View
+              style={[
+                styles.createRoutineSectionCard,
+                { backgroundColor: reminderModal.surface, borderColor: reminderModal.border },
+              ]}
+            >
               <View style={styles.dateTimeRow}>
                 <View style={styles.dateInput}>
                   <Text style={styles.inputLabel}>Date</Text>
@@ -1757,6 +1748,13 @@ const RoutineScreen = () => {
                   );
                 })}
               </View>
+            </View>
+            <View
+              style={[
+                styles.createRoutineSectionCard,
+                { backgroundColor: reminderModal.surface, borderColor: reminderModal.border },
+              ]}
+            >
               <View style={styles.modalButtons}>
                 <TouchableOpacity
                   style={[

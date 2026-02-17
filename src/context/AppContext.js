@@ -3519,11 +3519,13 @@ const mapExternalProfile = (row) => ({
       ensureRemindersLoaded(),
       ensureGroceriesLoaded(),
       ensureFriendDataLoaded(),
+      ensureGroupDataLoaded(),
       ensureTaskInvitesLoaded(),
     ]);
   }, [
     ensureChoresLoaded,
     ensureFriendDataLoaded,
+    ensureGroupDataLoaded,
     ensureGroceriesLoaded,
     ensureHabitsLoaded,
     ensureNotesLoaded,

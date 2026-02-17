@@ -562,7 +562,9 @@ const GroupDetailScreen = () => {
     isPremiumUser,
     ensureGroupDataLoaded,
     ensureFriendDataLoaded,
+    themeName,
   } = useApp();
+  const isDark = themeName === 'dark';
 
   const [members, setMembers] = useState([]);
   const [showRoutineModal, setShowRoutineModal] = useState(false);
@@ -583,7 +585,7 @@ const GroupDetailScreen = () => {
   const [habitManualAmount, setHabitManualAmount] = useState('');
   const [habitManualAutoComplete, setHabitManualAutoComplete] = useState(false);
 
-  const themedStyles = useMemo(() => createStyles(themeColors || colors), [themeColors]);
+  const themedStyles = useMemo(() => createStyles(themeColors || colors, isDark), [themeColors, isDark]);
   const habitPalette = useMemo(
     () => ({
       habits: themeColors?.habits || themeColors?.primary || colors.habits,
@@ -995,28 +997,28 @@ const GroupDetailScreen = () => {
       key: 'add-habit',
       label: 'Add Habit',
       icon: 'flame-outline',
-      background: '#E8F1FF',
+      background: isDark ? '#26344A' : '#E8F1FF',
       onPress: openGroupHabitCreator,
     },
     {
       key: 'add-routine',
       label: 'Add Routine',
       icon: 'sparkles-outline',
-      background: '#F3E8FF',
+      background: isDark ? '#332C46' : '#F3E8FF',
       onPress: () => setShowRoutineModal(true),
     },
     {
       key: 'invite',
       label: 'Invite Friends',
       icon: 'person-add-outline',
-      background: '#E7FAEE',
+      background: isDark ? '#243A32' : '#E7FAEE',
       onPress: openInviteModal,
     },
     {
       key: 'stats',
       label: 'View Stats',
       icon: 'analytics-outline',
-      background: '#FFF2E1',
+      background: isDark ? '#3B2F25' : '#FFF2E1',
       onPress: () => navigation.navigate('Insights'),
     },
   ];
@@ -1503,7 +1505,7 @@ const GroupDetailScreen = () => {
   );
 };
 
-const createStyles = (themeColorsParam = colors) => {
+const createStyles = (themeColorsParam = colors, isDark = false) => {
   const baseText = themeColorsParam?.text || colors.text;
   const subdued = themeColorsParam?.textSecondary || colors.textSecondary;
   return StyleSheet.create({
@@ -1561,9 +1563,9 @@ const createStyles = (themeColorsParam = colors) => {
       borderRadius: borderRadius.full,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: 'rgba(255,255,255,0.18)',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.18)',
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.3)',
+      borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.3)',
     },
     heroIconColor: '#FFFFFF',
     heroContent: {
@@ -1579,7 +1581,7 @@ const createStyles = (themeColorsParam = colors) => {
       borderRadius: borderRadius.lg,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: 'rgba(255,255,255,0.22)',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.22)',
     },
     heroBadgeIcon: '#FFFFFF',
     heroTitle: {
@@ -1631,16 +1633,16 @@ const createStyles = (themeColorsParam = colors) => {
       marginTop: 4,
     },
     statWarm: {
-      backgroundColor: '#FCEFE2',
+      backgroundColor: isDark ? '#392F2A' : '#FCEFE2',
     },
     statMint: {
-      backgroundColor: '#E7FAEE',
+      backgroundColor: isDark ? '#25372F' : '#E7FAEE',
     },
     statSky: {
-      backgroundColor: '#E8F1FF',
+      backgroundColor: isDark ? '#253347' : '#E8F1FF',
     },
     statLilac: {
-      backgroundColor: '#F2E9FF',
+      backgroundColor: isDark ? '#332E43' : '#F2E9FF',
     },
     segmentWrap: {
       flexDirection: 'row',
@@ -1795,12 +1797,14 @@ const createStyles = (themeColorsParam = colors) => {
       borderRadius: borderRadius.lg,
       alignItems: 'center',
       justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: themeColorsParam?.border || colors.border,
     },
     quickActionIcon: {
       width: 36,
       height: 36,
       borderRadius: borderRadius.full,
-      backgroundColor: 'rgba(255,255,255,0.8)',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.8)',
       alignItems: 'center',
       justifyContent: 'center',
       marginBottom: spacing.sm,
@@ -1836,9 +1840,18 @@ const createStyles = (themeColorsParam = colors) => {
       justifyContent: 'center',
       marginLeft: spacing.sm,
     },
-    actionTileEdit: { backgroundColor: '#EAF1FF', borderColor: '#D7E5FF' },
-    actionTileSkip: { backgroundColor: '#FFF3E7', borderColor: '#FFE2C9' },
-    actionTileReset: { backgroundColor: '#E9F8F3', borderColor: '#CDEFE2' },
+    actionTileEdit: {
+      backgroundColor: isDark ? '#22344A' : '#EAF1FF',
+      borderColor: isDark ? '#36557A' : '#D7E5FF',
+    },
+    actionTileSkip: {
+      backgroundColor: isDark ? '#3B3127' : '#FFF3E7',
+      borderColor: isDark ? '#5B4935' : '#FFE2C9',
+    },
+    actionTileReset: {
+      backgroundColor: isDark ? '#233830' : '#E9F8F3',
+      borderColor: isDark ? '#346150' : '#CDEFE2',
+    },
     actionText: { ...typography.caption, fontWeight: '700', marginTop: spacing.xs },
     habitWrapper: { borderRadius: borderRadius.xl, overflow: 'hidden', ...shadows.small },
     fillTrack: { ...StyleSheet.absoluteFillObject, borderRadius: borderRadius.xl, overflow: 'hidden' },
