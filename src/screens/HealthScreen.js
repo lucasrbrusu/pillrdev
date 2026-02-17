@@ -137,6 +137,13 @@ const HealthScreen = () => {
         border: isDark ? '#3A2A40' : '#F3C8FF',
         title: isDark ? '#E879F9' : '#C026D3',
         text: isDark ? '#D1C4E9' : themeColors.textSecondary,
+        overviewGradient: isDark ? ['#2A2136', '#241D30'] : ['#FFF1F6', '#FFF6E9'],
+        previewGradient: isDark ? ['#1F2A3E', '#20362F'] : ['#D9F1FF', '#E3F8EC'],
+        iconBg: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.7)',
+        sparkleBg: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.6)',
+        sparkle: isDark ? '#FDE68A' : '#F59E0B',
+        count: isDark ? '#F5B8E9' : '#EC4899',
+        previewBorder: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.65)',
       },
       sleep: {
         card: baseCard,
@@ -180,6 +187,17 @@ const HealthScreen = () => {
     [isDark, themeColors]
   );
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
+  const moodPickerToneBackgrounds = useMemo(
+    () =>
+      isDark
+        ? {
+            positive: '#273143',
+            neutral: '#2F3241',
+            negative: '#3A2B36',
+          }
+        : null,
+    [isDark]
+  );
 
   useEffect(() => {
     ensureHealthLoaded();
@@ -1554,7 +1572,7 @@ const HealthScreen = () => {
             style={styles.moodTouchable}
           >
             <LinearGradient
-              colors={['#FFF1F6', '#FFF6E9']}
+              colors={healthTheme.mood.overviewGradient}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={styles.moodOverviewGradient}
@@ -1563,7 +1581,12 @@ const HealthScreen = () => {
 
             <View style={styles.moodOverviewHeader}>
               <View style={styles.moodOverviewLeft}>
-                <View style={styles.moodOverviewIcon}>
+                <View
+                  style={[
+                    styles.moodOverviewIcon,
+                    { backgroundColor: healthTheme.mood.iconBg },
+                  ]}
+                >
                   <Ionicons name="flower" size={14} color={healthTheme.mood.title} />
                 </View>
                 <View>
@@ -1575,14 +1598,24 @@ const HealthScreen = () => {
                   </Text>
                 </View>
               </View>
-              <View style={styles.moodOverviewSparkle}>
-                <Ionicons name="sparkles" size={16} color="#F59E0B" />
+              <View
+                style={[
+                  styles.moodOverviewSparkle,
+                  { backgroundColor: healthTheme.mood.sparkleBg },
+                ]}
+              >
+                <Ionicons name="sparkles" size={16} color={healthTheme.mood.sparkle} />
               </View>
             </View>
 
-            <View style={styles.moodPreviewCard}>
+            <View
+              style={[
+                styles.moodPreviewCard,
+                { borderColor: healthTheme.mood.previewBorder },
+              ]}
+            >
               <LinearGradient
-                colors={['#D9F1FF', '#E3F8EC']}
+                colors={healthTheme.mood.previewGradient}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.moodPreviewGradient}
@@ -1615,7 +1648,7 @@ const HealthScreen = () => {
               <Text style={[styles.moodFooterHint, { color: healthTheme.mood.text }]}>
                 Tap to plant today's mood
               </Text>
-              <Text style={styles.moodFooterCount}>
+              <Text style={[styles.moodFooterCount, { color: healthTheme.mood.count }]}>
                 {totalMoodCount} flowers planted
               </Text>
             </View>
@@ -2394,7 +2427,16 @@ const HealthScreen = () => {
                       key={option.key}
                       style={[
                         styles.moodPickerItem,
-                        { backgroundColor: option.bg, borderColor: isActive ? option.accent : 'transparent' },
+                        {
+                          backgroundColor: isDark
+                            ? moodPickerToneBackgrounds?.[option.tone] || '#2F3241'
+                            : option.bg,
+                          borderColor: isActive
+                            ? option.accent
+                            : isDark
+                            ? gardenTheme.border
+                            : 'transparent',
+                        },
                       ]}
                       onPress={() => handleMoodSelect(idx)}
                       activeOpacity={0.85}
@@ -3201,6 +3243,7 @@ const createStyles = (themeColors) => StyleSheet.create({
     borderRadius: borderRadius.lg,
     overflow: 'hidden',
     marginBottom: spacing.md,
+    borderWidth: 1,
   },
   moodPreviewGradient: {
     paddingVertical: spacing.md,

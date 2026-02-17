@@ -51,6 +51,10 @@ const ROUTINE_SUGGESTIONS = [
   'Workout Flow',
   'Study Session',
 ];
+const ROUTINE_CREATE_TYPES = [
+  { label: 'Personal', value: 'personal' },
+  { label: 'Group', value: 'group' },
+];
 
 const getISODateWithOffset = (offset) => {
   const date = new Date();
@@ -184,140 +188,91 @@ const RoutineScreen = () => {
       ensureGroceriesLoaded,
     } = useApp();
     const isDark = themeName === 'dark';
+    const palette = useMemo(
+      () => ({
+        isDark,
+        routine: themeColors?.routine,
+        tasks: themeColors?.tasks,
+        info: themeColors?.info,
+        health: themeColors?.health,
+        finance: themeColors?.finance,
+        text: themeColors?.text,
+        textMuted: themeColors?.textSecondary,
+        textLight: themeColors?.textLight,
+        background: isDark ? '#120F1B' : '#F6F2FB',
+        card: isDark ? '#1F1A2D' : '#FFFFFF',
+        cardBorder: isDark ? '#3C3551' : '#E8DDF7',
+        mutedSurface: isDark ? '#1A1626' : '#F8F4FC',
+      }),
+      [isDark, themeColors]
+    );
     const modalTopPadding = Math.max(spacing.lg, insets.top);
     const sectionThemes = useMemo(
       () => ({
-        routine: isDark
-          ? {
-              card: '#2E2538',
-              header: '#3C2E4A',
-              border: '#4B3A5E',
-              accent: themeColors.routine,
-              iconBg: '#F59E0B',
-              iconColor: '#1F1305',
-              actionBg: '#4A3560',
-              actionText: '#F4E5FF',
-              sectionBg: '#372B44',
-              itemBg: '#3C304A',
-              itemBorder: 'rgba(245, 158, 11, 0.45)',
-              muted: '#E2C48C',
-            }
-          : {
-              card: '#FFF4E3',
-              header: '#FFE8C6',
-              border: '#F6D7A7',
-              accent: themeColors.routine,
-              iconBg: '#FF9F1C',
-              iconColor: '#FFFFFF',
-              actionBg: '#EFE5FF',
-              actionText: themeColors.primary,
-              sectionBg: '#FFF8ED',
-              itemBg: '#FFFDF7',
-              itemBorder: '#F3D5A2',
-              muted: '#8B6F45',
-            },
-        group: isDark
-          ? {
-              card: '#232447',
-              header: '#2E2B56',
-              border: '#3C3B69',
-              accent: themeColors.tasks,
-              iconBg: themeColors.tasks,
-              iconColor: '#FFFFFF',
-              actionBg: '#2E2B56',
-              actionText: '#DDE1FF',
-              sectionBg: '#292A4D',
-              itemBg: '#303158',
-              itemBorder: 'rgba(99, 102, 241, 0.45)',
-              muted: '#C8CEFF',
-            }
-          : {
-              card: '#EEF0FF',
-              header: '#DDE2FF',
-              border: '#C9D1FF',
-              accent: themeColors.tasks,
-              iconBg: themeColors.tasks,
-              iconColor: '#FFFFFF',
-              actionBg: '#E4E8FF',
-              actionText: themeColors.tasks,
-              sectionBg: '#F6F7FF',
-              itemBg: '#FFFFFF',
-              itemBorder: '#D5DBFF',
-              muted: '#5157B7',
-            },
-        chores: isDark
-          ? {
-              card: '#1F2E49',
-              header: '#2A3A5A',
-              border: '#3B4F75',
-              accent: themeColors.info,
-              iconBg: themeColors.info,
-              iconColor: '#FFFFFF',
-              actionBg: '#2A3A5A',
-              actionText: '#D6E4FF',
-              itemBg: '#283A58',
-              itemBorder: 'rgba(59, 130, 246, 0.45)',
-            }
-          : {
-              card: '#EAF6FF',
-              header: '#D9ECFF',
-              border: '#C6E2FF',
-              accent: themeColors.info,
-              iconBg: themeColors.info,
-              iconColor: '#FFFFFF',
-              actionBg: '#DDEBFF',
-              actionText: '#1D4ED8',
-              itemBg: '#F4FAFF',
-              itemBorder: '#CFE7FF',
-            },
-        reminders: isDark
-          ? {
-              card: '#352137',
-              header: '#43253E',
-              border: '#56304F',
-              accent: themeColors.health,
-              iconBg: themeColors.health,
-              iconColor: '#FFFFFF',
-              actionBg: '#43253E',
-              actionText: '#FFD7ED',
-              itemBg: '#3E2843',
-              itemBorder: 'rgba(236, 72, 153, 0.45)',
-            }
-          : {
-              card: '#FFF0F7',
-              header: '#FFE0EF',
-              border: '#F7C9DF',
-              accent: themeColors.health,
-              iconBg: themeColors.health,
-              iconColor: '#FFFFFF',
-              actionBg: '#FFD6E8',
-              actionText: '#C02672',
-              itemBg: '#FFF7FB',
-              itemBorder: '#F4C5DD',
-            },
-        groceries: isDark
-          ? {
-              card: '#1F3530',
-              header: '#25443A',
-              border: '#345B4A',
-              accent: themeColors.finance,
-              iconBg: themeColors.finance,
-              iconColor: '#FFFFFF',
-              itemBg: '#263D36',
-              itemBorder: 'rgba(16, 185, 129, 0.45)',
-            }
-          : {
-              card: '#EAFBF2',
-              header: '#D9F5E7',
-              border: '#BFEBD5',
-              accent: themeColors.finance,
-              iconBg: themeColors.finance,
-              iconColor: '#FFFFFF',
-              itemBg: '#F3FFF8',
-              itemBorder: '#CDEEDD',
-            },
+        routine: {
+          card: palette.card,
+          header: palette.mutedSurface,
+          border: palette.cardBorder,
+          accent: palette.routine,
+          iconBg: palette.routine,
+          iconColor: '#FFFFFF',
+          actionBg: palette.mutedSurface,
+          actionText: palette.text,
+          sectionBg: palette.mutedSurface,
+          itemBg: palette.card,
+          itemBorder: palette.cardBorder,
+          muted: palette.textMuted,
+        },
+        group: {
+          card: palette.card,
+          header: palette.mutedSurface,
+          border: palette.cardBorder,
+          accent: palette.tasks,
+          iconBg: palette.tasks,
+          iconColor: '#FFFFFF',
+          actionBg: palette.mutedSurface,
+          actionText: palette.text,
+          sectionBg: palette.mutedSurface,
+          itemBg: palette.card,
+          itemBorder: palette.cardBorder,
+          muted: palette.textMuted,
+        },
+        chores: {
+          card: palette.card,
+          header: palette.mutedSurface,
+          border: palette.cardBorder,
+          accent: palette.info,
+          iconBg: palette.info,
+          iconColor: '#FFFFFF',
+          actionBg: palette.mutedSurface,
+          actionText: palette.text,
+          itemBg: palette.mutedSurface,
+          itemBorder: palette.cardBorder,
+        },
+        reminders: {
+          card: palette.card,
+          header: palette.mutedSurface,
+          border: palette.cardBorder,
+          accent: palette.health,
+          iconBg: palette.health,
+          iconColor: '#FFFFFF',
+          actionBg: palette.mutedSurface,
+          actionText: palette.text,
+          itemBg: palette.mutedSurface,
+          itemBorder: palette.cardBorder,
+        },
+        groceries: {
+          card: palette.card,
+          header: palette.mutedSurface,
+          border: palette.cardBorder,
+          accent: palette.finance,
+          iconBg: palette.finance,
+          iconColor: '#FFFFFF',
+          itemBg: palette.mutedSurface,
+          itemBorder: palette.cardBorder,
+        },
       }),
-      [isDark, themeColors]
+      [palette]
     );
     const modalThemes = useMemo(
       () => {
@@ -396,7 +351,7 @@ const RoutineScreen = () => {
     const routineModal = modalThemes.routine;
     const choreModal = modalThemes.chore;
     const reminderModal = modalThemes.reminder;
-    const styles = useMemo(() => createStyles(themeColors), [themeColors]);
+    const styles = useMemo(() => createStyles(themeColors, palette), [themeColors, palette]);
 
     useEffect(() => {
       ensureRoutinesLoaded();
@@ -413,6 +368,7 @@ const RoutineScreen = () => {
   const [showGroceryModal, setShowGroceryModal] = useState(false);
 
   const [routineName, setRoutineName] = useState('');
+  const [routineCreateType, setRoutineCreateType] = useState('personal');
   const [routineGroupId, setRoutineGroupId] = useState(null);
   const [routineStartTime, setRoutineStartTime] = useState('');
   const [routineEndTime, setRoutineEndTime] = useState('');
@@ -442,18 +398,23 @@ const RoutineScreen = () => {
   const handleCreateRoutine = async () => {
     if (!routineName.trim()) return;
     if (!routineStartTime || !routineEndTime) return;
+    if (routineCreateType === 'group' && !routineGroupId) {
+      Alert.alert('Select a group', 'Choose a group before creating a group routine.');
+      return;
+    }
     try {
       const payload = {
         name: routineName.trim(),
         startTime: routineStartTime,
         endTime: routineEndTime,
       };
-      if (routineGroupId) {
+      if (routineCreateType === 'group') {
         await addGroupRoutine({ ...payload, groupId: routineGroupId });
       } else {
         await addRoutine(payload);
       }
       setRoutineName('');
+      setRoutineCreateType('personal');
       setRoutineGroupId(null);
       setRoutineStartTime('');
       setRoutineEndTime('');
@@ -496,11 +457,28 @@ const RoutineScreen = () => {
   const closeRoutineModal = () => {
     setShowRoutineModal(false);
     setRoutineName('');
+    setRoutineCreateType('personal');
     setRoutineGroupId(null);
     setRoutineStartTime('');
     setRoutineEndTime('');
     setShowRoutineTimePicker(false);
     setRoutineTimePickerTarget(null);
+  };
+
+  const openRoutineModal = (type = 'personal') => {
+    const nextType = type === 'group' && groups.length > 0 ? 'group' : 'personal';
+    setRoutineCreateType(nextType);
+    if (nextType !== 'group') {
+      setRoutineGroupId(null);
+    }
+    setShowRoutineModal(true);
+  };
+
+  const handleRoutineCreateTypeSelect = (value) => {
+    setRoutineCreateType(value);
+    if (value !== 'group') {
+      setRoutineGroupId(null);
+    }
   };
 
   const closeChoreModal = () => {
@@ -615,6 +593,15 @@ const RoutineScreen = () => {
 
   const completedGroceries = groceries.filter((g) => g.completed);
   const activeGroceries = groceries.filter((g) => !g.completed);
+  const totalRoutineCount = routines.length + groupRoutines.length;
+  const pendingChoreCount = chores.filter((chore) => !chore.completed).length;
+  const reminderCount = reminders.length;
+  const isGroupRoutineCreate = routineCreateType === 'group';
+  const routineCreateDisabled =
+    !routineName.trim() ||
+    !routineStartTime ||
+    !routineEndTime ||
+    (isGroupRoutineCreate && !routineGroupId);
   const choreGroups = useMemo(() => {
     const map = new Map();
     chores.forEach((chore) => {
@@ -720,31 +707,59 @@ const RoutineScreen = () => {
   const groceriesTheme = sectionThemes.groceries;
 
   return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={[styles.container, { paddingTop: insets.top + spacing.sm }]}>
         <PlatformScrollView
           style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 120 }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           alwaysBounceVertical
           bounces
         >
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={[styles.pageTitle, { color: palette.text }]}>Routine Hub</Text>
+            <Text style={[styles.pageSubtitle, { color: palette.textMuted }]}>
+              Manage routines, chores, reminders, and groceries
+            </Text>
+          </View>
+          <View style={styles.headerAddWrap}>
+            <TouchableOpacity
+              style={[styles.headerAddButton, { backgroundColor: palette.routine }]}
+              onPress={() => openRoutineModal('personal')}
+              activeOpacity={0.9}
+            >
+              <Ionicons name="add" size={22} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.statsRow}>
+          <Card style={[styles.statCard, styles.statRoutine]}>
+            <Ionicons name="sunny" size={16} color={palette.routine} />
+            <Text style={styles.statLabel}>Routines</Text>
+            <Text style={styles.statValue}>{totalRoutineCount}</Text>
+          </Card>
+          <Card style={[styles.statCard, styles.statTasks]}>
+            <Ionicons name="checkbox" size={16} color={palette.info} />
+            <Text style={styles.statLabel}>Open chores</Text>
+            <Text style={styles.statValue}>{pendingChoreCount}</Text>
+          </Card>
+          <Card style={[styles.statCard, styles.statReminders]}>
+            <Ionicons name="notifications" size={16} color={palette.health} />
+            <Text style={styles.statLabel}>Reminders</Text>
+            <Text style={styles.statValue}>{reminderCount}</Text>
+          </Card>
+        </View>
+
         {/* Routine Manager Section */}
         <Card
           style={[
             styles.sectionCard,
-            { backgroundColor: routineTheme.card, borderColor: routineTheme.border },
+            { backgroundColor: palette.card, borderColor: palette.cardBorder },
           ]}
         >
-          <View
-            style={[
-              styles.sectionHeader,
-              {
-                backgroundColor: routineTheme.header,
-                borderBottomColor: routineTheme.border,
-              },
-            ]}
-          >
+          <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <View
                 style={[
@@ -763,7 +778,7 @@ const RoutineScreen = () => {
                 styles.sectionAction,
                 { backgroundColor: routineTheme.actionBg },
               ]}
-              onPress={() => setShowRoutineModal(true)}
+              onPress={() => openRoutineModal('personal')}
             >
               <Ionicons name="add" size={16} color={routineTheme.actionText} />
               <Text style={[styles.sectionActionText, { color: routineTheme.actionText }]}>
@@ -839,15 +854,10 @@ const RoutineScreen = () => {
           <Card
             style={[
               styles.sectionCard,
-              { backgroundColor: groupTheme.card, borderColor: groupTheme.border },
+              { backgroundColor: palette.card, borderColor: palette.cardBorder },
             ]}
           >
-            <View
-              style={[
-                styles.sectionHeader,
-                { backgroundColor: groupTheme.header, borderBottomColor: groupTheme.border },
-              ]}
-            >
+            <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleRow}>
                 <View style={[styles.sectionIcon, { backgroundColor: groupTheme.iconBg }]}>
                   <Ionicons name="people" size={18} color={groupTheme.iconColor} />
@@ -858,7 +868,7 @@ const RoutineScreen = () => {
               </View>
               <TouchableOpacity
                 style={[styles.sectionAction, { backgroundColor: groupTheme.actionBg }]}
-                onPress={() => setShowRoutineModal(true)}
+                onPress={() => openRoutineModal('group')}
               >
                 <Ionicons name="add" size={16} color={groupTheme.actionText} />
                 <Text style={[styles.sectionActionText, { color: groupTheme.actionText }]}>
@@ -914,15 +924,10 @@ const RoutineScreen = () => {
         <Card
           style={[
             styles.sectionCard,
-            { backgroundColor: choresTheme.card, borderColor: choresTheme.border },
+            { backgroundColor: palette.card, borderColor: palette.cardBorder },
           ]}
         >
-          <View
-            style={[
-              styles.sectionHeader,
-              { backgroundColor: choresTheme.header, borderBottomColor: choresTheme.border },
-            ]}
-          >
+          <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <View style={[styles.sectionIcon, { backgroundColor: choresTheme.iconBg }]}>
                 <Ionicons name="home" size={18} color={choresTheme.iconColor} />
@@ -996,18 +1001,10 @@ const RoutineScreen = () => {
         <Card
           style={[
             styles.sectionCard,
-            { backgroundColor: remindersTheme.card, borderColor: remindersTheme.border },
+            { backgroundColor: palette.card, borderColor: palette.cardBorder },
           ]}
         >
-          <View
-            style={[
-              styles.sectionHeader,
-              {
-                backgroundColor: remindersTheme.header,
-                borderBottomColor: remindersTheme.border,
-              },
-            ]}
-          >
+          <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <View style={[styles.sectionIcon, { backgroundColor: remindersTheme.iconBg }]}>
                 <Ionicons name="notifications" size={18} color={remindersTheme.iconColor} />
@@ -1078,19 +1075,11 @@ const RoutineScreen = () => {
           style={[
             styles.sectionCard,
             styles.lastCard,
-            { backgroundColor: groceriesTheme.card, borderColor: groceriesTheme.border },
+            { backgroundColor: palette.card, borderColor: palette.cardBorder },
           ]}
           onPress={() => setShowGroceryModal(true)}
         >
-          <View
-            style={[
-              styles.sectionHeader,
-              {
-                backgroundColor: groceriesTheme.header,
-                borderBottomColor: groceriesTheme.border,
-              },
-            ]}
-          >
+          <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <View style={[styles.sectionIcon, { backgroundColor: groceriesTheme.iconBg }]}>
                 <Ionicons name="cart" size={18} color={groceriesTheme.iconColor} />
@@ -1140,37 +1129,35 @@ const RoutineScreen = () => {
           fullScreen
           hideHeader
           showCloseButton={false}
+          contentStyle={{ paddingHorizontal: 0 }}
         >
-          <View style={[styles.modalScreen, { paddingTop: modalTopPadding }]}>
-            <View
-              style={[
-                styles.modalCard,
-                { backgroundColor: routineModal.surface, borderColor: routineModal.border },
-              ]}
-            >
-              <LinearGradient colors={routineModal.gradient} style={styles.modalHeader}>
-                <View style={styles.modalHeaderContent}>
-                  <View style={[styles.modalIconBadge, { backgroundColor: routineModal.iconBg }]}>
-                    <Ionicons name="sunny" size={18} color={routineModal.headerText} />
-                  </View>
-                  <View style={styles.modalHeaderText}>
-                    <Text style={[styles.modalTitle, { color: routineModal.headerText }]}>
-                      Create Routine
-                    </Text>
-                    <Text style={[styles.modalSubtitle, { color: routineModal.headerSubText }]}>
-                      Build your perfect daily flow
-                    </Text>
-                  </View>
-                </View>
-                <TouchableOpacity
-                  style={[styles.modalCloseButton, { backgroundColor: routineModal.closeBg }]}
-                  onPress={closeRoutineModal}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="close" size={18} color={routineModal.headerText} />
-                </TouchableOpacity>
-              </LinearGradient>
-              <View style={styles.modalBody}>
+          <View
+            style={[
+              styles.createRoutineScreen,
+              { backgroundColor: palette.background, paddingTop: insets.top + spacing.sm },
+            ]}
+          >
+            <View style={styles.createRoutineTop}>
+              <TouchableOpacity
+                style={[
+                  styles.createRoutineTopButton,
+                  { borderColor: palette.cardBorder, backgroundColor: palette.card },
+                ]}
+                onPress={closeRoutineModal}
+              >
+                <Ionicons name="chevron-back" size={20} color={palette.text} />
+              </TouchableOpacity>
+              <Text style={[styles.createRoutineTitle, { color: palette.text }]}>New Routine</Text>
+              <View style={styles.createRoutineTopSpacer} />
+            </View>
+
+            <View style={styles.createRoutineBody}>
+              <View
+                style={[
+                  styles.createRoutineSectionCard,
+                  { borderColor: palette.cardBorder, backgroundColor: palette.card },
+                ]}
+              >
                 <Input
                   label="Routine Name"
                   value={routineName}
@@ -1180,11 +1167,11 @@ const RoutineScreen = () => {
                   style={[
                     styles.modalInput,
                     {
-                      backgroundColor: routineModal.fieldBg,
-                      borderColor: routineModal.fieldBorder,
+                      backgroundColor: palette.mutedSurface,
+                      borderColor: palette.cardBorder,
                     },
                   ]}
-                  inputStyle={styles.modalInputText}
+                  inputStyle={[styles.modalInputText, { color: palette.text }]}
                 />
                 <Text style={styles.quickLabel}>Quick suggestions</Text>
                 <View style={styles.quickGroup}>
@@ -1196,12 +1183,8 @@ const RoutineScreen = () => {
                         style={[
                           styles.quickChip,
                           {
-                            backgroundColor: selected
-                              ? routineModal.chipActiveBg
-                              : routineModal.chipBg,
-                            borderColor: selected
-                              ? routineModal.chipActiveBorder
-                              : routineModal.chipBorder,
+                            backgroundColor: selected ? palette.routine : palette.mutedSurface,
+                            borderColor: selected ? palette.routine : palette.cardBorder,
                           },
                         ]}
                         onPress={() => handleRoutineSuggestion(label)}
@@ -1210,11 +1193,7 @@ const RoutineScreen = () => {
                         <Text
                           style={[
                             styles.quickChipText,
-                            {
-                              color: selected
-                                ? routineModal.chipActiveText
-                                : routineModal.chipText,
-                            },
+                            { color: selected ? '#FFFFFF' : palette.textMuted },
                           ]}
                         >
                           {label}
@@ -1223,6 +1202,14 @@ const RoutineScreen = () => {
                     );
                   })}
                 </View>
+              </View>
+
+              <View
+                style={[
+                  styles.createRoutineSectionCard,
+                  { borderColor: palette.cardBorder, backgroundColor: palette.card },
+                ]}
+              >
                 <Text style={styles.inputLabel}>Routine time range</Text>
                 <Text style={styles.scheduleHint}>
                   Set when this routine starts and ends.
@@ -1233,8 +1220,8 @@ const RoutineScreen = () => {
                       styles.dateButton,
                       styles.routineRangeButton,
                       {
-                        backgroundColor: routineModal.fieldBg,
-                        borderColor: routineModal.fieldBorder,
+                        backgroundColor: palette.mutedSurface,
+                        borderColor: palette.cardBorder,
                       },
                     ]}
                     onPress={() => openRoutineTimePicker('start')}
@@ -1251,8 +1238,8 @@ const RoutineScreen = () => {
                       styles.routineRangeButton,
                       { marginRight: 0 },
                       {
-                        backgroundColor: routineModal.fieldBg,
-                        borderColor: routineModal.fieldBorder,
+                        backgroundColor: palette.mutedSurface,
+                        borderColor: palette.cardBorder,
                       },
                     ]}
                     onPress={() => openRoutineTimePicker('end')}
@@ -1283,25 +1270,17 @@ const RoutineScreen = () => {
                         style={[
                           styles.quickChip,
                           {
-                            backgroundColor: selected
-                              ? routineModal.chipActiveBg
-                              : routineModal.chipBg,
-                            borderColor: selected
-                              ? routineModal.chipActiveBorder
-                              : routineModal.chipBorder,
-                            },
-                          ]}
+                            backgroundColor: selected ? palette.routine : palette.mutedSurface,
+                            borderColor: selected ? palette.routine : palette.cardBorder,
+                          },
+                        ]}
                         onPress={() => handleQuickRoutineTime(normalizedQuickTime, 'start')}
                         activeOpacity={0.8}
                       >
                         <Text
                           style={[
                             styles.quickChipText,
-                            {
-                              color: selected
-                                ? routineModal.chipActiveText
-                                : routineModal.chipText,
-                            },
+                            { color: selected ? '#FFFFFF' : palette.textMuted },
                           ]}
                         >
                           {normalizedQuickTime}
@@ -1321,12 +1300,8 @@ const RoutineScreen = () => {
                         style={[
                           styles.quickChip,
                           {
-                            backgroundColor: selected
-                              ? routineModal.chipActiveBg
-                              : routineModal.chipBg,
-                            borderColor: selected
-                              ? routineModal.chipActiveBorder
-                              : routineModal.chipBorder,
+                            backgroundColor: selected ? palette.routine : palette.mutedSurface,
+                            borderColor: selected ? palette.routine : palette.cardBorder,
                           },
                         ]}
                         onPress={() => handleQuickRoutineTime(normalizedQuickTime, 'end')}
@@ -1335,11 +1310,7 @@ const RoutineScreen = () => {
                         <Text
                           style={[
                             styles.quickChipText,
-                            {
-                              color: selected
-                                ? routineModal.chipActiveText
-                                : routineModal.chipText,
-                            },
+                            { color: selected ? '#FFFFFF' : palette.textMuted },
                           ]}
                         >
                           {normalizedQuickTime}
@@ -1348,40 +1319,63 @@ const RoutineScreen = () => {
                     );
                   })}
                 </View>
-                {groups.length > 0 ? (
-                  <>
-                    <Text style={styles.inputLabel}>Share with group</Text>
-                    <ChipGroup
-                      options={[
-                        { label: 'Personal', value: null },
-                        ...groups.map((g) => ({ label: g.name, value: g.id })),
-                      ]}
-                      selectedValue={routineGroupId}
-                      onSelect={setRoutineGroupId}
-                      style={styles.chipGroup}
-                      color={routineModal.chipActiveBg}
-                    />
-                  </>
-                ) : null}
+              </View>
+
+              {groups.length > 0 ? (
+                <View
+                  style={[
+                    styles.createRoutineSectionCard,
+                    { borderColor: palette.cardBorder, backgroundColor: palette.card },
+                  ]}
+                >
+                  <Text style={styles.inputLabel}>Routine type</Text>
+                  <ChipGroup
+                    options={ROUTINE_CREATE_TYPES}
+                    selectedValue={routineCreateType}
+                    onSelect={handleRoutineCreateTypeSelect}
+                    style={styles.chipGroup}
+                    color={palette.routine}
+                  />
+                  {isGroupRoutineCreate ? (
+                    <>
+                      <Text style={styles.inputLabel}>Group selection</Text>
+                      <ChipGroup
+                        options={groups.map((g) => ({ label: g.name, value: g.id }))}
+                        selectedValue={routineGroupId}
+                        onSelect={setRoutineGroupId}
+                        style={styles.chipGroup}
+                        color={palette.routine}
+                      />
+                      {!routineGroupId ? (
+                        <Text style={styles.scheduleHint}>
+                          Select a group to create this as a group routine.
+                        </Text>
+                      ) : null}
+                    </>
+                  ) : null}
+                </View>
+              ) : null}
+
+              <View
+                style={[
+                  styles.createRoutineSectionCard,
+                  { borderColor: palette.cardBorder, backgroundColor: palette.card },
+                ]}
+              >
                 <View style={styles.modalButtons}>
                   <TouchableOpacity
                     style={[
                       styles.modalButton,
                       styles.secondaryButton,
                       {
-                        backgroundColor: routineModal.secondaryBg,
-                        borderColor: routineModal.secondaryBorder,
+                        backgroundColor: palette.mutedSurface,
+                        borderColor: palette.cardBorder,
                       },
                     ]}
                     onPress={closeRoutineModal}
                     activeOpacity={0.8}
                   >
-                    <Text
-                      style={[
-                        styles.secondaryButtonText,
-                        { color: routineModal.secondaryText },
-                      ]}
-                    >
+                    <Text style={[styles.secondaryButtonText, { color: palette.textMuted }]}>
                       Cancel
                     </Text>
                   </TouchableOpacity>
@@ -1389,18 +1383,17 @@ const RoutineScreen = () => {
                     style={[
                       styles.modalButton,
                       styles.primaryButton,
-                      (!routineName.trim() || !routineStartTime || !routineEndTime) &&
-                        styles.primaryButtonDisabled,
+                      routineCreateDisabled && styles.primaryButtonDisabled,
                     ]}
                     onPress={handleCreateRoutine}
-                    disabled={!routineName.trim() || !routineStartTime || !routineEndTime}
+                    disabled={routineCreateDisabled}
                     activeOpacity={0.85}
                   >
                     <LinearGradient
-                      colors={routineModal.actionGradient}
+                      colors={[palette.routine, themeColors.primary]}
                       style={styles.primaryButtonInner}
                     >
-                      <Text style={styles.primaryButtonText}>Create</Text>
+                      <Text style={styles.primaryButtonText}>Create Routine</Text>
                     </LinearGradient>
                   </TouchableOpacity>
                 </View>
@@ -1830,24 +1823,84 @@ const RoutineScreen = () => {
   );
 };
 
-const createStyles = (themeColors) => StyleSheet.create({
+const createStyles = (themeColors, palette) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: themeColors.background,
+    backgroundColor: palette.background,
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.lg,
-    paddingBottom: 100,
-    flexGrow: 1,
+    paddingHorizontal: spacing.lg,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  pageTitle: {
+    ...typography.h1,
+    fontSize: 34,
+    fontWeight: '700',
+  },
+  pageSubtitle: {
+    ...typography.bodySmall,
+    marginTop: 2,
+  },
+  headerAddWrap: {
+    width: 42,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerAddButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadows.small,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    marginBottom: spacing.md,
+  },
+  statCard: {
+    flex: 1,
+    marginHorizontal: 4,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    padding: spacing.md,
+  },
+  statRoutine: {
+    backgroundColor: palette.isDark ? '#2A2340' : '#F2EFFF',
+    borderColor: palette.isDark ? '#463866' : '#E1DAFF',
+  },
+  statTasks: {
+    backgroundColor: palette.isDark ? '#1D3246' : '#EAF6FF',
+    borderColor: palette.isDark ? '#2D4E6D' : '#CFE7FF',
+  },
+  statReminders: {
+    backgroundColor: palette.isDark ? '#3A2033' : '#FFF1F8',
+    borderColor: palette.isDark ? '#5A2F4F' : '#FFD6EB',
+  },
+  statLabel: {
+    ...typography.caption,
+    marginTop: spacing.xs,
+  },
+  statValue: {
+    ...typography.h2,
+    marginTop: 2,
+    fontWeight: '700',
+    color: palette.text,
   },
   sectionCard: {
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
     borderRadius: borderRadius.xl,
-    overflow: 'hidden',
+    borderWidth: 1,
+    padding: spacing.md,
   },
   lastCard: {
     marginBottom: spacing.xxxl,
@@ -1856,14 +1909,7 @@ const createStyles = (themeColors) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    marginHorizontal: -spacing.lg,
-    marginTop: -spacing.lg,
-    marginBottom: spacing.md,
-    borderTopLeftRadius: borderRadius.xl,
-    borderTopRightRadius: borderRadius.xl,
-    borderBottomWidth: 1,
+    marginBottom: spacing.sm,
   },
   sectionTitleRow: {
     flexDirection: 'row',
@@ -1881,15 +1927,18 @@ const createStyles = (themeColors) => StyleSheet.create({
     paddingTop: spacing.xs,
   },
   sectionTitle: {
-    ...typography.h3,
-    color: themeColors.text,
+    ...typography.body,
+    color: palette.text,
+    fontWeight: '700',
   },
   sectionAction: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.xs,
+    paddingVertical: 9,
     paddingHorizontal: spacing.md,
     borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: palette.cardBorder,
   },
   sectionActionText: {
     ...typography.bodySmall,
@@ -2144,6 +2193,42 @@ const createStyles = (themeColors) => StyleSheet.create({
   modalScreen: {
     paddingTop: spacing.lg,
     paddingBottom: spacing.xl,
+  },
+  createRoutineScreen: {
+    flex: 1,
+  },
+  createRoutineTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  createRoutineTopButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  createRoutineTitle: {
+    ...typography.h3,
+    fontWeight: '700',
+  },
+  createRoutineTopSpacer: {
+    width: 38,
+    height: 38,
+  },
+  createRoutineBody: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xxxl,
+  },
+  createRoutineSectionCard: {
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    padding: spacing.md,
+    marginBottom: spacing.md,
   },
   modalCard: {
     borderRadius: borderRadius.xl,

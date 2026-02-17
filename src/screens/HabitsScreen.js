@@ -675,6 +675,7 @@ const HabitsScreen = () => {
   const isDark = themeName === 'dark';
   const palette = useMemo(
     () => ({
+      isDark,
       habits: themeColors?.habits || colors.habits,
       success: themeColors?.success || colors.success,
       card: isDark ? '#1F1A2D' : '#FFFFFF',
@@ -966,6 +967,14 @@ const HabitsScreen = () => {
         return isCompletedForDate(habit, selectedDateKey, amount);
       }).length,
     [filteredHabits, selectedDateKey, localProgressMap]
+  );
+  const statIconColors = useMemo(
+    () => ({
+      streak: palette.isDark ? '#FDBA74' : '#F97316',
+      today: palette.isDark ? '#6EE7B7' : '#10B981',
+      total: palette.isDark ? '#93C5FD' : '#2563EB',
+    }),
+    [palette.isDark]
   );
 
   const resetForm = () => {
@@ -1578,17 +1587,17 @@ const HabitsScreen = () => {
 
         <View style={styles.statsRow}>
           <Card style={[styles.statCard, styles.statStreak]}>
-            <Ionicons name="flame" size={16} color="#F97316" />
+            <Ionicons name="flame" size={16} color={statIconColors.streak} />
             <Text style={styles.statLabel}>Best streak</Text>
             <Text style={styles.statValue}>{getBestStreak()}</Text>
           </Card>
           <Card style={[styles.statCard, styles.statToday]}>
-            <Feather name="target" size={16} color="#10B981" />
+            <Feather name="target" size={16} color={statIconColors.today} />
             <Text style={styles.statLabel}>Due today</Text>
             <Text style={styles.statValue}>{completedCount}/{filteredHabits.length}</Text>
           </Card>
           <Card style={[styles.statCard, styles.statTotal]}>
-            <Ionicons name="stats-chart" size={16} color="#2563EB" />
+            <Ionicons name="stats-chart" size={16} color={statIconColors.total} />
             <Text style={styles.statLabel}>Total</Text>
             <Text style={styles.statValue}>{visibleHabits.length}</Text>
           </Card>
@@ -2532,11 +2541,20 @@ const createStyles = (palette) =>
     datePillNum: { ...typography.h3, fontWeight: '700', marginTop: 2 },
     statsRow: { flexDirection: 'row', marginBottom: spacing.md },
     statCard: { flex: 1, marginHorizontal: 4, borderRadius: borderRadius.lg, borderWidth: 1, padding: spacing.md },
-    statStreak: { backgroundColor: '#FFF0E2', borderColor: '#F6D7B7' },
-    statToday: { backgroundColor: '#E8F8EE', borderColor: '#CFEFD8' },
-    statTotal: { backgroundColor: '#E8F0FF', borderColor: '#CCDAFF' },
-    statLabel: { ...typography.caption, marginTop: spacing.xs },
-    statValue: { ...typography.h2, marginTop: 2, fontWeight: '700', color: '#1F2937' },
+    statStreak: {
+      backgroundColor: palette.isDark ? '#33261E' : '#FFF0E2',
+      borderColor: palette.isDark ? '#5A3A2A' : '#F6D7B7',
+    },
+    statToday: {
+      backgroundColor: palette.isDark ? '#1E2F28' : '#E8F8EE',
+      borderColor: palette.isDark ? '#2D4F42' : '#CFEFD8',
+    },
+    statTotal: {
+      backgroundColor: palette.isDark ? '#1C2A40' : '#E8F0FF',
+      borderColor: palette.isDark ? '#2D4569' : '#CCDAFF',
+    },
+    statLabel: { ...typography.caption, marginTop: spacing.xs, color: palette.textMuted },
+    statValue: { ...typography.h2, marginTop: 2, fontWeight: '700', color: palette.text },
     filterRow: { marginBottom: spacing.sm, flexDirection: 'row', flexWrap: 'wrap' },
     filterChip: { borderRadius: borderRadius.full, borderWidth: 1, paddingVertical: 9, paddingHorizontal: spacing.md, marginRight: spacing.sm, marginBottom: spacing.xs },
     filterChipText: { ...typography.bodySmall, fontWeight: '600' },
