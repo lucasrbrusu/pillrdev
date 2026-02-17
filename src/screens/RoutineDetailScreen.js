@@ -1,11 +1,105 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
-import { Card, Modal, Button, Input, PlatformScrollView } from '../components';
+import {
+  Card,
+  Modal,
+  Button,
+  Input,
+  PlatformScrollView,
+  PlatformTimePicker,
+} from '../components';
 import { borderRadius, spacing, typography } from '../utils/theme';
+import { formatTimeFromDate } from '../utils/notifications';
+
+const QUICK_ROUTINE_TIMES = ['06:00', '09:00', '12:00', '18:00', '21:00'];
+
+const parseClockMinutes = (value) => {
+  if (!value || typeof value !== 'string') return null;
+  const match = value
+    .trim()
+    .match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+  if (!match) return null;
+
+  let hour = Number(match[1]);
+  const minute = Number(match[2] ?? '0');
+  const suffix = (match[3] || '').toUpperCase();
+  const hasSuffix = suffix === 'AM' || suffix === 'PM';
+
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+  if (minute < 0 || minute > 59) return null;
+
+  if (hasSuffix) {
+    if (hour < 1 || hour > 12) return null;
+    if (suffix === 'PM' && hour < 12) hour += 12;
+    if (suffix === 'AM' && hour === 12) hour = 0;
+  } else if (hour < 0 || hour > 23) {
+    return null;
+  }
+
+  return hour * 60 + minute;
+};
+
+const normalizeRoutineTimeValue = (value) => {
+  const minutes = parseClockMinutes(value);
+  if (minutes === null) return '';
+  const nextDate = new Date();
+  nextDate.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
+  return formatTimeFromDate(nextDate);
+};
+
+const normalizeRoutineTimeRange = (source = {}) => {
+  const legacyTimes = Array.isArray(source?.scheduledTimes)
+    ? source.scheduledTimes
+    : Array.isArray(source?.scheduled_times)
+    ? source.scheduled_times
+    : [];
+  const startCandidate =
+    source?.startTime !== undefined
+      ? source.startTime
+      : source?.start_time !== undefined
+      ? source.start_time
+      : legacyTimes[0];
+  const endCandidate =
+    source?.endTime !== undefined
+      ? source.endTime
+      : source?.end_time !== undefined
+      ? source.end_time
+      : legacyTimes[1];
+
+  return {
+    startTime: normalizeRoutineTimeValue(startCandidate),
+    endTime: normalizeRoutineTimeValue(endCandidate),
+  };
+};
+
+const getRoutineDurationLabel = (startTime, endTime) => {
+  const startMinutes = parseClockMinutes(startTime);
+  const endMinutes = parseClockMinutes(endTime);
+  if (startMinutes === null || endMinutes === null) return '';
+
+  const diffMinutes = ((endMinutes - startMinutes) + 1440) % 1440;
+  if (!diffMinutes) return '24h';
+  const hours = Math.floor(diffMinutes / 60);
+  const minutes = diffMinutes % 60;
+  if (hours && minutes) return `${hours}h ${minutes}m`;
+  if (hours) return `${hours}h`;
+  return `${minutes}m`;
+};
+
+const formatRoutineScheduleSummary = (routine) => {
+  const { startTime, endTime } = normalizeRoutineTimeRange(routine);
+  if (!startTime && !endTime) return 'No range set';
+  if (!startTime) return `Ends ${endTime}`;
+  if (!endTime) return `Starts ${startTime}`;
+  const duration = getRoutineDurationLabel(startTime, endTime);
+  return duration
+    ? `${startTime} - ${endTime} (${duration})`
+    : `${startTime} - ${endTime}`;
+};
 
 const RoutineDetailScreen = () => {
   const insets = useSafeAreaInsets();
@@ -21,6 +115,8 @@ const RoutineDetailScreen = () => {
     removeTaskFromGroupRoutine,
     reorderRoutineTasks,
     reorderGroupRoutineTasks,
+    updateRoutine,
+    updateGroupRoutine,
     deleteRoutine,
     deleteGroupRoutine,
     themeName,
@@ -96,6 +192,25 @@ const RoutineDetailScreen = () => {
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [taskName, setTaskName] = useState('');
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showRoutineTimePicker, setShowRoutineTimePicker] = useState(false);
+  const [routineTimePickerTarget, setRoutineTimePickerTarget] = useState(null);
+  const [editRoutineName, setEditRoutineName] = useState('');
+  const [editRoutineStartTime, setEditRoutineStartTime] = useState('');
+  const [editRoutineEndTime, setEditRoutineEndTime] = useState('');
+
+  useEffect(() => {
+    if (!routine) {
+      setEditRoutineName('');
+      setEditRoutineStartTime('');
+      setEditRoutineEndTime('');
+      return;
+    }
+    const range = normalizeRoutineTimeRange(routine);
+    setEditRoutineName(routine.name || '');
+    setEditRoutineStartTime(range.startTime);
+    setEditRoutineEndTime(range.endTime);
+  }, [routine]);
 
   const handleAddTask = async () => {
     if (!taskName.trim() || !routine) return;
@@ -106,6 +221,70 @@ const RoutineDetailScreen = () => {
     }
     setTaskName('');
     setShowTaskModal(false);
+  };
+
+  const handleSelectRoutineTime = (value) => {
+    const normalized =
+      value instanceof Date ? formatTimeFromDate(value) : value;
+    if (routineTimePickerTarget === 'start') {
+      setEditRoutineStartTime(normalizeRoutineTimeValue(normalized));
+    }
+    if (routineTimePickerTarget === 'end') {
+      setEditRoutineEndTime(normalizeRoutineTimeValue(normalized));
+    }
+    setShowRoutineTimePicker(false);
+    setRoutineTimePickerTarget(null);
+  };
+
+  const openRoutineTimePicker = (target) => {
+    setRoutineTimePickerTarget(target);
+    setShowRoutineTimePicker(true);
+  };
+
+  const handleQuickRoutineTime = (value, target) => {
+    const normalized = normalizeRoutineTimeValue(value);
+    if (!normalized) return;
+    if (target === 'start') {
+      setEditRoutineStartTime(normalized);
+      return;
+    }
+    if (target === 'end') {
+      setEditRoutineEndTime(normalized);
+    }
+  };
+
+  const closeEditModal = () => {
+    setShowEditModal(false);
+    setShowRoutineTimePicker(false);
+    setRoutineTimePickerTarget(null);
+    const range = normalizeRoutineTimeRange(routine);
+    setEditRoutineName(routine?.name || '');
+    setEditRoutineStartTime(range.startTime);
+    setEditRoutineEndTime(range.endTime);
+  };
+
+  const handleSaveRoutine = async () => {
+    if (!routine || !editRoutineName.trim() || !editRoutineStartTime || !editRoutineEndTime) {
+      return;
+    }
+    const updates = {
+      name: editRoutineName.trim(),
+      startTime: editRoutineStartTime,
+      endTime: editRoutineEndTime,
+    };
+
+    try {
+      if (isGroup) {
+        await updateGroupRoutine(routine.id, updates);
+      } else {
+        await updateRoutine(routine.id, updates);
+      }
+      setShowRoutineTimePicker(false);
+      setRoutineTimePickerTarget(null);
+      setShowEditModal(false);
+    } catch (error) {
+      Alert.alert('Unable to update routine', error?.message || 'Please try again.');
+    }
   };
 
   const handleDeleteRoutine = () => {
@@ -161,6 +340,7 @@ const RoutineDetailScreen = () => {
         year: 'numeric',
       })
     : null;
+  const scheduleSummary = formatRoutineScheduleSummary(routine);
 
   if (!routine) {
     return (
@@ -188,12 +368,27 @@ const RoutineDetailScreen = () => {
             <Ionicons name="chevron-back" size={18} color={themeColors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Routine Details</Text>
-          <TouchableOpacity
-            style={[styles.navButton, { borderColor: detailTheme.itemBorder }]}
-            onPress={handleDeleteRoutine}
-          >
-            <Ionicons name="trash-outline" size={18} color={detailTheme.accent} />
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={[styles.navButton, { borderColor: detailTheme.itemBorder }]}
+              onPress={() => {
+                const range = normalizeRoutineTimeRange(routine);
+                setEditRoutineName(routine?.name || '');
+                setEditRoutineStartTime(range.startTime);
+                setEditRoutineEndTime(range.endTime);
+                setRoutineTimePickerTarget(null);
+                setShowEditModal(true);
+              }}
+            >
+              <Ionicons name="create-outline" size={18} color={detailTheme.accent} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.navButton, styles.headerActionButton, { borderColor: detailTheme.itemBorder }]}
+              onPress={handleDeleteRoutine}
+            >
+              <Ionicons name="trash-outline" size={18} color={detailTheme.accent} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <Card
@@ -213,6 +408,9 @@ const RoutineDetailScreen = () => {
               Group: {groupName}
             </Text>
           ) : null}
+          <Text style={[styles.infoMeta, { color: detailTheme.muted }]}>
+            Schedule: {scheduleSummary}
+          </Text>
           <View style={styles.infoStats}>
             <View style={styles.infoStat}>
               <Text style={[styles.infoStatLabel, { color: detailTheme.muted }]}>Tasks</Text>
@@ -305,6 +503,140 @@ const RoutineDetailScreen = () => {
       </PlatformScrollView>
 
       <Modal
+        visible={showEditModal}
+        onClose={closeEditModal}
+        title="Edit Routine"
+      >
+        <Input
+          label="Routine Name"
+          value={editRoutineName}
+          onChangeText={setEditRoutineName}
+          placeholder="e.g., Morning Routine"
+        />
+        <Text style={[styles.editLabel, { color: themeColors.text }]}>Time range</Text>
+        <Text style={[styles.editHint, { color: themeColors.textLight }]}>
+          Set when this routine starts and ends.
+        </Text>
+        <View style={styles.rangeRow}>
+          <TouchableOpacity
+            style={[styles.timeButton, { borderColor: themeColors.border }]}
+            onPress={() => openRoutineTimePicker('start')}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.timeButtonLabel, { color: themeColors.textLight }]}>Start</Text>
+            <Text style={[styles.timeButtonValue, !editRoutineStartTime && styles.timeButtonPlaceholder]}>
+              {editRoutineStartTime || 'Select time'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.timeButton, styles.timeButtonLast, { borderColor: themeColors.border }]}
+            onPress={() => openRoutineTimePicker('end')}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.timeButtonLabel, { color: themeColors.textLight }]}>End</Text>
+            <Text style={[styles.timeButtonValue, !editRoutineEndTime && styles.timeButtonPlaceholder]}>
+              {editRoutineEndTime || 'Select time'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        {editRoutineStartTime && editRoutineEndTime ? (
+          <Text style={[styles.rangePreview, { color: themeColors.textLight }]}>
+            {formatRoutineScheduleSummary({
+              startTime: editRoutineStartTime,
+              endTime: editRoutineEndTime,
+            })}
+          </Text>
+        ) : null}
+
+        <Text style={[styles.editLabel, { color: themeColors.text }]}>Quick start times</Text>
+        <View style={styles.timeChipWrap}>
+          {QUICK_ROUTINE_TIMES.map((time) => {
+            const normalizedQuickTime = normalizeRoutineTimeValue(time);
+            const selected = editRoutineStartTime === normalizedQuickTime;
+            return (
+              <TouchableOpacity
+                key={time}
+                style={[
+                  styles.timeChip,
+                  {
+                    borderColor: selected ? detailTheme.accent : themeColors.border,
+                    backgroundColor: selected ? detailTheme.actionBg : 'transparent',
+                  },
+                ]}
+                onPress={() => handleQuickRoutineTime(normalizedQuickTime, 'start')}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.timeChipText,
+                    { color: selected ? detailTheme.accent : themeColors.textLight },
+                  ]}
+                >
+                  {normalizedQuickTime}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        <Text style={[styles.editLabel, { color: themeColors.text }]}>Quick end times</Text>
+        <View style={styles.timeChipWrap}>
+          {QUICK_ROUTINE_TIMES.map((time) => {
+            const normalizedQuickTime = normalizeRoutineTimeValue(time);
+            const selected = editRoutineEndTime === normalizedQuickTime;
+            return (
+              <TouchableOpacity
+                key={`end-${time}`}
+                style={[
+                  styles.timeChip,
+                  {
+                    borderColor: selected ? detailTheme.accent : themeColors.border,
+                    backgroundColor: selected ? detailTheme.actionBg : 'transparent',
+                  },
+                ]}
+                onPress={() => handleQuickRoutineTime(normalizedQuickTime, 'end')}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.timeChipText,
+                    { color: selected ? detailTheme.accent : themeColors.textLight },
+                  ]}
+                >
+                  {normalizedQuickTime}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <View style={styles.modalButtons}>
+          <Button
+            title="Cancel"
+            variant="secondary"
+            onPress={closeEditModal}
+            style={styles.modalButton}
+          />
+          <Button
+            title="Save"
+            onPress={handleSaveRoutine}
+            disabled={!editRoutineName.trim() || !editRoutineStartTime || !editRoutineEndTime}
+            style={styles.modalButton}
+          />
+        </View>
+      </Modal>
+
+      <PlatformTimePicker
+        visible={showRoutineTimePicker}
+        value={routineTimePickerTarget === 'end' ? editRoutineEndTime : editRoutineStartTime}
+        onChange={handleSelectRoutineTime}
+        onClose={() => {
+          setShowRoutineTimePicker(false);
+          setRoutineTimePickerTarget(null);
+        }}
+        accentColor={detailTheme.accent}
+      />
+
+      <Modal
         visible={showTaskModal}
         onClose={() => {
           setShowTaskModal(false);
@@ -361,6 +693,13 @@ const createStyles = (themeColors) => StyleSheet.create({
   headerTitle: {
     ...typography.h3,
     color: themeColors.text,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerActionButton: {
+    marginLeft: spacing.sm,
   },
   navButton: {
     width: 36,
@@ -457,6 +796,63 @@ const createStyles = (themeColors) => StyleSheet.create({
     flexDirection: 'row',
     marginTop: spacing.xl,
     marginBottom: spacing.lg,
+  },
+  editLabel: {
+    ...typography.label,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  editHint: {
+    ...typography.bodySmall,
+    marginBottom: spacing.sm,
+  },
+  rangeRow: {
+    flexDirection: 'row',
+    marginBottom: spacing.sm,
+  },
+  timeButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: borderRadius.lg,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginRight: spacing.sm,
+  },
+  timeButtonLast: {
+    marginRight: 0,
+  },
+  timeButtonLabel: {
+    ...typography.caption,
+    marginBottom: 2,
+  },
+  timeButtonValue: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+    color: themeColors.text,
+  },
+  timeButtonPlaceholder: {
+    color: themeColors.placeholder,
+  },
+  rangePreview: {
+    ...typography.bodySmall,
+    marginBottom: spacing.md,
+  },
+  timeChipWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: spacing.md,
+  },
+  timeChip: {
+    borderWidth: 1,
+    borderRadius: borderRadius.full,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    marginRight: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  timeChipText: {
+    ...typography.bodySmall,
+    fontWeight: '600',
   },
   modalButton: {
     flex: 1,

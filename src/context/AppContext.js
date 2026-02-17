@@ -325,6 +325,97 @@ const parseDateTimeParts = (value) => {
   };
 };
 
+const parseClockMinutes = (value) => {
+  if (!value || typeof value !== 'string') return null;
+  const match = value
+    .trim()
+    .match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+  if (!match) return null;
+
+  let hour = Number(match[1]);
+  const minute = Number(match[2] ?? '0');
+  const suffix = (match[3] || '').toUpperCase();
+  const hasSuffix = suffix === 'AM' || suffix === 'PM';
+
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+  if (minute < 0 || minute > 59) return null;
+
+  if (hasSuffix) {
+    if (hour < 1 || hour > 12) return null;
+    if (suffix === 'PM' && hour < 12) hour += 12;
+    if (suffix === 'AM' && hour === 12) hour = 0;
+  } else if (hour < 0 || hour > 23) {
+    return null;
+  }
+
+  return hour * 60 + minute;
+};
+
+const formatClockMinutes = (totalMinutes) => {
+  if (!Number.isInteger(totalMinutes)) return '';
+  const normalizedMinutes = ((totalMinutes % 1440) + 1440) % 1440;
+  const hour = Math.floor(normalizedMinutes / 60);
+  const minute = normalizedMinutes % 60;
+  const nextDate = new Date();
+  nextDate.setHours(hour, minute, 0, 0);
+  return formatTimeFromDate(nextDate);
+};
+
+const normalizeRoutineTimeValue = (value) => {
+  const parsedMinutes = parseClockMinutes(value);
+  if (parsedMinutes === null) return '';
+  return formatClockMinutes(parsedMinutes);
+};
+
+const normalizeRoutineScheduledTimes = (value) => {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const normalized = [];
+
+  value.forEach((item) => {
+    const parsedMinutes = parseClockMinutes(item);
+    if (parsedMinutes === null) return;
+    const formatted = formatClockMinutes(parsedMinutes);
+    if (!formatted || seen.has(formatted)) return;
+    seen.add(formatted);
+    normalized.push(formatted);
+  });
+
+  return normalized.sort((a, b) => {
+    const aMinutes = parseClockMinutes(a);
+    const bMinutes = parseClockMinutes(b);
+    if (aMinutes === null && bMinutes === null) return 0;
+    if (aMinutes === null) return 1;
+    if (bMinutes === null) return -1;
+    return aMinutes - bMinutes;
+  });
+};
+
+const normalizeRoutineTimeRange = (source = {}) => {
+  const fallbackTimes = normalizeRoutineScheduledTimes(
+    source?.scheduledTimes !== undefined
+      ? source.scheduledTimes
+      : source?.scheduled_times
+  );
+  const startCandidate =
+    source?.startTime !== undefined
+      ? source.startTime
+      : source?.start_time !== undefined
+      ? source.start_time
+      : fallbackTimes[0];
+  const endCandidate =
+    source?.endTime !== undefined
+      ? source.endTime
+      : source?.end_time !== undefined
+      ? source.end_time
+      : fallbackTimes[1];
+
+  return {
+    startTime: normalizeRoutineTimeValue(startCandidate),
+    endTime: normalizeRoutineTimeValue(endCandidate),
+  };
+};
+
 const mapWeightManagerLogRow = (row, unitFallback) => ({
   id: row?.id || null,
   userId: row?.user_id || null,
@@ -541,12 +632,14 @@ const profileCacheRef = useRef({});
     reminder: new Map(),
     chore: new Map(),
     habit: new Map(),
+    routine: new Map(),
   });
   const notificationColumnSupportRef = useRef({
     tasks: true,
     reminders: true,
     chores: true,
     habits: true,
+    routines: true,
   });
   const pushRegistrationRef = useRef({
     userId: null,
@@ -688,7 +781,17 @@ const profileCacheRef = useRef({});
 
     if (storedRoutines) {
       try {
-        setRoutines(JSON.parse(storedRoutines));
+        const parsedRoutines = JSON.parse(storedRoutines);
+        if (Array.isArray(parsedRoutines)) {
+          setRoutines(
+            parsedRoutines.map((routine) => ({
+              ...routine,
+              ...normalizeRoutineTimeRange(routine),
+            }))
+          );
+        } else {
+          setRoutines([]);
+        }
       } catch (err) {
         console.log('Error parsing stored routines', err);
       }
@@ -2673,11 +2776,41 @@ const mapExternalProfile = (row) => ({
         return [];
       }
 
-      const { data, error } = await supabase
-        .from('group_routines')
-        .select('id, group_id, name, created_at, created_by')
-        .in('group_id', groupIds)
-        .order('created_at', { ascending: true });
+      const requiredColumns = ['id', 'group_id', 'name', 'created_at', 'created_by'];
+      const optionalColumns = ['start_time', 'end_time', 'scheduled_times'];
+      const fetchGroupRoutineRows = async (columnList = []) =>
+        supabase
+          .from('group_routines')
+          .select(columnList.join(', '))
+          .in('group_id', groupIds)
+          .order('created_at', { ascending: true });
+
+      let data = null;
+      let error = null;
+      let remainingOptionalColumns = [...optionalColumns];
+
+      for (
+        let attemptIndex = 0;
+        attemptIndex <= optionalColumns.length + 1;
+        attemptIndex += 1
+      ) {
+        const selectColumns = [...requiredColumns, ...remainingOptionalColumns];
+        ({ data, error } = await fetchGroupRoutineRows(selectColumns));
+
+        if (!error) break;
+        if (!isMissingColumnError(error)) break;
+
+        const missingColumn = extractMissingColumnName(error);
+        if (missingColumn && remainingOptionalColumns.includes(missingColumn)) {
+          remainingOptionalColumns = remainingOptionalColumns.filter(
+            (columnName) => columnName !== missingColumn
+          );
+          continue;
+        }
+
+        if (!remainingOptionalColumns.length) break;
+        remainingOptionalColumns = remainingOptionalColumns.slice(0, -1);
+      }
 
       if (error) {
         if (!isMissingRelationError(error, 'group_routines')) {
@@ -2724,6 +2857,7 @@ const mapExternalProfile = (row) => ({
         name: row.name,
         createdAt: row.created_at,
         createdBy: row.created_by,
+        ...normalizeRoutineTimeRange(row),
         tasks: tasksByRoutine[row.id] || [],
       }));
 
@@ -2734,21 +2868,52 @@ const mapExternalProfile = (row) => ({
   );
 
   const addGroupRoutine = useCallback(
-    async ({ groupId, name }) => {
+    async ({ groupId, name, startTime, endTime, scheduledTimes }) => {
       if (!authUser?.id) throw new Error('You must be logged in to create a group routine.');
       if (!groupId) throw new Error('Select a group for this routine.');
       const trimmedName = (name || '').trim();
       if (!trimmedName) throw new Error('Routine name is required.');
+      const normalizedRange = normalizeRoutineTimeRange({
+        startTime,
+        endTime,
+        scheduledTimes,
+      });
+      if (!normalizedRange.startTime || !normalizedRange.endTime) {
+        throw new Error('Routine start and end times are required.');
+      }
 
-      const { data, error } = await supabase
+      const insertData = {
+        group_id: groupId,
+        name: trimmedName,
+        created_by: authUser.id,
+      };
+      if (normalizedRange.startTime) {
+        insertData.start_time = normalizedRange.startTime;
+      }
+      if (normalizedRange.endTime) {
+        insertData.end_time = normalizedRange.endTime;
+      }
+
+      let { data, error } = await supabase
         .from('group_routines')
-        .insert({
-          group_id: groupId,
-          name: trimmedName,
-          created_by: authUser.id,
-        })
+        .insert(insertData)
         .select()
         .single();
+
+      if (
+        error &&
+        (insertData.start_time || insertData.end_time) &&
+        (isMissingColumnError(error, 'start_time') || isMissingColumnError(error, 'end_time'))
+      ) {
+        const fallbackData = { ...insertData };
+        delete fallbackData.start_time;
+        delete fallbackData.end_time;
+        ({ data, error } = await supabase
+          .from('group_routines')
+          .insert(fallbackData)
+          .select()
+          .single());
+      }
 
       if (error) {
         console.log('Error creating group routine:', error);
@@ -2759,6 +2924,78 @@ const mapExternalProfile = (row) => ({
       return data;
     },
     [authUser?.id, fetchGroupRoutines]
+  );
+
+  const updateGroupRoutine = useCallback(
+    async (routineId, updates = {}) => {
+      if (!authUser?.id || !routineId) return null;
+      const current = groupRoutines.find((item) => item.id === routineId);
+      if (!current) return null;
+
+      const nextName =
+        updates.name !== undefined ? String(updates.name || '').trim() : current.name;
+      if (!nextName) throw new Error('Routine name is required.');
+
+      const hasTimeRangeUpdate =
+        updates.startTime !== undefined ||
+        updates.endTime !== undefined ||
+        updates.start_time !== undefined ||
+        updates.end_time !== undefined ||
+        updates.scheduledTimes !== undefined ||
+        updates.scheduled_times !== undefined;
+      const nextTimeRange = hasTimeRangeUpdate
+        ? normalizeRoutineTimeRange({
+            ...current,
+            ...updates,
+          })
+        : normalizeRoutineTimeRange(current);
+      if (hasTimeRangeUpdate && (!nextTimeRange.startTime || !nextTimeRange.endTime)) {
+        throw new Error('Routine start and end times are required.');
+      }
+
+      const updateData = { name: nextName };
+      if (hasTimeRangeUpdate) {
+        updateData.start_time = nextTimeRange.startTime || null;
+        updateData.end_time = nextTimeRange.endTime || null;
+      }
+
+      let { error } = await supabase
+        .from('group_routines')
+        .update(updateData)
+        .eq('id', routineId);
+
+      if (
+        error &&
+        (hasTimeRangeUpdate || updateData.start_time || updateData.end_time) &&
+        (isMissingColumnError(error, 'start_time') || isMissingColumnError(error, 'end_time'))
+      ) {
+        const fallbackData = { ...updateData };
+        delete fallbackData.start_time;
+        delete fallbackData.end_time;
+        ({ error } = await supabase
+          .from('group_routines')
+          .update(fallbackData)
+          .eq('id', routineId));
+      }
+
+      if (error && !isMissingRelationError(error, 'group_routines')) {
+        console.log('Error updating group routine:', error);
+        throw error;
+      }
+
+      const nextRoutine = {
+        ...current,
+        name: nextName,
+        ...nextTimeRange,
+      };
+
+      setGroupRoutines((prev) =>
+        prev.map((item) => (item.id === routineId ? nextRoutine : item))
+      );
+
+      return nextRoutine;
+    },
+    [authUser?.id, groupRoutines]
   );
 
   const deleteGroupRoutine = useCallback(
@@ -5551,11 +5788,41 @@ const resetWaterLogForDate = async (dateISO) => {
 const ROUTINE_TASKS_TABLE = 'routine_tasks';
 
 const fetchRoutinesFromSupabase = async (userId) => {
-  const { data: routineRows, error } = await supabase
-    .from('routines')
-    .select('id, name, created_at')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: true });
+  const requiredColumns = ['id', 'name', 'created_at'];
+  const optionalColumns = ['start_time', 'end_time', 'scheduled_times', 'notification_ids'];
+  const fetchRoutineRows = async (columnList = []) =>
+    supabase
+      .from('routines')
+      .select(columnList.join(', '))
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true });
+
+  let routineRows = null;
+  let error = null;
+  let remainingOptionalColumns = [...optionalColumns];
+
+  for (
+    let attemptIndex = 0;
+    attemptIndex <= optionalColumns.length + 1;
+    attemptIndex += 1
+  ) {
+    const selectColumns = [...requiredColumns, ...remainingOptionalColumns];
+    ({ data: routineRows, error } = await fetchRoutineRows(selectColumns));
+
+    if (!error) break;
+    if (!isMissingColumnError(error)) break;
+
+    const missingColumn = extractMissingColumnName(error);
+    if (missingColumn && remainingOptionalColumns.includes(missingColumn)) {
+      remainingOptionalColumns = remainingOptionalColumns.filter(
+        (columnName) => columnName !== missingColumn
+      );
+      continue;
+    }
+
+    if (!remainingOptionalColumns.length) break;
+    remainingOptionalColumns = remainingOptionalColumns.slice(0, -1);
+  }
 
   if (error) {
     console.log('Error fetching routines:', error);
@@ -5566,6 +5833,7 @@ const fetchRoutinesFromSupabase = async (userId) => {
     id: r.id,
     name: r.name,
     createdAt: r.created_at,
+    ...normalizeRoutineTimeRange(r),
     tasks: [],
   }));
 
@@ -5603,6 +5871,7 @@ const fetchRoutinesFromSupabase = async (userId) => {
     tasks: tasksByRoutine[r.id] || [],
   }));
 
+  seedNotificationCacheFromRows('routine', routineRows || []);
   setRoutines(combined);
   await persistRoutinesLocally(combined);
 };
@@ -5614,15 +5883,48 @@ const fetchRoutinesFromSupabase = async (userId) => {
   if (!authUser?.id) {
     throw new Error('You must be logged in to create a routine.');
   }
+  const normalizedRange = normalizeRoutineTimeRange({
+    startTime: routine?.startTime,
+    endTime: routine?.endTime,
+    start_time: routine?.start_time,
+    end_time: routine?.end_time,
+    scheduledTimes: routine?.scheduledTimes,
+    scheduled_times: routine?.scheduled_times,
+  });
+  if (!normalizedRange.startTime || !normalizedRange.endTime) {
+    throw new Error('Routine start and end times are required.');
+  }
+  const insertData = {
+    user_id: authUser.id,
+    name: routine.name,
+  };
+  if (normalizedRange.startTime) {
+    insertData.start_time = normalizedRange.startTime;
+  }
+  if (normalizedRange.endTime) {
+    insertData.end_time = normalizedRange.endTime;
+  }
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('routines')
-    .insert({
-      user_id: authUser.id,
-      name: routine.name,
-    })
+    .insert(insertData)
     .select()
     .single();
+
+  if (
+    error &&
+    (insertData.start_time || insertData.end_time) &&
+    (isMissingColumnError(error, 'start_time') || isMissingColumnError(error, 'end_time'))
+  ) {
+    const fallbackInsertData = { ...insertData };
+    delete fallbackInsertData.start_time;
+    delete fallbackInsertData.end_time;
+    ({ data, error } = await supabase
+      .from('routines')
+      .insert(fallbackInsertData)
+      .select()
+      .single());
+  }
 
   if (error) {
     console.log('Error adding routine:', error);
@@ -5633,6 +5935,7 @@ const fetchRoutinesFromSupabase = async (userId) => {
     id: data.id,
     name: data.name,
     createdAt: data.created_at,
+    ...normalizedRange,
     tasks: [],
     };
 
@@ -5650,15 +5953,58 @@ const fetchRoutinesFromSupabase = async (userId) => {
     const routine = routines.find((r) => r.id === routineId);
     if (!routine) return;
 
-    const updated = { ...routine, ...updates };
+    const hasTimeRangeUpdate =
+      updates?.startTime !== undefined ||
+      updates?.endTime !== undefined ||
+      updates?.start_time !== undefined ||
+      updates?.end_time !== undefined ||
+      updates?.scheduledTimes !== undefined ||
+      updates?.scheduled_times !== undefined;
+    const normalizedRange = hasTimeRangeUpdate
+      ? normalizeRoutineTimeRange({ ...routine, ...updates })
+      : normalizeRoutineTimeRange(routine);
+    if (hasTimeRangeUpdate && (!normalizedRange.startTime || !normalizedRange.endTime)) {
+      throw new Error('Routine start and end times are required.');
+    }
+    const updated = {
+      ...routine,
+      ...updates,
+      ...normalizedRange,
+      name: updates?.name !== undefined ? String(updates.name || '').trim() : routine.name,
+    };
 
-    const { error } = await supabase
+    if (!updated.name) {
+      throw new Error('Routine name is required.');
+    }
+
+    const updateData = {
+      name: updated.name,
+    };
+    if (hasTimeRangeUpdate) {
+      updateData.start_time = normalizedRange.startTime || null;
+      updateData.end_time = normalizedRange.endTime || null;
+    }
+
+    let { error } = await supabase
       .from('routines')
-      .update({
-        name: updated.name,
-      })
+      .update(updateData)
       .eq('id', routineId)
       .eq('user_id', authUser.id);
+
+    if (
+      error &&
+      hasTimeRangeUpdate &&
+      (isMissingColumnError(error, 'start_time') || isMissingColumnError(error, 'end_time'))
+    ) {
+      const fallbackUpdateData = { ...updateData };
+      delete fallbackUpdateData.start_time;
+      delete fallbackUpdateData.end_time;
+      ({ error } = await supabase
+        .from('routines')
+        .update(fallbackUpdateData)
+        .eq('id', routineId)
+        .eq('user_id', authUser.id));
+    }
 
     if (error) {
       console.log('Error updating routine:', error);
@@ -5673,6 +6019,8 @@ const fetchRoutinesFromSupabase = async (userId) => {
 
 const deleteRoutine = async (routineId) => {
   if (!authUser?.id) return;
+
+  await cancelItemNotifications('routines', 'routine', routineId);
 
   // Remove tasks first to keep data clean
   await supabase.from(ROUTINE_TASKS_TABLE).delete().eq('routine_id', routineId).eq('user_id', authUser.id);
@@ -7518,6 +7866,12 @@ const mapProfileRow = (row) => {
         items: habits,
         idsById: new Map(),
       }),
+      syncNotificationIdsForItems({
+        table: 'routines',
+        cacheType: 'routine',
+        items: routines,
+        idsById: new Map(),
+      }),
     ]);
 
   const registerPushTokenIfNeeded = useCallback(
@@ -7844,6 +8198,70 @@ const mapProfileRow = (row) => {
     return candidates;
   };
 
+  const buildRoutineNotificationCandidates = () => {
+    const candidates = [];
+    const parseRoutineStart = (routine) => {
+      const normalized = normalizeRoutineTimeRange(routine);
+      const startMinutes = parseClockMinutes(normalized.startTime);
+      if (startMinutes === null) return null;
+      const hour = Math.floor(startMinutes / 60);
+      const minute = startMinutes % 60;
+      return { ...normalized, hour, minute };
+    };
+
+    for (const routine of routines || []) {
+      const parsed = parseRoutineStart(routine);
+      if (!parsed) continue;
+      const nextTime = getNextDailyOccurrence(parsed.hour, parsed.minute);
+      const routineTitle = routine.name || 'Routine';
+      const body = parsed.endTime
+        ? `${routineTitle} starts at ${parsed.startTime} and ends at ${parsed.endTime}.`
+        : `${routineTitle} starts at ${parsed.startTime}.`;
+      candidates.push({
+        itemType: 'routine',
+        itemId: routine.id,
+        kind: 'routine',
+        priority: 3,
+        sortTimeMs: nextTime.getTime(),
+        title: 'Routine reminder',
+        body,
+        data: { type: 'routine', id: routine.id },
+        trigger: {
+          hour: parsed.hour,
+          minute: parsed.minute,
+          repeats: true,
+        },
+      });
+    }
+
+    for (const groupRoutine of groupRoutines || []) {
+      const parsed = parseRoutineStart(groupRoutine);
+      if (!parsed) continue;
+      const nextTime = getNextDailyOccurrence(parsed.hour, parsed.minute);
+      const routineTitle = groupRoutine.name || 'Group routine';
+      const body = parsed.endTime
+        ? `${routineTitle} starts at ${parsed.startTime} and ends at ${parsed.endTime}.`
+        : `${routineTitle} starts at ${parsed.startTime}.`;
+      candidates.push({
+        itemType: 'group_routine',
+        itemId: groupRoutine.id,
+        kind: 'group_routine',
+        priority: 3,
+        sortTimeMs: nextTime.getTime(),
+        title: 'Group routine reminder',
+        body,
+        data: { type: 'group_routine', id: groupRoutine.id },
+        trigger: {
+          hour: parsed.hour,
+          minute: parsed.minute,
+          repeats: true,
+        },
+      });
+    }
+
+    return candidates;
+  };
+
   const buildHealthNotificationCandidate = () => {
     const now = new Date();
     const hasMood = Number.isFinite(todayHealth?.mood);
@@ -7923,6 +8341,7 @@ const mapProfileRow = (row) => {
         candidates.push(...buildTaskNotificationCandidates());
         candidates.push(...buildChoreNotificationCandidates());
         candidates.push(...buildReminderNotificationCandidates());
+        candidates.push(...buildRoutineNotificationCandidates());
       }
 
       if (userSettings.habitRemindersEnabled) {
@@ -7955,6 +8374,7 @@ const mapProfileRow = (row) => {
         chore: new Map(),
         reminder: new Map(),
         habit: new Map(),
+        routine: new Map(),
       };
 
       for (const candidate of selected) {
@@ -7997,6 +8417,12 @@ const mapProfileRow = (row) => {
           items: habits,
           idsById: idsByType.habit,
         }),
+        syncNotificationIdsForItems({
+          table: 'routines',
+          cacheType: 'routine',
+          items: routines,
+          idsById: idsByType.routine,
+        }),
       ]);
     } finally {
       reschedulingNotificationsRef.current = false;
@@ -8007,6 +8433,8 @@ const mapProfileRow = (row) => {
     chores,
     todayHealth?.mood,
     reminders,
+    routines,
+    groupRoutines,
     tasks,
     habits,
     isPremiumUser,
@@ -8061,6 +8489,8 @@ const mapProfileRow = (row) => {
     rescheduleAllNotifications,
     tasks,
     habits,
+    routines,
+    groupRoutines,
     chores,
     reminders,
     todayHealth?.mood,
@@ -8323,6 +8753,7 @@ const mapProfileRow = (row) => {
     deleteGroupHabit,
     toggleGroupHabitCompletion,
     addGroupRoutine,
+    updateGroupRoutine,
     deleteGroupRoutine,
     addTaskToGroupRoutine,
     removeTaskFromGroupRoutine,

@@ -11,6 +11,7 @@ import {
   Switch,
   Platform,
   useWindowDimensions,
+  Modal as RNModal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -1593,7 +1594,7 @@ const HabitsScreen = () => {
           </Card>
         </View>
 
-        <PlatformScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+        <View style={styles.filterRow}>
           {categoryOptions.map((category) => {
             const selected = selectedCategory === category;
             return (
@@ -1612,9 +1613,9 @@ const HabitsScreen = () => {
               </TouchableOpacity>
             );
           })}
-        </PlatformScrollView>
+        </View>
 
-        <PlatformScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+        <View style={styles.filterRow}>
           {TIME_RANGE_OPTIONS.map((option) => {
             const selected = selectedTimeRange === option.value;
             return (
@@ -1635,7 +1636,7 @@ const HabitsScreen = () => {
               </TouchableOpacity>
             );
           })}
-        </PlatformScrollView>
+        </View>
 
         {!isSelectedDateToday ? (
           <View style={[styles.notice, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]}>
@@ -1710,7 +1711,14 @@ const HabitsScreen = () => {
       </PlatformScrollView>
 
       {renderAddTypePicker ? (
-        <>
+        <RNModal
+          visible
+          transparent
+          animationType="none"
+          onRequestClose={closeAddTypePicker}
+          statusBarTranslucent
+          navigationBarTranslucent
+        >
           <Animated.View style={[styles.addTypeDimOverlay, { opacity: addTypeBackdropOpacity }]}>
             <TouchableOpacity
               style={styles.addTypeDimOverlayTouch}
@@ -1778,7 +1786,7 @@ const HabitsScreen = () => {
               <Ionicons name="close" size={22} color="#FFFFFF" />
             </TouchableOpacity>
           </Animated.View>
-        </>
+        </RNModal>
       ) : null}
 
       <Modal
@@ -2529,8 +2537,8 @@ const createStyles = (palette) =>
     statTotal: { backgroundColor: '#E8F0FF', borderColor: '#CCDAFF' },
     statLabel: { ...typography.caption, marginTop: spacing.xs },
     statValue: { ...typography.h2, marginTop: 2, fontWeight: '700', color: '#1F2937' },
-    filterRow: { marginBottom: spacing.sm },
-    filterChip: { borderRadius: borderRadius.full, borderWidth: 1, paddingVertical: 9, paddingHorizontal: spacing.md, marginRight: spacing.sm },
+    filterRow: { marginBottom: spacing.sm, flexDirection: 'row', flexWrap: 'wrap' },
+    filterChip: { borderRadius: borderRadius.full, borderWidth: 1, paddingVertical: 9, paddingHorizontal: spacing.md, marginRight: spacing.sm, marginBottom: spacing.xs },
     filterChipText: { ...typography.bodySmall, fontWeight: '600' },
     notice: { borderRadius: borderRadius.md, borderWidth: 1, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
     noticeText: { ...typography.bodySmall, marginLeft: spacing.sm, flex: 1 },
