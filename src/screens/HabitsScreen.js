@@ -9,21 +9,22 @@ import {
   PanResponder,
   TextInput,
   Switch,
-  Modal as RNModal,
+  Platform,
   useWindowDimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRoute } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
 import {
   Card,
   Modal,
   ChipGroup,
   PlatformScrollView,
-  PlatformTimePicker,
   PlatformDatePicker,
 } from '../components';
+import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { colors, borderRadius, spacing, typography, shadows, habitCategories } from '../utils/theme';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -48,6 +49,32 @@ const HABIT_COLOR_OPTIONS = [
   '#E11D48',
   '#8B5CF6',
 ];
+const HABIT_EMOJI_OPTIONS = [
+  '\u{1F600}',
+  '\u{1F60C}',
+  '\u{1F4AA}',
+  '\u{1F3C3}',
+  '\u{1F9D8}',
+  '\u{1F4DA}',
+  '\u{1F4BC}',
+  '\u{1F3AF}',
+  '\u{1F9E0}',
+  '\u{1F4DD}',
+  '\u{1F4A7}',
+  '\u{1F34E}',
+  '\u{1F957}',
+  '\u2600\uFE0F',
+  '\u{1F319}',
+  '\u{1F6CC}',
+  '\u{1F3B5}',
+  '\u{1F9F9}',
+  '\u{1F48A}',
+  '\u2764\uFE0F',
+  '\u{1F525}',
+  '\u2728',
+  '\u2705',
+  '\u{1F4C8}',
+];
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 const toISODate = (date) => (date instanceof Date ? date : new Date(date || Date.now())).toISOString().slice(0, 10);
@@ -61,6 +88,25 @@ const isSameDay = (a, b) => toDateKey(a) === toDateKey(b);
 const parseNumber = (value, fallback = 0) => {
   const next = Number(value);
   return Number.isFinite(next) ? next : fallback;
+};
+const parseTimeStringToDate = (value) => {
+  const result = new Date();
+  if (!value || typeof value !== 'string') return result;
+
+  const [timePart, suffixRaw] = value.trim().split(' ');
+  if (!timePart) return result;
+
+  const [hourRaw, minuteRaw] = timePart.split(':');
+  let hour = Number(hourRaw);
+  const minute = Number(minuteRaw) || 0;
+  if (Number.isNaN(hour)) return result;
+
+  const suffix = (suffixRaw || '').toUpperCase().replace(/[^APM]/g, '');
+  if (suffix === 'PM' && hour < 12) hour += 12;
+  if (suffix === 'AM' && hour === 12) hour = 0;
+
+  result.setHours(clamp(hour, 0, 23), clamp(minute, 0, 59), 0, 0);
+  return result;
 };
 const withAlpha = (hexColor, alpha = 0.15) => {
   if (!hexColor || typeof hexColor !== 'string') return `rgba(155,89,182,${alpha})`;
@@ -100,6 +146,88 @@ const getReadableTextColor = (hexColor) => {
   const luminance = 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
   return luminance < 0.43 ? '#F8FAFC' : '#111827';
 };
+const parseColorToRgba = (value) => {
+  if (!value || typeof value !== 'string') return null;
+  const source = value.trim();
+  if (!source) return null;
+
+  const hex = source.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hex) {
+    const clean = hex[1];
+    const full = clean.length === 3 ? clean.split('').map((ch) => `${ch}${ch}`).join('') : clean;
+    return {
+      r: parseInt(full.slice(0, 2), 16),
+      g: parseInt(full.slice(2, 4), 16),
+      b: parseInt(full.slice(4, 6), 16),
+      a: 1,
+    };
+  }
+
+  const rgb = source.match(/^rgba?\(([^)]+)\)$/i);
+  if (rgb) {
+    const parts = rgb[1]
+      .split(',')
+      .map((part) => part.trim())
+      .map((part) => Number(part));
+    if (parts.length < 3 || parts.slice(0, 3).some((part) => Number.isNaN(part))) return null;
+    return {
+      r: clamp(Math.round(parts[0]), 0, 255),
+      g: clamp(Math.round(parts[1]), 0, 255),
+      b: clamp(Math.round(parts[2]), 0, 255),
+      a: parts.length >= 4 && Number.isFinite(parts[3]) ? clamp(parts[3], 0, 1) : 1,
+    };
+  }
+
+  return null;
+};
+const toSolidColor = (value, backdrop = '#FFFFFF') => {
+  const foreground = parseColorToRgba(value);
+  if (!foreground) return null;
+  const alpha = Number.isFinite(foreground.a) ? clamp(foreground.a, 0, 1) : 1;
+  if (alpha >= 0.999) {
+    return { r: foreground.r, g: foreground.g, b: foreground.b };
+  }
+
+  const backgroundSolid = toSolidColor(backdrop, '#FFFFFF') || { r: 255, g: 255, b: 255 };
+  return {
+    r: Math.round(foreground.r * alpha + backgroundSolid.r * (1 - alpha)),
+    g: Math.round(foreground.g * alpha + backgroundSolid.g * (1 - alpha)),
+    b: Math.round(foreground.b * alpha + backgroundSolid.b * (1 - alpha)),
+  };
+};
+const toRelativeLuminance = ({ r, g, b }) => {
+  const toLinear = (value) => {
+    const channel = clamp(value, 0, 255) / 255;
+    return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+};
+const getContrastRatio = (foreground, background) => {
+  const l1 = toRelativeLuminance(foreground);
+  const l2 = toRelativeLuminance(background);
+  const light = Math.max(l1, l2);
+  const dark = Math.min(l1, l2);
+  return (light + 0.05) / (dark + 0.05);
+};
+const resolveContrastColor = ({
+  preferredColor,
+  backgroundColor,
+  fallbackColor,
+  backgroundBaseColor = '#FFFFFF',
+  minContrast = 2.5,
+}) => {
+  const preferred = toSolidColor(preferredColor, '#FFFFFF');
+  const background = toSolidColor(backgroundColor, backgroundBaseColor) || toSolidColor(backgroundBaseColor, '#FFFFFF');
+  const fallback = toSolidColor(fallbackColor, '#FFFFFF');
+  if (!preferred || !background) return preferredColor;
+
+  const preferredRatio = getContrastRatio(preferred, background);
+  if (preferredRatio >= minContrast) return preferredColor;
+
+  if (!fallback) return preferredColor;
+  const fallbackRatio = getContrastRatio(fallback, background);
+  return fallbackRatio > preferredRatio ? fallbackColor : preferredColor;
+};
 
 const withDefaults = (habit) => ({
   ...habit,
@@ -119,6 +247,7 @@ const withDefaults = (habit) => ({
   startDate: habit?.startDate || toISODate(new Date()),
   endDate: habit?.endDate || null,
   color: habit?.color || habit?.habitColor || colors.habits,
+  emoji: typeof habit?.emoji === 'string' ? habit.emoji : '',
 });
 
 const getGoalValue = (habit) => Math.max(1, parseNumber(habit?.goalValue, 1));
@@ -227,9 +356,8 @@ const SwipeHabitCard = ({
     }
     const clamped = clamp(next, 0, 1);
     const previous = dragFillRatioRef.current;
-    const eased = instant ? clamped : previous + (clamped - previous) * 0.42;
-    if (!instant && Math.abs(eased - previous) < 0.0015) return;
-    dragFillRatioRef.current = eased;
+    if (!instant && Math.abs(clamped - previous) < 0.0015) return;
+    dragFillRatioRef.current = clamped;
 
     if (instant) {
       flushDragFillToState();
@@ -425,6 +553,12 @@ const SwipeHabitCard = ({
   const habitTextColor = getReadableTextColor(habitColor);
   const habitSubTextColor = withAlpha(habitTextColor, 0.8);
   const habitHintColor = withAlpha(habitTextColor, 0.72);
+  const streakIconColor = resolveContrastColor({
+    preferredColor: '#F97316',
+    backgroundColor: tintedSurface,
+    fallbackColor: habitTextColor,
+    backgroundBaseColor: tintedTrack,
+  });
 
   return (
     <View style={styles.swipeRow}>
@@ -463,7 +597,7 @@ const SwipeHabitCard = ({
             <View style={styles.habitRow}>
               <View style={[styles.habitAvatar, { backgroundColor: withAlpha(habitColor, 0.2) }]}>
                 <Text style={[styles.habitAvatarText, { color: habitTextColor }]}>
-                  {habit.title?.slice(0, 1)?.toUpperCase() || 'H'}
+                  {habit.emoji || habit.title?.slice(0, 1)?.toUpperCase() || 'H'}
                 </Text>
               </View>
               <View style={styles.habitInfo}>
@@ -472,8 +606,14 @@ const SwipeHabitCard = ({
                   {Math.round(progress)} / {getGoalValue(habit)} {habit.goalUnit || 'times'}
                 </Text>
               </View>
-              <View style={[styles.progressBadge, { borderColor: habitColor }]}>
-                <Text style={[styles.progressBadgeText, { color: habitColor }]}>
+              <View style={styles.progressMeta}>
+                <View style={styles.progressStreakRow}>
+                  <Ionicons name="flame" size={14} color={streakIconColor} />
+                  <Text style={[styles.progressMetaStreak, { color: habitTextColor }]}>
+                    {habit.streak || 0} day streak
+                  </Text>
+                </View>
+                <Text style={[styles.progressMetaPercent, { color: habitTextColor }]}>
                   {Math.round(ratio * 100)}%
                 </Text>
               </View>
@@ -504,10 +644,14 @@ const SwipeHabitCard = ({
 
 const HabitsScreen = () => {
   const insets = useSafeAreaInsets();
+  const route = useRoute();
+  const { width: windowWidth } = useWindowDimensions();
   const {
     habits,
     addHabit,
     addGroupHabit,
+    updateGroupHabit,
+    deleteGroupHabit,
     updateHabit,
     deleteHabit,
     toggleHabitCompletion,
@@ -515,8 +659,11 @@ const HabitsScreen = () => {
     getBestStreak,
     isHabitCompletedToday,
     groups,
+    friends,
     groupHabits,
     groupHabitCompletions,
+    sendGroupInvites,
+    shareHabitWithFriends,
     authUser,
     themeName,
     themeColors,
@@ -555,24 +702,42 @@ const HabitsScreen = () => {
   const [isDateStripInteracting, setIsDateStripInteracting] = useState(false);
 
   const [activeHabitId, setActiveHabitId] = useState(null);
+  const [activeGroupHabitId, setActiveGroupHabitId] = useState(null);
+  const [activeGroupHabitGroupId, setActiveGroupHabitGroupId] = useState(null);
   const [showManualModal, setShowManualModal] = useState(false);
   const [manualAmount, setManualAmount] = useState('');
   const [manualAutoComplete, setManualAutoComplete] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showFormModal, setShowFormModal] = useState(false);
   const [isEditingHabit, setIsEditingHabit] = useState(false);
+  const [showAddTypePicker, setShowAddTypePicker] = useState(false);
+  const [renderAddTypePicker, setRenderAddTypePicker] = useState(false);
+  const [addTypePickerAnchor, setAddTypePickerAnchor] = useState(null);
+  const [formHideSharingSection, setFormHideSharingSection] = useState(false);
+  const [formLockedGroupId, setFormLockedGroupId] = useState(null);
+  const [formOnlyGroupSelection, setFormOnlyGroupSelection] = useState(false);
+  const addTypeButtonRef = useRef(null);
+  const addTypeMenuAnim = useRef(new Animated.Value(0)).current;
+  const handledCreateRequestKeyRef = useRef(null);
+  const handledGroupDetailRequestKeyRef = useRef(null);
 
   const [showGoalPeriodSheet, setShowGoalPeriodSheet] = useState(false);
   const [showTaskDaysSheet, setShowTaskDaysSheet] = useState(false);
+  const [showEmojiSheet, setShowEmojiSheet] = useState(false);
+  const [showGroupShareSheet, setShowGroupShareSheet] = useState(false);
+  const [showFriendInviteSheet, setShowFriendInviteSheet] = useState(false);
   const [showReminderTimePicker, setShowReminderTimePicker] = useState(false);
+  const [reminderPickerDate, setReminderPickerDate] = useState(new Date());
   const [editingReminderTimeIndex, setEditingReminderTimeIndex] = useState(null);
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
 
   const [habitTitle, setHabitTitle] = useState('');
   const [habitDescription, setHabitDescription] = useState('');
+  const [habitEmoji, setHabitEmoji] = useState('');
   const [habitCategory, setHabitCategory] = useState('Personal');
   const [habitGroupId, setHabitGroupId] = useState(null);
+  const [invitedFriendIds, setInvitedFriendIds] = useState([]);
   const [habitType, setHabitType] = useState('build');
   const [habitColor, setHabitColor] = useState(colors.habits);
   const [goalPeriod, setGoalPeriod] = useState('day');
@@ -599,9 +764,144 @@ const HabitsScreen = () => {
   const dateStrip = useMemo(() => Array.from({ length: 14 }, (_, index) => addDays(new Date(), index - 6)), []);
 
   const habitsWithDefaults = useMemo(() => (habits || []).map(withDefaults), [habits]);
+  const sourceHabitsById = useMemo(
+    () =>
+      (habitsWithDefaults || []).reduce((acc, habit) => {
+        if (habit?.id) acc[habit.id] = habit;
+        return acc;
+      }, {}),
+    [habitsWithDefaults]
+  );
+  const selectedShareGroup = useMemo(
+    () => (groups || []).find((group) => group.id === habitGroupId) || null,
+    [groups, habitGroupId]
+  );
+  const availableFriends = useMemo(
+    () => (friends || []).filter((friend) => friend?.id && friend.id !== authUser?.id),
+    [friends, authUser?.id]
+  );
+  const showGroupSelectionRow = formOnlyGroupSelection || habitCategory === 'Group';
+  const pendingCreateRequestKey = route?.params?.openHabitFormKey || null;
+  const pendingCreateGroupId = route?.params?.groupId || null;
+  const pendingCreateHideSharing = Boolean(route?.params?.hideSharing);
+  const pendingCreateLockGroupSelection = Boolean(route?.params?.lockGroupSelection);
+  const pendingGroupHabitDetailKey = route?.params?.openGroupHabitDetailKey || null;
+  const pendingGroupHabitId = route?.params?.groupHabitId || null;
+  const pendingGroupHabitGroupId = route?.params?.groupId || null;
+  const mapGroupHabitForDetail = useCallback(
+    (groupHabit) => {
+      if (!groupHabit?.id) return null;
+      const sourceHabit = groupHabit?.sourceHabitId ? sourceHabitsById[groupHabit.sourceHabitId] : null;
+      const goalValue = Math.max(1, parseNumber(groupHabit.goalValue, parseNumber(sourceHabit?.goalValue, 1)));
+      const isQuitHabit = (groupHabit.habitType || sourceHabit?.habitType || 'build') === 'quit';
+      const myRows = (groupHabitCompletions[groupHabit.id] || []).filter(
+        (row) => row?.userId === authUser?.id
+      );
+      const progressByDate = {};
+      myRows.forEach((row) => {
+        const parsed = new Date(row?.date);
+        if (Number.isNaN(parsed.getTime())) return;
+        const key = toDateKey(parsed);
+        const rawAmount = Number(row?.amount);
+        const amount = Number.isFinite(rawAmount) && rawAmount > 0 ? rawAmount : 1;
+        progressByDate[key] = amount;
+      });
+      const completedDates = Object.entries(progressByDate)
+        .filter(([, amount]) =>
+          isQuitHabit ? amount > 0 && amount <= goalValue : amount >= goalValue
+        )
+        .map(([key]) => key);
+      const groupName =
+        (groups || []).find((group) => group?.id === groupHabit.groupId)?.name || null;
+      const mergedHabit = {
+        ...groupHabit,
+        category: groupHabit.category || groupName || sourceHabit?.category || 'Group',
+        description: groupHabit.description ?? sourceHabit?.description ?? '',
+        repeat: groupHabit.repeat || sourceHabit?.repeat || 'Daily',
+        days:
+          Array.isArray(groupHabit.days) && groupHabit.days.length
+            ? groupHabit.days
+            : Array.isArray(sourceHabit?.days)
+            ? sourceHabit.days
+            : [],
+        habitType: groupHabit.habitType || sourceHabit?.habitType || 'build',
+        goalPeriod: groupHabit.goalPeriod || sourceHabit?.goalPeriod || 'day',
+        goalValue,
+        goalUnit: groupHabit.goalUnit || sourceHabit?.goalUnit || 'times',
+        timeRange: groupHabit.timeRange || sourceHabit?.timeRange || 'all_day',
+        remindersEnabled:
+          groupHabit.remindersEnabled ?? sourceHabit?.remindersEnabled ?? false,
+        reminderTimes:
+          Array.isArray(groupHabit.reminderTimes) && groupHabit.reminderTimes.length
+            ? groupHabit.reminderTimes
+            : Array.isArray(sourceHabit?.reminderTimes)
+            ? sourceHabit.reminderTimes
+            : [],
+        reminderMessage: groupHabit.reminderMessage || sourceHabit?.reminderMessage || '',
+        taskDaysMode: groupHabit.taskDaysMode || sourceHabit?.taskDaysMode || 'every_day',
+        taskDaysCount: parseNumber(
+          groupHabit.taskDaysCount,
+          parseNumber(sourceHabit?.taskDaysCount, 3)
+        ),
+        monthDays:
+          Array.isArray(groupHabit.monthDays) && groupHabit.monthDays.length
+            ? groupHabit.monthDays
+            : Array.isArray(sourceHabit?.monthDays)
+            ? sourceHabit.monthDays
+            : [],
+        showMemoAfterCompletion:
+          groupHabit.showMemoAfterCompletion ?? sourceHabit?.showMemoAfterCompletion ?? false,
+        chartType: groupHabit.chartType || sourceHabit?.chartType || 'bar',
+        startDate: groupHabit.startDate || sourceHabit?.startDate || null,
+        endDate: groupHabit.endDate || sourceHabit?.endDate || null,
+        color: groupHabit.color || sourceHabit?.color || palette.habits,
+        emoji: groupHabit.emoji || sourceHabit?.emoji || '',
+      };
+      return withDefaults({
+        ...mergedHabit,
+        progressByDate,
+        completedDates,
+        streak: computeBestStreakFromDateKeys(completedDates),
+        __isGroupHabit: true,
+      });
+    },
+    [authUser?.id, groupHabitCompletions, groups, palette.habits, sourceHabitsById]
+  );
+  const groupHabitsWithDefaults = useMemo(
+    () => (groupHabits || []).map(mapGroupHabitForDetail).filter(Boolean),
+    [groupHabits, mapGroupHabitForDetail]
+  );
+  const visibleGroupHabits = useMemo(() => {
+    const personalHabitIds = new Set((habitsWithDefaults || []).map((habit) => habit.id));
+    return (groupHabitsWithDefaults || []).filter((habit) => {
+      if (!habit?.sourceHabitId) return true;
+      return !personalHabitIds.has(habit.sourceHabitId);
+    });
+  }, [groupHabitsWithDefaults, habitsWithDefaults]);
+  const visibleHabits = useMemo(
+    () => [...habitsWithDefaults, ...visibleGroupHabits],
+    [habitsWithDefaults, visibleGroupHabits]
+  );
+  const selectedGroupHabit = useMemo(() => {
+    if (!activeGroupHabitId) return null;
+    const match = (groupHabits || []).find((habit) => {
+      if (habit?.id !== activeGroupHabitId) return false;
+      if (!activeGroupHabitGroupId) return true;
+      return habit?.groupId === activeGroupHabitGroupId;
+    });
+    return mapGroupHabitForDetail(match);
+  }, [
+    activeGroupHabitId,
+    activeGroupHabitGroupId,
+    groupHabits,
+    mapGroupHabitForDetail,
+  ]);
   const selectedHabit = useMemo(
-    () => habitsWithDefaults.find((habit) => habit.id === activeHabitId) || null,
-    [activeHabitId, habitsWithDefaults]
+    () =>
+      selectedGroupHabit ||
+      habitsWithDefaults.find((habit) => habit.id === activeHabitId) ||
+      null,
+    [activeHabitId, habitsWithDefaults, selectedGroupHabit]
   );
   const selectedHabitColor = selectedHabit?.color || palette.habits;
   const detailCardColor = useMemo(
@@ -645,17 +945,17 @@ const HabitsScreen = () => {
   });
 
   const categoryOptions = useMemo(() => {
-    const values = new Set(habitsWithDefaults.map((habit) => habit.category || 'Personal'));
+    const values = new Set(visibleHabits.map((habit) => habit.category || 'Personal'));
     return ['All', ...Array.from(values)];
-  }, [habitsWithDefaults]);
+  }, [visibleHabits]);
 
   const filteredHabits = useMemo(
     () =>
-      habitsWithDefaults
+      visibleHabits
         .filter((habit) => (selectedCategory === 'All' ? true : (habit.category || 'Personal') === selectedCategory))
         .filter((habit) => (selectedTimeRange === 'all_day' ? true : habit.timeRange === selectedTimeRange))
         .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)),
-    [habitsWithDefaults, selectedCategory, selectedTimeRange]
+    [visibleHabits, selectedCategory, selectedTimeRange]
   );
 
   const completedCount = useMemo(
@@ -670,8 +970,10 @@ const HabitsScreen = () => {
   const resetForm = () => {
     setHabitTitle('');
     setHabitDescription('');
+    setHabitEmoji('');
     setHabitCategory('Personal');
     setHabitGroupId(null);
+    setInvitedFriendIds([]);
     setHabitType('build');
     setHabitColor(palette.habits);
     setGoalPeriod('day');
@@ -685,18 +987,33 @@ const HabitsScreen = () => {
     setRemindersEnabled(false);
     setReminderTimes([]);
     setReminderMessage('');
+    setShowReminderTimePicker(false);
+    setReminderPickerDate(new Date());
+    setEditingReminderTimeIndex(null);
     setShowMemoAfterCompletion(false);
     setChartType('bar');
     setStartDate(toISODate(new Date()));
     setEndDate(null);
+    setShowEmojiSheet(false);
+    setShowGroupShareSheet(false);
+    setShowFriendInviteSheet(false);
+    setShowGoalPeriodSheet(false);
+    setShowTaskDaysSheet(false);
     setIsEditingHabit(false);
+    setActiveGroupHabitId(null);
+    setActiveGroupHabitGroupId(null);
+    setFormHideSharingSection(false);
+    setFormLockedGroupId(null);
+    setFormOnlyGroupSelection(false);
   };
 
   const fillFormFromHabit = (habit) => {
     setHabitTitle(habit.title || '');
     setHabitDescription(habit.description || '');
+    setHabitEmoji(habit.emoji || '');
     setHabitCategory(habit.category || 'Personal');
     setHabitGroupId(null);
+    setInvitedFriendIds([]);
     setHabitType(habit.habitType || 'build');
     setHabitColor(habit.color || palette.habits);
     setGoalPeriod(habit.goalPeriod || 'day');
@@ -710,23 +1027,227 @@ const HabitsScreen = () => {
     setRemindersEnabled(Boolean(habit.remindersEnabled));
     setReminderTimes(Array.isArray(habit.reminderTimes) ? habit.reminderTimes : []);
     setReminderMessage(habit.reminderMessage || '');
+    setShowReminderTimePicker(false);
+    setReminderPickerDate(new Date());
+    setEditingReminderTimeIndex(null);
     setShowMemoAfterCompletion(Boolean(habit.showMemoAfterCompletion));
     setChartType(habit.chartType || 'bar');
     setStartDate(habit.startDate || toISODate(new Date()));
     setEndDate(habit.endDate || null);
     setIsEditingHabit(true);
+    setActiveGroupHabitId(null);
+    setActiveGroupHabitGroupId(null);
     setActiveHabitId(habit.id);
+    setFormHideSharingSection(false);
+    setFormLockedGroupId(null);
+    setFormOnlyGroupSelection(false);
   };
 
-  const openCreateModal = () => {
+  const openCreateModalPersonal = () => {
     resetForm();
     setActiveHabitId(null);
+    setFormHideSharingSection(false);
+    setFormOnlyGroupSelection(false);
+    setShowAddTypePicker(false);
+    setRenderAddTypePicker(false);
+    addTypeMenuAnim.stopAnimation();
+    addTypeMenuAnim.setValue(0);
     setShowFormModal(true);
   };
+
+  const openCreateModalGroup = () => {
+    resetForm();
+    setActiveHabitId(null);
+    setHabitCategory('Group');
+    setFormHideSharingSection(false);
+    setFormOnlyGroupSelection(true);
+    setShowAddTypePicker(false);
+    setRenderAddTypePicker(false);
+    addTypeMenuAnim.stopAnimation();
+    addTypeMenuAnim.setValue(0);
+    setShowFormModal(true);
+  };
+
+  const closeAddTypePicker = useCallback(() => {
+    setShowAddTypePicker(false);
+  }, []);
+
+  const openAddTypePicker = useCallback(() => {
+    const fallbackAnchor = {
+      x: windowWidth - spacing.lg - 21,
+      y: insets.top + spacing.sm + 21,
+    };
+    const node = addTypeButtonRef.current;
+
+    if (node && typeof node.measureInWindow === 'function') {
+      node.measureInWindow((x, y, width, height) => {
+        const hasValidLayout =
+          Number.isFinite(x) &&
+          Number.isFinite(y) &&
+          Number.isFinite(width) &&
+          Number.isFinite(height);
+        setAddTypePickerAnchor(
+          hasValidLayout
+            ? {
+                x: x + width / 2,
+                y: y + height / 2,
+              }
+            : fallbackAnchor
+        );
+        addTypeMenuAnim.setValue(0);
+        setShowAddTypePicker(true);
+      });
+      return;
+    }
+
+    setAddTypePickerAnchor(fallbackAnchor);
+    addTypeMenuAnim.setValue(0);
+    setShowAddTypePicker(true);
+  }, [addTypeMenuAnim, insets.top, windowWidth]);
+
+  const toggleAddTypePicker = useCallback(() => {
+    if (showAddTypePicker) {
+      closeAddTypePicker();
+      return;
+    }
+    openAddTypePicker();
+  }, [closeAddTypePicker, openAddTypePicker, showAddTypePicker]);
+
+  const floatingAddButtonPosition = useMemo(() => {
+    const fallbackX = windowWidth - spacing.lg - 21;
+    const x = Number.isFinite(addTypePickerAnchor?.x) ? addTypePickerAnchor.x : fallbackX;
+    const y = Number.isFinite(addTypePickerAnchor?.y) ? addTypePickerAnchor.y : insets.top + spacing.sm + 21;
+    return {
+      left: x - 21,
+      top: y - 21,
+    };
+  }, [addTypePickerAnchor, insets.top, windowWidth]);
+
+  const addTypeBackdropOpacity = addTypeMenuAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+  const addTypeFloatingScale = addTypeMenuAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.94, 1],
+  });
+  const addTypeFloatingOpacity = addTypeMenuAnim.interpolate({
+    inputRange: [0, 0.12, 1],
+    outputRange: [0, 0.35, 1],
+  });
+  const personalLabelTranslateX = addTypeMenuAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [110, 0],
+  });
+  const groupLabelTranslateX = addTypeMenuAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [50, 0],
+  });
+  const groupLabelTranslateY = addTypeMenuAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-60, 0],
+  });
+  const labelScale = addTypeMenuAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.68, 1],
+  });
+  const labelOpacity = addTypeMenuAnim.interpolate({
+    inputRange: [0, 0.15, 1],
+    outputRange: [0, 0.4, 1],
+  });
+
+  useEffect(() => {
+    if (showAddTypePicker) {
+      setRenderAddTypePicker(true);
+      addTypeMenuAnim.stopAnimation();
+      Animated.spring(addTypeMenuAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        speed: 20,
+        bounciness: 7,
+      }).start();
+      return;
+    }
+
+    addTypeMenuAnim.stopAnimation();
+    Animated.timing(addTypeMenuAnim, {
+      toValue: 0,
+      duration: 160,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) setRenderAddTypePicker(false);
+    });
+  }, [addTypeMenuAnim, showAddTypePicker]);
+
+  useEffect(() => {
+    if (!pendingCreateRequestKey) return;
+    if (handledCreateRequestKeyRef.current === pendingCreateRequestKey) return;
+
+    handledCreateRequestKeyRef.current = pendingCreateRequestKey;
+    resetForm();
+    setActiveHabitId(null);
+    setShowAddTypePicker(false);
+
+    if (pendingCreateGroupId) {
+      const targetGroup = (groups || []).find((group) => group.id === pendingCreateGroupId);
+      setHabitGroupId(pendingCreateGroupId);
+      setHabitCategory(targetGroup?.name || 'Group');
+      setFormLockedGroupId(pendingCreateLockGroupSelection ? pendingCreateGroupId : null);
+    } else {
+      setFormLockedGroupId(null);
+    }
+
+    setFormHideSharingSection(pendingCreateHideSharing);
+    setFormOnlyGroupSelection(false);
+    setShowFormModal(true);
+  }, [
+    pendingCreateRequestKey,
+    pendingCreateGroupId,
+    pendingCreateHideSharing,
+    pendingCreateLockGroupSelection,
+    groups,
+  ]);
+
+  useEffect(() => {
+    if (!pendingGroupHabitDetailKey || !pendingGroupHabitId) return;
+    if (handledGroupDetailRequestKeyRef.current === pendingGroupHabitDetailKey) return;
+
+    const target = (groupHabits || []).find((habit) => {
+      if (habit?.id !== pendingGroupHabitId) return false;
+      if (!pendingGroupHabitGroupId) return true;
+      return habit?.groupId === pendingGroupHabitGroupId;
+    });
+    if (!target) return;
+
+    handledGroupDetailRequestKeyRef.current = pendingGroupHabitDetailKey;
+    setActiveGroupHabitId(target.id);
+    setActiveGroupHabitGroupId(target.groupId || pendingGroupHabitGroupId || null);
+    setActiveHabitId(null);
+    setShowAddTypePicker(false);
+    setShowFormModal(false);
+    setSelectedDate(new Date());
+    setShowDetailModal(true);
+  }, [
+    pendingGroupHabitDetailKey,
+    pendingGroupHabitId,
+    pendingGroupHabitGroupId,
+    groupHabits,
+  ]);
 
   const openEditFromDetail = () => {
     if (!selectedHabit) return;
     fillFormFromHabit(selectedHabit);
+    if (selectedHabit.__isGroupHabit) {
+      const targetGroupId = selectedHabit.groupId || pendingGroupHabitGroupId || null;
+      setActiveHabitId(null);
+      setActiveGroupHabitId(selectedHabit.id);
+      setActiveGroupHabitGroupId(targetGroupId);
+      setHabitGroupId(targetGroupId);
+      setFormHideSharingSection(true);
+      setFormOnlyGroupSelection(true);
+      setFormLockedGroupId(targetGroupId);
+    }
+    setShowAddTypePicker(false);
     setShowDetailModal(false);
     setShowFormModal(true);
   };
@@ -735,6 +1256,16 @@ const HabitsScreen = () => {
     const amount = Math.max(0, parseNumber(amountValue, 0));
     const localKey = `${habit.id}|${selectedDateKey}`;
     setLocalProgressMap((prev) => ({ ...prev, [localKey]: amount }));
+
+    if (habit?.__isGroupHabit) {
+      if (!isSelectedDateToday) return;
+      const todayISO = toISODate(selectedDate);
+      await toggleGroupHabitCompletion(habit.id, {
+        amount,
+        dateISO: todayISO,
+      });
+      return;
+    }
 
     if (typeof setHabitProgress === 'function' && isSelectedDateToday) {
       await setHabitProgress(habit.id, amount, selectedDateISO);
@@ -763,6 +1294,76 @@ const HabitsScreen = () => {
     setManualAutoComplete(false);
   };
 
+  const closeFormModal = () => {
+    setShowFormModal(false);
+    setShowEmojiSheet(false);
+    setShowGroupShareSheet(false);
+    setShowFriendInviteSheet(false);
+    setShowGoalPeriodSheet(false);
+    setShowTaskDaysSheet(false);
+    setShowReminderTimePicker(false);
+    setEditingReminderTimeIndex(null);
+  };
+
+  const toggleGoalPeriodPicker = () => {
+    setShowGoalPeriodSheet((prev) => !prev);
+    setShowTaskDaysSheet(false);
+  };
+
+  const toggleTaskDaysPicker = () => {
+    setShowTaskDaysSheet((prev) => !prev);
+    setShowGoalPeriodSheet(false);
+  };
+
+  const toggleInvitedFriend = (friendId) => {
+    setInvitedFriendIds((prev) =>
+      prev.includes(friendId) ? prev.filter((id) => id !== friendId) : [...prev, friendId]
+    );
+  };
+
+  const applyReminderTime = (dateValue, targetIndex = null) => {
+    const pickedDate = dateValue instanceof Date ? dateValue : new Date();
+    const value = pickedDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setReminderTimes((prev) => {
+      if (targetIndex !== null && prev[targetIndex]) {
+        const updated = [...prev];
+        updated[targetIndex] = value;
+        return Array.from(new Set(updated));
+      }
+      return Array.from(new Set([...prev, value]));
+    });
+    setEditingReminderTimeIndex(null);
+    setShowReminderTimePicker(false);
+  };
+
+  const openReminderPicker = (index = null) => {
+    const targetIndex = index;
+    setEditingReminderTimeIndex(targetIndex);
+    const seedDate =
+      targetIndex !== null && reminderTimes[targetIndex] ? parseTimeStringToDate(reminderTimes[targetIndex]) : new Date();
+
+    if (Platform.OS === 'android') {
+      setShowReminderTimePicker(false);
+      DateTimePickerAndroid.open({
+        value: seedDate,
+        mode: 'time',
+        is24Hour: false,
+        display: 'default',
+        onChange: (event, selectedDate) => {
+          if (event?.type === 'dismissed') {
+            setEditingReminderTimeIndex(null);
+            return;
+          }
+          applyReminderTime(selectedDate || seedDate, targetIndex);
+        },
+      });
+      return;
+    }
+
+    setReminderPickerDate(seedDate);
+    setShowReminderTimePicker(true);
+  };
+
   const submitHabit = async () => {
     if (!habitTitle.trim()) return;
     const goalValue = Math.max(1, parseNumber(goalValueInput, 1));
@@ -780,6 +1381,7 @@ const HabitsScreen = () => {
       title: habitTitle.trim(),
       category: habitCategory,
       description: habitDescription.trim(),
+      emoji: habitEmoji || null,
       repeat,
       days,
       habitType,
@@ -800,23 +1402,86 @@ const HabitsScreen = () => {
       endDate,
     };
 
-    if (isEditingHabit && selectedHabit) {
-      await updateHabit(selectedHabit.id, payload);
-    } else if (habitGroupId) {
-      await addGroupHabit({ groupId: habitGroupId, ...payload });
-    } else {
-      await addHabit(payload);
+    const normalizedInviteIds = Array.from(new Set(invitedFriendIds)).filter(Boolean);
+    const targetGroupId = formLockedGroupId || habitGroupId || null;
+
+    if (formOnlyGroupSelection && !targetGroupId) {
+      Alert.alert('Select a group', 'Choose a group to create this group habit.');
+      return;
     }
 
-    setShowFormModal(false);
+    if (targetGroupId && normalizedInviteIds.length && typeof sendGroupInvites === 'function') {
+      const memberIds = new Set(
+        ((groups || []).find((group) => group.id === targetGroupId)?.members || [])
+          .map((member) => member?.id)
+          .filter(Boolean)
+      );
+      const idsToInvite = normalizedInviteIds.filter((id) => !memberIds.has(id));
+      if (idsToInvite.length) {
+        await sendGroupInvites({ groupId: targetGroupId, userIds: idsToInvite });
+      }
+    }
+
+    if (isEditingHabit && selectedHabit) {
+      if (selectedHabit.__isGroupHabit) {
+        await updateGroupHabit(selectedHabit.id, payload);
+      } else {
+        await updateHabit(selectedHabit.id, payload);
+        if (targetGroupId) {
+          await addGroupHabit({ groupId: targetGroupId, sourceHabitId: selectedHabit.id, ...payload });
+        } else if (normalizedInviteIds.length && typeof shareHabitWithFriends === 'function') {
+          await shareHabitWithFriends(selectedHabit.id, normalizedInviteIds);
+        }
+      }
+    } else if (targetGroupId) {
+      if (formHideSharingSection) {
+        await addGroupHabit({ groupId: targetGroupId, ...payload });
+      } else {
+        const createdHabit = await addHabit(payload);
+        await addGroupHabit({ groupId: targetGroupId, sourceHabitId: createdHabit?.id || null, ...payload });
+        if (
+          normalizedInviteIds.length &&
+          typeof shareHabitWithFriends === 'function' &&
+          createdHabit?.id
+        ) {
+          await shareHabitWithFriends(createdHabit.id, normalizedInviteIds);
+        }
+      }
+    } else {
+      const createdHabit = await addHabit(payload);
+      if (
+        normalizedInviteIds.length &&
+        typeof shareHabitWithFriends === 'function' &&
+        createdHabit?.id
+      ) {
+        await shareHabitWithFriends(createdHabit.id, normalizedInviteIds);
+      }
+    }
+
+    closeFormModal();
     resetForm();
   };
 
   const removeSelectedHabit = async () => {
     if (!selectedHabit) return;
-    await deleteHabit(selectedHabit.id);
-    setShowDetailModal(false);
-    setActiveHabitId(null);
+    try {
+      if (selectedHabit.__isGroupHabit) {
+        await deleteGroupHabit(selectedHabit.id);
+        setShowDetailModal(false);
+        setActiveGroupHabitId(null);
+        setActiveGroupHabitGroupId(null);
+        return;
+      }
+      await deleteHabit(selectedHabit.id);
+      setShowDetailModal(false);
+      setActiveGroupHabitGroupId(null);
+      setActiveHabitId(null);
+    } catch (error) {
+      Alert.alert(
+        'Unable to delete habit',
+        error?.message || 'Please try again. The habit was not removed from the database.'
+      );
+    }
   };
 
   const toggleWeekday = (day) => {
@@ -860,13 +1525,16 @@ const HabitsScreen = () => {
             <Text style={[styles.pageTitle, { color: palette.text }]}>Habits</Text>
             <Text style={[styles.pageSubtitle, { color: palette.textMuted }]}>Build better, quit worse</Text>
           </View>
-          <TouchableOpacity
-            style={[styles.headerAddButton, { backgroundColor: palette.habits }]}
-            onPress={openCreateModal}
-            activeOpacity={0.9}
-          >
-            <Ionicons name="add" size={22} color="#FFFFFF" />
-          </TouchableOpacity>
+          <View style={styles.headerAddWrap}>
+            <TouchableOpacity
+              ref={addTypeButtonRef}
+              style={[styles.headerAddButton, { backgroundColor: palette.habits }]}
+              onPress={toggleAddTypePicker}
+              activeOpacity={0.9}
+            >
+              <Ionicons name="add" size={22} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <PlatformScrollView
@@ -921,7 +1589,7 @@ const HabitsScreen = () => {
           <Card style={[styles.statCard, styles.statTotal]}>
             <Ionicons name="stats-chart" size={16} color="#2563EB" />
             <Text style={styles.statLabel}>Total</Text>
-            <Text style={styles.statValue}>{habitsWithDefaults.length}</Text>
+            <Text style={styles.statValue}>{visibleHabits.length}</Text>
           </Card>
         </View>
 
@@ -982,7 +1650,7 @@ const HabitsScreen = () => {
           <View style={[styles.emptyState, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}>
             <Feather name="target" size={34} color={palette.habits} />
             <Text style={[styles.emptyTitle, { color: palette.text }]}>No habits found</Text>
-            <TouchableOpacity style={[styles.emptyButton, { backgroundColor: palette.habits }]} onPress={openCreateModal}>
+            <TouchableOpacity style={[styles.emptyButton, { backgroundColor: palette.habits }]} onPress={openCreateModalPersonal}>
               <Text style={styles.emptyButtonText}>Create Habit</Text>
             </TouchableOpacity>
           </View>
@@ -993,20 +1661,36 @@ const HabitsScreen = () => {
             const completed = isCompletedForDate(habit, selectedDateKey, amount);
             return (
               <SwipeHabitCard
-                key={habit.id}
+                key={`${habit.__isGroupHabit ? 'group' : 'personal'}-${habit.id}`}
                 habit={habit}
                 progress={amount}
                 ratio={ratio}
                 completed={completed}
                 isInteractive={isSelectedDateToday}
                 onTap={(item) => {
-                  setActiveHabitId(item.id);
+                  if (item.__isGroupHabit) {
+                    setActiveHabitId(null);
+                    setActiveGroupHabitId(item.id);
+                    setActiveGroupHabitGroupId(item.groupId || null);
+                  } else {
+                    setActiveGroupHabitId(null);
+                    setActiveGroupHabitGroupId(null);
+                    setActiveHabitId(item.id);
+                  }
                   setManualAmount(String(Math.round(getDateProgressAmount(item, selectedDateKey, localProgressMap))));
                   setManualAutoComplete(false);
                   setShowManualModal(true);
                 }}
                 onEdit={(item) => {
-                  setActiveHabitId(item.id);
+                  if (item.__isGroupHabit) {
+                    setActiveHabitId(null);
+                    setActiveGroupHabitId(item.id);
+                    setActiveGroupHabitGroupId(item.groupId || null);
+                  } else {
+                    setActiveGroupHabitId(null);
+                    setActiveGroupHabitGroupId(null);
+                    setActiveHabitId(item.id);
+                  }
                   setShowDetailModal(true);
                 }}
                 onSkip={async (item) => {
@@ -1024,6 +1708,78 @@ const HabitsScreen = () => {
           })
         )}
       </PlatformScrollView>
+
+      {renderAddTypePicker ? (
+        <>
+          <Animated.View style={[styles.addTypeDimOverlay, { opacity: addTypeBackdropOpacity }]}>
+            <TouchableOpacity
+              style={styles.addTypeDimOverlayTouch}
+              activeOpacity={1}
+              onPress={closeAddTypePicker}
+            />
+          </Animated.View>
+          <Animated.View
+            style={[
+              styles.addTypeFloatingWrap,
+              floatingAddButtonPosition,
+              {
+                opacity: addTypeFloatingOpacity,
+                transform: [{ scale: addTypeFloatingScale }],
+              },
+            ]}
+          >
+            <View style={styles.addTypeInlineMenu}>
+              <Animated.View
+                style={{
+                  opacity: labelOpacity,
+                  transform: [{ translateX: personalLabelTranslateX }, { scale: labelScale }],
+                }}
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.addTypeInlinePill,
+                    styles.addTypeInlinePillPersonal,
+                    { borderColor: palette.cardBorder, backgroundColor: palette.card },
+                  ]}
+                  onPress={openCreateModalPersonal}
+                  activeOpacity={0.92}
+                >
+                  <Text style={[styles.addTypeInlinePillText, { color: palette.text }]}>Personal</Text>
+                </TouchableOpacity>
+              </Animated.View>
+              <Animated.View
+                style={{
+                  opacity: labelOpacity,
+                  transform: [
+                    { translateX: groupLabelTranslateX },
+                    { translateY: groupLabelTranslateY },
+                    { scale: labelScale },
+                  ],
+                }}
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.addTypeInlinePill,
+                    styles.addTypeInlinePillGroup,
+                    { borderColor: palette.cardBorder, backgroundColor: palette.card },
+                  ]}
+                  onPress={openCreateModalGroup}
+                  activeOpacity={0.92}
+                >
+                  <Text style={[styles.addTypeInlinePillText, { color: palette.text }]}>Group</Text>
+                </TouchableOpacity>
+              </Animated.View>
+            </View>
+            <TouchableOpacity
+              style={[styles.headerAddButton, { backgroundColor: palette.habits }]}
+              onPress={closeAddTypePicker}
+              activeOpacity={0.9}
+            >
+              <Ionicons name="close" size={22} color="#FFFFFF" />
+            </TouchableOpacity>
+          </Animated.View>
+        </>
+      ) : null}
 
       <Modal
         visible={showManualModal}
@@ -1092,10 +1848,10 @@ const HabitsScreen = () => {
         ) : null}
       </Modal>
 
-      <Modal visible={showFormModal} onClose={() => setShowFormModal(false)} hideHeader fullScreen contentStyle={{ paddingHorizontal: 0 }}>
+      <Modal visible={showFormModal} onClose={closeFormModal} hideHeader fullScreen contentStyle={{ paddingHorizontal: 0 }}>
         <View style={[styles.formScreen, { backgroundColor: palette.background, paddingTop: insets.top + spacing.sm }]}>
           <View style={styles.formTop}>
-            <TouchableOpacity style={[styles.iconButton, { borderColor: palette.cardBorder, backgroundColor: palette.card }]} onPress={() => setShowFormModal(false)}>
+            <TouchableOpacity style={[styles.iconButton, { borderColor: palette.cardBorder, backgroundColor: palette.card }]} onPress={closeFormModal}>
               <Ionicons name="chevron-back" size={20} color={palette.text} />
             </TouchableOpacity>
             <Text style={[styles.formTitle, { color: palette.text }]}>{isEditingHabit ? 'Edit Habit' : 'New Habit'}</Text>
@@ -1104,8 +1860,55 @@ const HabitsScreen = () => {
 
           <View style={styles.formBody}>
             <View style={[styles.sectionCard, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}>
-              <TextInput style={[styles.formInput, { borderColor: palette.cardBorder, color: palette.text, backgroundColor: palette.mutedSurface }]} placeholder="Habit title" placeholderTextColor={palette.textLight} value={habitTitle} onChangeText={setHabitTitle} />
-              <TextInput style={[styles.formInput, styles.formTextArea, { borderColor: palette.cardBorder, color: palette.text, backgroundColor: palette.mutedSurface }]} placeholder="Description (optional)" placeholderTextColor={palette.textLight} value={habitDescription} onChangeText={setHabitDescription} multiline />
+              <View style={styles.formIdentityRow}>
+                <View style={styles.formIdentityInputs}>
+                  <TextInput style={[styles.formInput, { borderColor: palette.cardBorder, color: palette.text, backgroundColor: palette.mutedSurface }]} placeholder="Habit title" placeholderTextColor={palette.textLight} value={habitTitle} onChangeText={setHabitTitle} />
+                  <TextInput style={[styles.formInput, styles.formTextArea, styles.formDescriptionInput, { borderColor: palette.cardBorder, color: palette.text, backgroundColor: palette.mutedSurface }]} placeholder="Description (optional)" placeholderTextColor={palette.textLight} value={habitDescription} onChangeText={setHabitDescription} multiline />
+                </View>
+                <TouchableOpacity
+                  style={[styles.formEmojiButton, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]}
+                  onPress={() => setShowEmojiSheet((prev) => !prev)}
+                >
+                  <Text style={styles.formEmojiValue}>{habitEmoji || '\u{1F642}'}</Text>
+                  <Text style={[styles.formEmojiLabel, { color: palette.textMuted }]}>Icon</Text>
+                </TouchableOpacity>
+              </View>
+              {showEmojiSheet ? (
+                <View style={[styles.emojiSelectorInline, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]}>
+                  <View style={styles.emojiGrid}>
+                    {HABIT_EMOJI_OPTIONS.map((emoji) => {
+                      const selected = habitEmoji === emoji;
+                      return (
+                        <TouchableOpacity
+                          key={emoji}
+                          style={[
+                            styles.emojiOption,
+                            {
+                              borderColor: selected ? palette.habits : palette.cardBorder,
+                              backgroundColor: selected ? withAlpha(palette.habits, 0.12) : palette.card,
+                            },
+                          ]}
+                          onPress={() => {
+                            setHabitEmoji(emoji);
+                            setShowEmojiSheet(false);
+                          }}
+                        >
+                          <Text style={styles.emojiOptionText}>{emoji}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.sheetOption, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}
+                    onPress={() => {
+                      setHabitEmoji('');
+                      setShowEmojiSheet(false);
+                    }}
+                  >
+                    <Text style={[styles.sheetOptionText, { color: palette.textMuted, textAlign: 'center' }]}>No icon</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
               <ChipGroup options={habitCategories} selectedValue={habitCategory} onSelect={setHabitCategory} color={palette.habits} />
               <Text style={[styles.sectionTitle, { color: palette.text, marginTop: spacing.xs }]}>Habit color</Text>
               <View style={styles.colorRow}>
@@ -1130,6 +1933,108 @@ const HabitsScreen = () => {
               </View>
             </View>
 
+            {!formHideSharingSection ? (
+              <View style={[styles.sectionCard, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}>
+                <Text style={[styles.sectionTitle, { color: palette.text }]}>Sharing</Text>
+                {showGroupSelectionRow ? (
+                  <>
+                    <TouchableOpacity
+                      style={styles.rowLine}
+                      onPress={() => {
+                        setShowGroupShareSheet((prev) => !prev);
+                        setShowFriendInviteSheet(false);
+                      }}
+                    >
+                      <Text style={[styles.rowLabel, { color: palette.text }]}>Group selection</Text>
+                      <Text style={[styles.rowValue, { color: palette.textMuted }]} numberOfLines={1}>
+                        {selectedShareGroup?.name || 'None'}
+                      </Text>
+                    </TouchableOpacity>
+                    {showGroupShareSheet ? (
+                      <View style={[styles.inlineSheet, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]}>
+                        {!formOnlyGroupSelection ? (
+                          <TouchableOpacity
+                            style={[styles.sheetOption, styles.inlineSheetOption, { borderColor: !habitGroupId ? palette.habits : palette.cardBorder, backgroundColor: palette.card }]}
+                            onPress={() => {
+                              setHabitGroupId(null);
+                              setShowGroupShareSheet(false);
+                            }}
+                          >
+                            <Text style={[styles.sheetOptionText, { color: palette.text }]}>None</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                        {(groups || []).map((group) => (
+                          <TouchableOpacity
+                            key={group.id}
+                            style={[styles.sheetOption, styles.inlineSheetOption, { borderColor: habitGroupId === group.id ? palette.habits : palette.cardBorder, backgroundColor: palette.card }]}
+                            onPress={() => {
+                              setHabitGroupId(group.id);
+                              setShowGroupShareSheet(false);
+                            }}
+                          >
+                            <Text style={[styles.sheetOptionText, { color: palette.text }]} numberOfLines={1}>{group.name || 'Group'}</Text>
+                          </TouchableOpacity>
+                        ))}
+                        {!groups?.length ? (
+                          <Text style={[styles.shareHint, { color: palette.textMuted }]}>No groups yet. Create one in the Groups area.</Text>
+                        ) : null}
+                        {formOnlyGroupSelection ? (
+                          <Text style={[styles.shareHint, { color: palette.textMuted }]}>You must choose a group to create this habit.</Text>
+                        ) : null}
+                      </View>
+                    ) : null}
+                  </>
+                ) : null}
+
+                {!formOnlyGroupSelection ? (
+                  <>
+                    <TouchableOpacity
+                      style={styles.rowLine}
+                      onPress={() => {
+                        setShowFriendInviteSheet((prev) => !prev);
+                        setShowGroupShareSheet(false);
+                      }}
+                    >
+                      <Text style={[styles.rowLabel, { color: palette.text }]}>Invite friends</Text>
+                      <Text style={[styles.rowValue, { color: palette.textMuted }]}>{invitedFriendIds.length ? `${invitedFriendIds.length} selected` : 'None'}</Text>
+                    </TouchableOpacity>
+                    {showFriendInviteSheet ? (
+                      <View style={[styles.inlineSheet, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]}>
+                        {!availableFriends.length ? (
+                          <Text style={[styles.shareHint, { color: palette.textMuted }]}>No friends to invite yet.</Text>
+                        ) : (
+                          (availableFriends || []).map((friend) => {
+                            const selected = invitedFriendIds.includes(friend.id);
+                            return (
+                              <View key={friend.id} style={styles.shareFriendRow}>
+                                <View style={styles.shareFriendTextWrap}>
+                                  <Text style={[styles.shareFriendName, { color: palette.text }]} numberOfLines={1}>
+                                    {friend.name || friend.username || 'Friend'}
+                                  </Text>
+                                  <Text style={[styles.shareFriendUser, { color: palette.textMuted }]} numberOfLines={1}>
+                                    {friend.username ? `@${friend.username}` : ''}
+                                  </Text>
+                                </View>
+                                <TouchableOpacity
+                                  style={[styles.shareFriendAction, { borderColor: selected ? palette.habits : palette.cardBorder, backgroundColor: selected ? withAlpha(palette.habits, 0.12) : palette.card }]}
+                                  onPress={() => toggleInvitedFriend(friend.id)}
+                                >
+                                  <Text style={[styles.shareFriendActionText, { color: selected ? palette.habits : palette.textMuted }]}>{selected ? 'Invited' : 'Invite'}</Text>
+                                </TouchableOpacity>
+                              </View>
+                            );
+                          })
+                        )}
+                        <Text style={[styles.shareHint, { color: palette.textMuted }]}>
+                          If no group is selected, invited friends will get direct access to this habit.
+                        </Text>
+                      </View>
+                    ) : null}
+                  </>
+                ) : null}
+              </View>
+            ) : null}
+
             <View style={[styles.sectionCard, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}>
               <Text style={[styles.sectionTitle, { color: palette.text }]}>Habit type</Text>
               <View style={[styles.segmentWrap, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]}>
@@ -1140,12 +2045,28 @@ const HabitsScreen = () => {
                   <Text style={[styles.segmentText, { color: habitType === 'quit' ? '#FFFFFF' : palette.textMuted }]}>Quit</Text>
                 </TouchableOpacity>
               </View>
-              <TouchableOpacity style={styles.rowLine} onPress={() => setShowGoalPeriodSheet(true)}>
+              <TouchableOpacity style={styles.rowLine} onPress={toggleGoalPeriodPicker}>
                 <Text style={[styles.rowLabel, { color: palette.text }]}>Goal period</Text>
                 <Text style={[styles.rowValue, { color: palette.textMuted }]}>
                   {GOAL_PERIOD_OPTIONS.find((item) => item.value === goalPeriod)?.label || 'Day-Long'}
                 </Text>
               </TouchableOpacity>
+              {showGoalPeriodSheet ? (
+                <View style={[styles.inlineSheet, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]}>
+                  {GOAL_PERIOD_OPTIONS.map((option) => (
+                    <TouchableOpacity
+                      key={option.value}
+                      style={[styles.sheetOption, styles.inlineSheetOption, { borderColor: goalPeriod === option.value ? palette.habits : palette.cardBorder, backgroundColor: palette.card }]}
+                      onPress={() => {
+                        setGoalPeriod(option.value);
+                        setShowGoalPeriodSheet(false);
+                      }}
+                    >
+                      <Text style={[styles.sheetOptionText, { color: palette.text }]}>{option.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : null}
               <View style={styles.rowLine}>
                 <Text style={[styles.rowLabel, { color: palette.text }]}>Goal value</Text>
                 <View style={styles.goalInputs}>
@@ -1153,12 +2074,46 @@ const HabitsScreen = () => {
                   <TextInput style={[styles.goalInput, { borderColor: palette.cardBorder, color: palette.text, backgroundColor: palette.mutedSurface }]} value={goalUnit} onChangeText={setGoalUnit} />
                 </View>
               </View>
-              <TouchableOpacity style={styles.rowLine} onPress={() => setShowTaskDaysSheet(true)}>
+              <TouchableOpacity style={styles.rowLine} onPress={toggleTaskDaysPicker}>
                 <Text style={[styles.rowLabel, { color: palette.text }]}>Task days</Text>
                 <Text style={[styles.rowValue, { color: palette.textMuted }]}>
                   {formatTaskDaysSummary({ taskDaysMode, taskDaysCount, days: selectedDays, monthDays: selectedMonthDays })}
                 </Text>
               </TouchableOpacity>
+              {showTaskDaysSheet ? (
+                <View style={[styles.inlineSheet, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]}>
+                  <TouchableOpacity style={[styles.sheetOption, styles.inlineSheetOption, { borderColor: taskDaysMode === 'every_day' ? palette.habits : palette.cardBorder, backgroundColor: palette.card }]} onPress={() => setTaskDaysMode('every_day')}>
+                    <Text style={[styles.sheetOptionText, { color: palette.text }]}>Every day</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.sheetOption, styles.inlineSheetOption, { borderColor: taskDaysMode === 'specific_weekdays' ? palette.habits : palette.cardBorder, backgroundColor: palette.card }]} onPress={() => setTaskDaysMode('specific_weekdays')}>
+                    <Text style={[styles.sheetOptionText, { color: palette.text }]}>Specific weekdays</Text>
+                  </TouchableOpacity>
+                  {taskDaysMode === 'specific_weekdays' ? (
+                    <View style={styles.wrapRow}>
+                      {DAYS.map((day) => (
+                        <TouchableOpacity key={day} style={[styles.pill, { backgroundColor: selectedDays.includes(day) ? palette.habits : palette.card, borderColor: selectedDays.includes(day) ? palette.habits : palette.cardBorder }]} onPress={() => toggleWeekday(day)}>
+                          <Text style={[styles.pillText, { color: selectedDays.includes(day) ? '#FFFFFF' : palette.textMuted }]}>{day}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  ) : null}
+                  <TouchableOpacity style={[styles.sheetOption, styles.inlineSheetOption, { borderColor: taskDaysMode === 'specific_month_days' ? palette.habits : palette.cardBorder, backgroundColor: palette.card }]} onPress={() => setTaskDaysMode('specific_month_days')}>
+                    <Text style={[styles.sheetOptionText, { color: palette.text }]}>Specific month days</Text>
+                  </TouchableOpacity>
+                  {taskDaysMode === 'specific_month_days' ? (
+                    <View style={styles.monthDaysGrid}>
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                        <TouchableOpacity key={day} style={[styles.monthDayChip, { backgroundColor: selectedMonthDays.includes(day) ? palette.habits : palette.card, borderColor: selectedMonthDays.includes(day) ? palette.habits : palette.cardBorder }]} onPress={() => toggleMonthDay(day)}>
+                          <Text style={[styles.monthDayChipText, { color: selectedMonthDays.includes(day) ? '#FFFFFF' : palette.textMuted }]}>{day}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  ) : null}
+                  <TouchableOpacity style={[styles.sheetDone, { backgroundColor: palette.habits }]} onPress={() => setShowTaskDaysSheet(false)}>
+                    <Text style={styles.sheetDoneText}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
             </View>
 
             <View style={[styles.sectionCard, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}>
@@ -1178,20 +2133,63 @@ const HabitsScreen = () => {
             <View style={[styles.sectionCard, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}>
               <View style={styles.rowBetween}>
                 <Text style={[styles.sectionTitle, { color: palette.text }]}>Reminders</Text>
-                <Switch value={remindersEnabled} onValueChange={setRemindersEnabled} trackColor={{ false: palette.switchTrack, true: palette.habits }} />
+                <Switch
+                  value={remindersEnabled}
+                  onValueChange={(value) => {
+                    setRemindersEnabled(value);
+                    if (!value) {
+                      setShowReminderTimePicker(false);
+                      setEditingReminderTimeIndex(null);
+                    }
+                  }}
+                  trackColor={{ false: palette.switchTrack, true: palette.habits }}
+                />
               </View>
               {remindersEnabled ? (
                 <>
                   <View style={styles.wrapRow}>
                     {reminderTimes.map((time, index) => (
-                      <TouchableOpacity key={`${time}-${index}`} style={[styles.pill, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]} onPress={() => { setEditingReminderTimeIndex(index); setShowReminderTimePicker(true); }}>
+                      <TouchableOpacity key={`${time}-${index}`} style={[styles.pill, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]} onPress={() => openReminderPicker(index)}>
                         <Text style={[styles.pillText, { color: palette.habits }]}>{time}</Text>
                       </TouchableOpacity>
                     ))}
-                    <TouchableOpacity style={[styles.pill, { borderColor: palette.habits, backgroundColor: palette.card }]} onPress={() => { setEditingReminderTimeIndex(null); setShowReminderTimePicker(true); }}>
+                    <TouchableOpacity style={[styles.pill, { borderColor: palette.habits, backgroundColor: palette.card }]} onPress={() => openReminderPicker(null)}>
                       <Text style={[styles.pillText, { color: palette.habits }]}>+ Time</Text>
                     </TouchableOpacity>
                   </View>
+                  {Platform.OS === 'ios' && showReminderTimePicker ? (
+                    <View style={[styles.inlineTimePickerCard, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]}>
+                      <DateTimePicker
+                        value={reminderPickerDate}
+                        mode="time"
+                        display="spinner"
+                        onChange={(_event, selectedDate) => {
+                          if (!selectedDate) return;
+                          setReminderPickerDate((prev) =>
+                            prev?.getTime?.() === selectedDate.getTime() ? prev : selectedDate
+                          );
+                        }}
+                        textColor={palette.text}
+                      />
+                      <View style={styles.inlineTimePickerActions}>
+                        <TouchableOpacity
+                          style={[styles.inlineTimePickerBtn, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}
+                          onPress={() => {
+                            setShowReminderTimePicker(false);
+                            setEditingReminderTimeIndex(null);
+                          }}
+                        >
+                          <Text style={[styles.inlineTimePickerBtnText, { color: palette.textMuted }]}>Cancel</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.inlineTimePickerBtn, { borderColor: palette.habits, backgroundColor: palette.habits }]}
+                          onPress={() => applyReminderTime(reminderPickerDate, editingReminderTimeIndex)}
+                        >
+                          <Text style={[styles.inlineTimePickerBtnText, { color: '#FFFFFF' }]}>Done</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : null}
                   <TextInput style={[styles.formInput, { borderColor: palette.cardBorder, color: palette.text, backgroundColor: palette.mutedSurface }]} placeholder="Reminder message" placeholderTextColor={palette.textLight} value={reminderMessage} onChangeText={setReminderMessage} />
                 </>
               ) : null}
@@ -1232,7 +2230,13 @@ const HabitsScreen = () => {
 
       <Modal
         visible={showDetailModal}
-        onClose={() => setShowDetailModal(false)}
+        onClose={() => {
+          setShowDetailModal(false);
+          if (selectedHabit?.__isGroupHabit) {
+            setActiveGroupHabitId(null);
+            setActiveGroupHabitGroupId(null);
+          }
+        }}
         hideHeader
         fullScreen
         containerStyle={{ paddingBottom: 0 }}
@@ -1256,7 +2260,13 @@ const HabitsScreen = () => {
                 <View style={styles.detailTopRow}>
                   <TouchableOpacity
                     style={[styles.detailIconButton, { backgroundColor: withAlpha(selectedHabitColor, 0.16), borderWidth: 1, borderColor: withAlpha(selectedHabitColor, 0.28) }]}
-                    onPress={() => setShowDetailModal(false)}
+                    onPress={() => {
+                      setShowDetailModal(false);
+                      if (selectedHabit.__isGroupHabit) {
+                        setActiveGroupHabitId(null);
+                        setActiveGroupHabitGroupId(null);
+                      }
+                    }}
                   >
                     <Ionicons name="arrow-back" size={20} color={selectedHabitColor} />
                   </TouchableOpacity>
@@ -1279,7 +2289,7 @@ const HabitsScreen = () => {
                 <View style={styles.detailIdentityRow}>
                   <View style={[styles.detailHabitGlyph, { backgroundColor: withAlpha(selectedHabitColor, 0.14), borderColor: withAlpha(selectedHabitColor, 0.32) }]}>
                     <Text style={[styles.detailHabitGlyphText, { color: selectedHabitColor }]}>
-                      {selectedHabit.title?.slice(0, 1)?.toUpperCase() || 'H'}
+                      {selectedHabit.emoji || selectedHabit.title?.slice(0, 1)?.toUpperCase() || 'H'}
                     </Text>
                   </View>
                   <View style={styles.detailHeaderText}>
@@ -1329,7 +2339,10 @@ const HabitsScreen = () => {
                     ]}
                     onPress={() => {
                       if (!isSelectedDateToday) return;
-                      toggleHabitCompletion(selectedHabit.id);
+                      applyProgress(
+                        selectedHabit,
+                        selectedHabitCompletedForDate ? 0 : getGoalValue(selectedHabit)
+                      );
                     }}
                     disabled={!isSelectedDateToday}
                   >
@@ -1437,75 +2450,6 @@ const HabitsScreen = () => {
         ) : null}
       </Modal>
 
-      <RNModal visible={showGoalPeriodSheet} transparent animationType="slide" onRequestClose={() => setShowGoalPeriodSheet(false)}>
-        <View style={styles.sheetOverlay}>
-          <TouchableOpacity style={styles.sheetBackdrop} onPress={() => setShowGoalPeriodSheet(false)} activeOpacity={1} />
-          <View style={[styles.sheetCard, { backgroundColor: palette.card, borderColor: palette.cardBorder }]}>
-            <Text style={[styles.sheetTitle, { color: palette.text }]}>Goal period</Text>
-            {GOAL_PERIOD_OPTIONS.map((option) => (
-              <TouchableOpacity key={option.value} style={[styles.sheetOption, { borderColor: goalPeriod === option.value ? palette.habits : palette.cardBorder }]} onPress={() => { setGoalPeriod(option.value); setShowGoalPeriodSheet(false); }}>
-                <Text style={[styles.sheetOptionText, { color: palette.text }]}>{option.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      </RNModal>
-
-      <RNModal visible={showTaskDaysSheet} transparent animationType="slide" onRequestClose={() => setShowTaskDaysSheet(false)}>
-        <View style={styles.sheetOverlay}>
-          <TouchableOpacity style={styles.sheetBackdrop} onPress={() => setShowTaskDaysSheet(false)} activeOpacity={1} />
-          <View style={[styles.sheetCardLarge, { backgroundColor: palette.card, borderColor: palette.cardBorder }]}>
-            <Text style={[styles.sheetTitle, { color: palette.text }]}>Task days</Text>
-            <TouchableOpacity style={[styles.sheetOption, { borderColor: taskDaysMode === 'every_day' ? palette.habits : palette.cardBorder }]} onPress={() => setTaskDaysMode('every_day')}>
-              <Text style={[styles.sheetOptionText, { color: palette.text }]}>Every day</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.sheetOption, { borderColor: taskDaysMode === 'specific_weekdays' ? palette.habits : palette.cardBorder }]} onPress={() => setTaskDaysMode('specific_weekdays')}>
-              <Text style={[styles.sheetOptionText, { color: palette.text }]}>Specific weekdays</Text>
-            </TouchableOpacity>
-            {taskDaysMode === 'specific_weekdays' ? (
-              <View style={styles.wrapRow}>
-                {DAYS.map((day) => (
-                  <TouchableOpacity key={day} style={[styles.pill, { backgroundColor: selectedDays.includes(day) ? palette.habits : palette.mutedSurface, borderColor: selectedDays.includes(day) ? palette.habits : palette.cardBorder }]} onPress={() => toggleWeekday(day)}>
-                    <Text style={[styles.pillText, { color: selectedDays.includes(day) ? '#FFFFFF' : palette.textMuted }]}>{day}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            ) : null}
-            <TouchableOpacity style={[styles.sheetOption, { borderColor: taskDaysMode === 'specific_month_days' ? palette.habits : palette.cardBorder }]} onPress={() => setTaskDaysMode('specific_month_days')}>
-              <Text style={[styles.sheetOptionText, { color: palette.text }]}>Specific month days</Text>
-            </TouchableOpacity>
-            {taskDaysMode === 'specific_month_days' ? (
-              <View style={styles.monthDaysGrid}>
-                {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
-                  <TouchableOpacity key={day} style={[styles.monthDayChip, { backgroundColor: selectedMonthDays.includes(day) ? palette.habits : palette.mutedSurface, borderColor: selectedMonthDays.includes(day) ? palette.habits : palette.cardBorder }]} onPress={() => toggleMonthDay(day)}>
-                    <Text style={[styles.monthDayChipText, { color: selectedMonthDays.includes(day) ? '#FFFFFF' : palette.textMuted }]}>{day}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            ) : null}
-            <TouchableOpacity style={[styles.sheetDone, { backgroundColor: palette.habits }]} onPress={() => setShowTaskDaysSheet(false)}>
-              <Text style={styles.sheetDoneText}>Done</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </RNModal>
-
-      <PlatformTimePicker
-        visible={showReminderTimePicker}
-        value={new Date()}
-        onClose={() => setShowReminderTimePicker(false)}
-        onChange={(date) => {
-          const value = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          setReminderTimes((prev) => {
-            if (editingReminderTimeIndex !== null && prev[editingReminderTimeIndex]) {
-              const updated = [...prev];
-              updated[editingReminderTimeIndex] = value;
-              return Array.from(new Set(updated));
-            }
-            return Array.from(new Set([...prev, value]));
-          });
-        }}
-      />
       <PlatformDatePicker visible={showStartDatePicker} value={startDate} onClose={() => setShowStartDatePicker(false)} onChange={(date) => setStartDate(toISODate(date))} />
       <PlatformDatePicker visible={showEndDatePicker} value={endDate || new Date()} onClose={() => setShowEndDatePicker(false)} onChange={(date) => setEndDate(toISODate(date))} />
     </View>
@@ -1521,6 +2465,7 @@ const createStyles = (palette) =>
     pageTitle: { ...typography.h1, fontSize: 34, fontWeight: '700' },
     pageSubtitle: { ...typography.bodySmall, marginTop: 2 },
     iconButton: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+    headerAddWrap: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
     headerAddButton: {
       width: 42,
       height: 42,
@@ -1529,6 +2474,50 @@ const createStyles = (palette) =>
       justifyContent: 'center',
       ...shadows.small,
     },
+    addTypeDimOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(8,12,24,0.58)',
+      zIndex: 70,
+      elevation: 70,
+    },
+    addTypeDimOverlayTouch: {
+      ...StyleSheet.absoluteFillObject,
+    },
+    addTypeFloatingWrap: {
+      position: 'absolute',
+      width: 42,
+      height: 42,
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 71,
+      elevation: 71,
+    },
+    addTypeInlineMenu: {
+      position: 'absolute',
+      left: 21,
+      top: 21,
+      width: 0,
+      height: 0,
+    },
+    addTypeInlinePill: {
+      position: 'absolute',
+      width: 120,
+      height: 48,
+      borderWidth: 1,
+      borderRadius: borderRadius.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+      ...shadows.small,
+    },
+    addTypeInlinePillPersonal: {
+      left: -150,
+      top: -24,
+    },
+    addTypeInlinePillGroup: {
+      left: -110,
+      top: 36,
+    },
+    addTypeInlinePillText: { ...typography.body, fontWeight: '700' },
     dateStrip: { marginBottom: spacing.md },
     datePill: { width: 66, borderRadius: borderRadius.lg, paddingVertical: spacing.sm, borderWidth: 1, alignItems: 'center', marginRight: spacing.sm },
     datePillDay: { ...typography.caption, textTransform: 'capitalize' },
@@ -1567,8 +2556,10 @@ const createStyles = (palette) =>
     habitInfo: { flex: 1, marginRight: spacing.md },
     habitTitle: { ...typography.h3, fontWeight: '700', marginBottom: spacing.xs },
     habitMeta: { ...typography.caption, fontWeight: '600' },
-    progressBadge: { width: 56, height: 56, borderRadius: 28, borderWidth: 3, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.75)' },
-    progressBadgeText: { ...typography.caption, fontWeight: '700' },
+    progressMeta: { alignItems: 'flex-end', justifyContent: 'center', minWidth: 104 },
+    progressStreakRow: { flexDirection: 'row', alignItems: 'center' },
+    progressMetaStreak: { ...typography.bodySmall, fontWeight: '800', marginLeft: 4 },
+    progressMetaPercent: { ...typography.bodySmall, fontWeight: '800', marginTop: 8 },
     habitHint: { ...typography.caption, marginTop: spacing.sm, textAlign: 'center' },
     manualCard: { borderRadius: borderRadius.xl, borderWidth: 1, padding: spacing.lg },
     manualTitle: { ...typography.h3, fontWeight: '700' },
@@ -1594,6 +2585,26 @@ const createStyles = (palette) =>
     formBody: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxxl },
     sectionCard: { borderRadius: borderRadius.xl, borderWidth: 1, padding: spacing.md, marginBottom: spacing.md },
     sectionTitle: { ...typography.body, fontWeight: '700', marginBottom: spacing.sm },
+    formIdentityRow: { flexDirection: 'row', alignItems: 'stretch', marginBottom: spacing.sm },
+    formIdentityInputs: { flex: 1, marginRight: spacing.sm },
+    formDescriptionInput: { marginBottom: 0 },
+    formEmojiButton: {
+      width: 70,
+      borderWidth: 1,
+      borderRadius: borderRadius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.xs,
+    },
+    formEmojiValue: { ...typography.h3 },
+    formEmojiLabel: { ...typography.caption, marginTop: 2, fontWeight: '600' },
+    emojiSelectorInline: {
+      borderWidth: 1,
+      borderRadius: borderRadius.md,
+      padding: spacing.sm,
+      marginBottom: spacing.sm,
+    },
     formInput: { borderWidth: 1, borderRadius: borderRadius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, ...typography.body, marginBottom: spacing.sm },
     formTextArea: { minHeight: 84, textAlignVertical: 'top' },
     colorRow: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: spacing.xs },
@@ -1611,6 +2622,25 @@ const createStyles = (palette) =>
     segment: { flex: 1, borderRadius: borderRadius.full, alignItems: 'center', paddingVertical: 9 },
     segmentText: { ...typography.body, fontWeight: '700' },
     rowLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(120,120,120,0.25)' },
+    inlineSheet: {
+      borderWidth: 1,
+      borderRadius: borderRadius.md,
+      padding: spacing.sm,
+      marginBottom: spacing.sm,
+    },
+    inlineSheetOption: { marginBottom: spacing.xs },
+    shareFriendRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
+    shareFriendTextWrap: { flex: 1, marginRight: spacing.sm },
+    shareFriendName: { ...typography.body, fontWeight: '600' },
+    shareFriendUser: { ...typography.caption, marginTop: 2 },
+    shareFriendAction: {
+      borderWidth: 1,
+      borderRadius: borderRadius.full,
+      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.md,
+    },
+    shareFriendActionText: { ...typography.bodySmall, fontWeight: '700' },
+    shareHint: { ...typography.caption, marginTop: spacing.xs },
     rowLabel: { ...typography.body, fontWeight: '600', flex: 1, marginRight: spacing.sm },
     rowValue: { ...typography.bodySmall, fontWeight: '600' },
     goalInputs: { flexDirection: 'row' },
@@ -1796,9 +2826,39 @@ const createStyles = (palette) =>
     sheetTitle: { ...typography.h3, fontWeight: '700', textAlign: 'center', marginBottom: spacing.md },
     sheetOption: { borderRadius: borderRadius.md, borderWidth: 1, paddingVertical: spacing.md, paddingHorizontal: spacing.md, marginBottom: spacing.sm },
     sheetOptionText: { ...typography.body, fontWeight: '600' },
+    emojiGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: spacing.sm },
+    emojiOption: {
+      width: '14.8%',
+      aspectRatio: 1,
+      borderWidth: 1,
+      borderRadius: borderRadius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: spacing.sm,
+    },
+    emojiOptionText: { fontSize: 22 },
     monthDaysGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
     monthDayChip: { width: '13%', aspectRatio: 1, borderWidth: 1, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.sm },
     monthDayChipText: { ...typography.caption, fontWeight: '700' },
+    inlineTimePickerCard: {
+      borderWidth: 1,
+      borderRadius: borderRadius.md,
+      padding: spacing.sm,
+      marginBottom: spacing.sm,
+    },
+    inlineTimePickerActions: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      marginTop: spacing.xs,
+    },
+    inlineTimePickerBtn: {
+      borderWidth: 1,
+      borderRadius: borderRadius.full,
+      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.md,
+      marginLeft: spacing.sm,
+    },
+    inlineTimePickerBtnText: { ...typography.bodySmall, fontWeight: '700' },
     sheetDone: { borderRadius: borderRadius.full, alignItems: 'center', paddingVertical: spacing.md, marginTop: spacing.sm },
     sheetDoneText: { ...typography.bodySmall, color: '#FFFFFF', fontWeight: '700' },
   });

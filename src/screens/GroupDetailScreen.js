@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -6,13 +6,534 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
+  Animated,
+  PanResponder,
+  TextInput,
+  Image,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, Feather } from '@expo/vector-icons';
 import { colors, spacing, borderRadius, typography, shadows } from '../utils/theme';
 import { Card, Modal, Button, Input } from '../components';
 import { useApp } from '../context/AppContext';
+
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+const parseNumber = (value, fallback = 0) => {
+  const next = Number(value);
+  return Number.isFinite(next) ? next : fallback;
+};
+const withAlpha = (hexColor, alpha = 0.15) => {
+  if (!hexColor || typeof hexColor !== 'string') return `rgba(155,89,182,${alpha})`;
+  const clean = hexColor.replace('#', '');
+  const full = clean.length === 3 ? clean.split('').map((ch) => `${ch}${ch}`).join('') : clean;
+  if (full.length !== 6) return `rgba(155,89,182,${alpha})`;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${clamp(alpha, 0, 1)})`;
+};
+const getReadableTextColor = (hexColor) => {
+  const clean = (hexColor || '#9B59B6').replace('#', '');
+  const full = clean.length === 3 ? clean.split('').map((ch) => `${ch}${ch}`).join('') : clean;
+  const base = full.length === 6 ? full : '9B59B6';
+  const toLinear = (value) => {
+    const channel = value / 255;
+    return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  };
+  const r = parseInt(base.slice(0, 2), 16);
+  const g = parseInt(base.slice(2, 4), 16);
+  const b = parseInt(base.slice(4, 6), 16);
+  const luminance = 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+  return luminance < 0.43 ? '#F8FAFC' : '#111827';
+};
+const parseColorToRgba = (value) => {
+  if (!value || typeof value !== 'string') return null;
+  const source = value.trim();
+  if (!source) return null;
+
+  const hex = source.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hex) {
+    const clean = hex[1];
+    const full = clean.length === 3 ? clean.split('').map((ch) => `${ch}${ch}`).join('') : clean;
+    return {
+      r: parseInt(full.slice(0, 2), 16),
+      g: parseInt(full.slice(2, 4), 16),
+      b: parseInt(full.slice(4, 6), 16),
+      a: 1,
+    };
+  }
+
+  const rgb = source.match(/^rgba?\(([^)]+)\)$/i);
+  if (rgb) {
+    const parts = rgb[1]
+      .split(',')
+      .map((part) => part.trim())
+      .map((part) => Number(part));
+    if (parts.length < 3 || parts.slice(0, 3).some((part) => Number.isNaN(part))) return null;
+    return {
+      r: clamp(Math.round(parts[0]), 0, 255),
+      g: clamp(Math.round(parts[1]), 0, 255),
+      b: clamp(Math.round(parts[2]), 0, 255),
+      a: parts.length >= 4 && Number.isFinite(parts[3]) ? clamp(parts[3], 0, 1) : 1,
+    };
+  }
+
+  return null;
+};
+const toSolidColor = (value, backdrop = '#FFFFFF') => {
+  const foreground = parseColorToRgba(value);
+  if (!foreground) return null;
+  const alpha = Number.isFinite(foreground.a) ? clamp(foreground.a, 0, 1) : 1;
+  if (alpha >= 0.999) {
+    return { r: foreground.r, g: foreground.g, b: foreground.b };
+  }
+
+  const backgroundSolid = toSolidColor(backdrop, '#FFFFFF') || { r: 255, g: 255, b: 255 };
+  return {
+    r: Math.round(foreground.r * alpha + backgroundSolid.r * (1 - alpha)),
+    g: Math.round(foreground.g * alpha + backgroundSolid.g * (1 - alpha)),
+    b: Math.round(foreground.b * alpha + backgroundSolid.b * (1 - alpha)),
+  };
+};
+const toRelativeLuminance = ({ r, g, b }) => {
+  const toLinear = (value) => {
+    const channel = clamp(value, 0, 255) / 255;
+    return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+};
+const getContrastRatio = (foreground, background) => {
+  const l1 = toRelativeLuminance(foreground);
+  const l2 = toRelativeLuminance(background);
+  const light = Math.max(l1, l2);
+  const dark = Math.min(l1, l2);
+  return (light + 0.05) / (dark + 0.05);
+};
+const resolveContrastColor = ({
+  preferredColor,
+  backgroundColor,
+  fallbackColor,
+  backgroundBaseColor = '#FFFFFF',
+  minContrast = 2.5,
+}) => {
+  const preferred = toSolidColor(preferredColor, '#FFFFFF');
+  const background =
+    toSolidColor(backgroundColor, backgroundBaseColor) || toSolidColor(backgroundBaseColor, '#FFFFFF');
+  const fallback = toSolidColor(fallbackColor, '#FFFFFF');
+  if (!preferred || !background) return preferredColor;
+
+  const preferredRatio = getContrastRatio(preferred, background);
+  if (preferredRatio >= minContrast) return preferredColor;
+
+  if (!fallback) return preferredColor;
+  const fallbackRatio = getContrastRatio(fallback, background);
+  return fallbackRatio > preferredRatio ? fallbackColor : preferredColor;
+};
+const getGoalValue = (habit) => Math.max(1, parseNumber(habit?.goalValue, 1));
+const getCompletionRatio = (habit, amount) => {
+  const goal = getGoalValue(habit);
+  return clamp(amount / goal, 0, 1);
+};
+const computeCurrentStreakFromIsoDates = (dateValues = []) => {
+  if (!dateValues.length) return 0;
+  const dateSet = new Set((dateValues || []).map((value) => String(value).slice(0, 10)));
+  let streak = 0;
+  const cursor = new Date();
+  while (true) {
+    const key = cursor.toISOString().slice(0, 10);
+    if (!dateSet.has(key)) break;
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+};
+
+const SwipeHabitCard = ({
+  habit,
+  progress,
+  ratio,
+  completed,
+  completedMembers = [],
+  isInteractive,
+  onTap,
+  onEdit,
+  onSkip,
+  onReset,
+  onSwipeAdd,
+  onSwipeInteractionChange,
+  styles,
+  palette,
+}) => {
+  const ACTION_RAIL_WIDTH = 228;
+  const FILL_SWIPE_DISTANCE = 165;
+  const { width: windowWidth } = useWindowDimensions();
+  const rowWidth = Math.max(1, windowWidth - spacing.lg * 2);
+  const translateX = useRef(new Animated.Value(0)).current;
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [dragFillRatio, setDragFillRatio] = useState(0);
+  const dragFillRatioRef = useRef(0);
+  const swipeActiveRef = useRef(false);
+  const fillRafRef = useRef(null);
+  const fillResetTimeoutRef = useRef(null);
+
+  const flushDragFillToState = useCallback(() => {
+    if (fillRafRef.current !== null) {
+      cancelAnimationFrame(fillRafRef.current);
+      fillRafRef.current = null;
+    }
+    setDragFillRatio(dragFillRatioRef.current);
+  }, []);
+
+  const setDragFillPreview = useCallback(
+    (next, { instant = false } = {}) => {
+      if (fillResetTimeoutRef.current) {
+        clearTimeout(fillResetTimeoutRef.current);
+        fillResetTimeoutRef.current = null;
+      }
+      const clamped = clamp(next, 0, 1);
+      const previous = dragFillRatioRef.current;
+      if (!instant && Math.abs(clamped - previous) < 0.0015) return;
+      dragFillRatioRef.current = clamped;
+
+      if (instant) {
+        flushDragFillToState();
+        return;
+      }
+
+      if (fillRafRef.current !== null) return;
+      fillRafRef.current = requestAnimationFrame(() => {
+        fillRafRef.current = null;
+        setDragFillRatio(dragFillRatioRef.current);
+      });
+    },
+    [flushDragFillToState]
+  );
+
+  const clearDragFillPreview = useCallback(
+    ({ deferMs = 0 } = {}) => {
+      if (fillResetTimeoutRef.current) {
+        clearTimeout(fillResetTimeoutRef.current);
+        fillResetTimeoutRef.current = null;
+      }
+
+      const clearNow = () => {
+        dragFillRatioRef.current = 0;
+        flushDragFillToState();
+      };
+
+      if (deferMs > 0) {
+        fillResetTimeoutRef.current = setTimeout(clearNow, deferMs);
+        return;
+      }
+
+      clearNow();
+    },
+    [flushDragFillToState]
+  );
+
+  const setSwipeInteractionActive = useCallback(
+    (active) => {
+      if (swipeActiveRef.current === active) return;
+      swipeActiveRef.current = active;
+      if (typeof onSwipeInteractionChange === 'function') {
+        onSwipeInteractionChange(active);
+      }
+    },
+    [onSwipeInteractionChange]
+  );
+
+  useEffect(
+    () => () => {
+      if (fillResetTimeoutRef.current) {
+        clearTimeout(fillResetTimeoutRef.current);
+        fillResetTimeoutRef.current = null;
+      }
+      if (fillRafRef.current !== null) {
+        cancelAnimationFrame(fillRafRef.current);
+        fillRafRef.current = null;
+      }
+      setSwipeInteractionActive(false);
+    },
+    [setSwipeInteractionActive]
+  );
+
+  const closeActions = useCallback(() => {
+    Animated.spring(translateX, {
+      toValue: 0,
+      useNativeDriver: true,
+      speed: 22,
+      bounciness: 7,
+    }).start(() => setActionsOpen(false));
+  }, [translateX]);
+
+  const openActions = useCallback(() => {
+    Animated.spring(translateX, {
+      toValue: -ACTION_RAIL_WIDTH,
+      useNativeDriver: true,
+      speed: 22,
+      bounciness: 7,
+    }).start(() => setActionsOpen(true));
+  }, [ACTION_RAIL_WIDTH, translateX]);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, g) =>
+          isInteractive && Math.abs(g.dx) > Math.abs(g.dy) && Math.abs(g.dx) > 7,
+        onPanResponderGrant: () => {
+          if (!isInteractive) return;
+          setSwipeInteractionActive(true);
+        },
+        onPanResponderMove: (_, g) => {
+          if (!isInteractive) return;
+
+          if (actionsOpen) {
+            clearDragFillPreview();
+            if (g.dx >= 0) {
+              translateX.setValue(clamp(-ACTION_RAIL_WIDTH + g.dx, -ACTION_RAIL_WIDTH, 0));
+            } else {
+              translateX.setValue(-ACTION_RAIL_WIDTH);
+            }
+            return;
+          }
+
+          if (g.dx < 0) {
+            clearDragFillPreview();
+            translateX.setValue(clamp(g.dx, -ACTION_RAIL_WIDTH, 0));
+            return;
+          }
+
+          translateX.setValue(0);
+          setDragFillPreview(g.dx / FILL_SWIPE_DISTANCE);
+        },
+        onPanResponderRelease: (_, g) => {
+          setSwipeInteractionActive(false);
+          if (!isInteractive) {
+            clearDragFillPreview();
+            closeActions();
+            return;
+          }
+
+          if (actionsOpen) {
+            clearDragFillPreview();
+            const shouldClose = g.dx > 32 || g.vx > 0.35;
+            if (shouldClose) {
+              closeActions();
+            } else {
+              openActions();
+            }
+            return;
+          }
+
+          if (g.dx < 0) {
+            clearDragFillPreview();
+            const shouldOpen = g.dx < -42 || g.vx < -0.35;
+            if (shouldOpen) {
+              openActions();
+            } else {
+              closeActions();
+            }
+            return;
+          }
+
+          if (g.dx >= 12) {
+            const swipeRatio = clamp(
+              Math.max(dragFillRatioRef.current, g.dx / FILL_SWIPE_DISTANCE),
+              0,
+              1
+            );
+            if (swipeRatio < 0.03) {
+              closeActions();
+              return;
+            }
+            const targetRatio = Math.max(ratio, swipeRatio);
+            setDragFillPreview(targetRatio, { instant: true });
+            onSwipeAdd(habit, Math.max(1, Math.round(getGoalValue(habit) * targetRatio)));
+            clearDragFillPreview({ deferMs: 120 });
+            closeActions();
+            return;
+          }
+
+          clearDragFillPreview();
+          closeActions();
+        },
+        onPanResponderTerminate: () => {
+          setSwipeInteractionActive(false);
+          clearDragFillPreview();
+          if (actionsOpen) {
+            openActions();
+          } else {
+            closeActions();
+          }
+        },
+      }),
+    [
+      ACTION_RAIL_WIDTH,
+      FILL_SWIPE_DISTANCE,
+      actionsOpen,
+      clearDragFillPreview,
+      closeActions,
+      dragFillRatioRef,
+      habit,
+      isInteractive,
+      onSwipeAdd,
+      setSwipeInteractionActive,
+      openActions,
+      ratio,
+      setDragFillPreview,
+      translateX,
+    ]
+  );
+
+  const displayRatio = clamp(Math.max(ratio, dragFillRatio), 0, 1);
+  const fillWidth = rowWidth * displayRatio;
+  const habitColor = habit.color || palette.habits;
+  const tintedTrack = withAlpha(habitColor, 0.16);
+  const tintedSurface = withAlpha(habitColor, completed ? 0.18 : 0.1);
+  const habitTextColor = getReadableTextColor(habitColor);
+  const habitSubTextColor = withAlpha(habitTextColor, 0.8);
+  const habitHintColor = withAlpha(habitTextColor, 0.72);
+  const streakIconColor = resolveContrastColor({
+    preferredColor: '#F97316',
+    backgroundColor: tintedSurface,
+    fallbackColor: habitTextColor,
+    backgroundBaseColor: tintedTrack,
+  });
+
+  return (
+    <View style={styles.swipeRow}>
+      <Animated.View
+        style={[
+          styles.swipeTrack,
+          {
+            width: rowWidth + ACTION_RAIL_WIDTH,
+            transform: [{ translateX }],
+          },
+        ]}
+        {...panResponder.panHandlers}
+      >
+        <View style={[styles.habitWrapper, { width: rowWidth }]}>
+          <View style={[styles.fillTrack, { backgroundColor: tintedTrack }]}>
+            <View style={[styles.fillValue, { width: fillWidth, backgroundColor: habitColor }]} />
+          </View>
+          <TouchableOpacity
+            style={[
+              styles.habitCard,
+              {
+                borderColor: habitColor,
+                backgroundColor: tintedSurface,
+                opacity: isInteractive ? 1 : 0.78,
+              },
+            ]}
+            onPress={() => {
+              if (actionsOpen) {
+                closeActions();
+                return;
+              }
+              onTap(habit);
+            }}
+            activeOpacity={0.9}
+          >
+            <View style={styles.habitRow}>
+              <View style={[styles.habitAvatar, { backgroundColor: withAlpha(habitColor, 0.2) }]}>
+                <Text style={[styles.habitAvatarText, { color: habitTextColor }]}>
+                  {habit.emoji || habit.title?.slice(0, 1)?.toUpperCase() || 'H'}
+                </Text>
+              </View>
+              <View style={styles.habitInfo}>
+                <Text style={[styles.habitTitle, { color: habitTextColor }]} numberOfLines={1}>
+                  {habit.title}
+                </Text>
+                <View style={styles.habitMetaRow}>
+                  <Text style={[styles.habitMeta, { color: habitSubTextColor }]}>
+                    {Math.round(progress)} / {getGoalValue(habit)} {habit.goalUnit || 'times'}
+                  </Text>
+                  {completedMembers.length ? (
+                    <View style={styles.completedMembersRow}>
+                      {completedMembers.map((member, index) => (
+                        <View
+                          key={`${member?.id || 'member'}-${index}`}
+                          style={[
+                            styles.completedMemberAvatar,
+                            index > 0 && styles.completedMemberAvatarOverlap,
+                            {
+                              backgroundColor: withAlpha(habitColor, 0.22),
+                              borderColor: tintedSurface,
+                            },
+                          ]}
+                        >
+                          {member?.avatarUrl ? (
+                            <Image
+                              source={{ uri: member.avatarUrl }}
+                              style={styles.completedMemberImage}
+                              resizeMode="cover"
+                            />
+                          ) : (
+                            <Text style={[styles.completedMemberInitial, { color: habitTextColor }]}>
+                              {(member?.name || member?.username || '?').slice(0, 1).toUpperCase()}
+                            </Text>
+                          )}
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+              <View style={styles.progressMeta}>
+                <View style={styles.progressStreakRow}>
+                  <Ionicons name="flame" size={14} color={streakIconColor} />
+                  <Text style={[styles.progressMetaStreak, { color: habitTextColor }]}>
+                    {habit.streak || 0} day streak
+                  </Text>
+                </View>
+                <Text style={[styles.progressMetaPercent, { color: habitTextColor }]}>
+                  {Math.round(ratio * 100)}%
+                </Text>
+              </View>
+            </View>
+            <Text style={[styles.habitHint, { color: habitHintColor }]}>
+              Swipe right to add progress - Swipe left for actions - Tap for exact amount
+            </Text>
+          </TouchableOpacity>
+        </View>
+        <View style={[styles.actionRailInline, { width: ACTION_RAIL_WIDTH }]}>
+          <TouchableOpacity
+            style={[styles.actionTile, styles.actionTileEdit]}
+            onPress={() => {
+              closeActions();
+              onEdit(habit);
+            }}
+          >
+            <Feather name="edit-2" size={17} color="#2D6BFF" />
+            <Text style={[styles.actionText, { color: '#2D6BFF' }]}>Details</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionTile, styles.actionTileSkip]}
+            onPress={() => {
+              closeActions();
+              onSkip(habit);
+            }}
+          >
+            <Ionicons name="play-skip-forward" size={17} color="#FF8A1F" />
+            <Text style={[styles.actionText, { color: '#FF8A1F' }]}>Skip</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionTile, styles.actionTileReset]}
+            onPress={() => {
+              closeActions();
+              onReset(habit);
+            }}
+          >
+            <Ionicons name="refresh" size={17} color="#16A34A" />
+            <Text style={[styles.actionText, { color: '#16A34A' }]}>Reset</Text>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
+    </View>
+  );
+};
 
 const GroupDetailScreen = () => {
   const insets = useSafeAreaInsets();
@@ -21,12 +542,12 @@ const GroupDetailScreen = () => {
   const { groupId } = route.params || {};
 
   const {
+    habits,
     groups,
     groupHabits,
     groupHabitCompletions,
     groupRoutines,
     fetchGroupMembers,
-    addGroupHabit,
     toggleGroupHabitCompletion,
     addGroupRoutine,
     addTaskToGroupRoutine,
@@ -44,31 +565,60 @@ const GroupDetailScreen = () => {
   } = useApp();
 
   const [members, setMembers] = useState([]);
-  const [showHabitModal, setShowHabitModal] = useState(false);
   const [showRoutineModal, setShowRoutineModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
-  const [habitTitle, setHabitTitle] = useState('');
-  const [habitDescription, setHabitDescription] = useState('');
   const [routineName, setRoutineName] = useState('');
   const [taskName, setTaskName] = useState('');
   const [selectedRoutineId, setSelectedRoutineId] = useState(null);
-  const [submittingHabit, setSubmittingHabit] = useState(false);
   const [submittingRoutine, setSubmittingRoutine] = useState(false);
   const [deletingGroup, setDeletingGroup] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [selectedInvitees, setSelectedInvitees] = useState([]);
   const [sendingInvites, setSendingInvites] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
+  const [isHabitSwipeActive, setIsHabitSwipeActive] = useState(false);
+  const [groupLocalProgressMap, setGroupLocalProgressMap] = useState({});
+  const [activeHabitId, setActiveHabitId] = useState(null);
+  const [showHabitManualModal, setShowHabitManualModal] = useState(false);
+  const [habitManualAmount, setHabitManualAmount] = useState('');
+  const [habitManualAutoComplete, setHabitManualAutoComplete] = useState(false);
 
   const themedStyles = useMemo(() => createStyles(themeColors || colors), [themeColors]);
+  const habitPalette = useMemo(
+    () => ({
+      habits: themeColors?.habits || themeColors?.primary || colors.habits,
+      card: themeColors?.card || colors.card,
+      cardBorder: themeColors?.border || colors.border,
+      text: themeColors?.text || colors.text,
+      textMuted: themeColors?.textSecondary || colors.textSecondary,
+      textLight: themeColors?.textLight || colors.textLight,
+      mutedSurface: themeColors?.inputBackground || colors.inputBackground,
+      background: themeColors?.background || colors.background,
+    }),
+    [themeColors]
+  );
 
   const group = groups.find((g) => g.id === groupId);
   const isAdmin = group?.ownerId === authUser?.id;
-  const groupHabitsForGroup = (groupHabits || []).filter((h) => h.groupId === groupId);
-  const groupRoutinesForGroup = (groupRoutines || []).filter((r) => r.groupId === groupId);
+  const groupHabitsForGroup = useMemo(
+    () => (groupHabits || []).filter((habit) => habit.groupId === groupId),
+    [groupHabits, groupId]
+  );
+  const groupRoutinesForGroup = useMemo(
+    () => (groupRoutines || []).filter((routine) => routine.groupId === groupId),
+    [groupRoutines, groupId]
+  );
   const memberList = useMemo(
     () => (members.length ? members : group?.members || []),
     [members, group?.members]
+  );
+  const membersById = useMemo(
+    () =>
+      (memberList || []).reduce((acc, member) => {
+        if (member?.id) acc[member.id] = member;
+        return acc;
+      }, {}),
+    [memberList]
   );
   const todayKey = new Date().toISOString().slice(0, 10);
   const memberCount = memberList.length;
@@ -113,6 +663,90 @@ const GroupDetailScreen = () => {
       .map((member) => ({ ...member, todayCount: counts.get(member.id) || 0 }))
       .sort((a, b) => b.todayCount - a.todayCount);
   }, [memberList, todayCompletions]);
+  const sourceHabitsById = useMemo(
+    () =>
+      (habits || []).reduce((acc, habit) => {
+        if (habit?.id) acc[habit.id] = habit;
+        return acc;
+      }, {}),
+    [habits]
+  );
+  const groupHabitsWithDefaults = useMemo(
+    () =>
+      (groupHabitsForGroup || []).map((habit) => {
+        const sourceHabit = habit?.sourceHabitId ? sourceHabitsById[habit.sourceHabitId] : null;
+        const completions = groupHabitCompletions[habit.id] || [];
+        const myCompletionDays = completions
+          .filter((completion) => completion.userId === authUser?.id)
+          .map((completion) => String(completion.date).slice(0, 10));
+        const goalValue = Math.max(1, parseNumber(habit.goalValue, parseNumber(sourceHabit?.goalValue, 1)));
+        return {
+          ...habit,
+          habitType: habit.habitType || sourceHabit?.habitType || 'build',
+          goalValue,
+          goalUnit: habit.goalUnit || sourceHabit?.goalUnit || 'times',
+          goalPeriod: habit.goalPeriod || sourceHabit?.goalPeriod || 'day',
+          timeRange: habit.timeRange || sourceHabit?.timeRange || 'all_day',
+          taskDaysMode: habit.taskDaysMode || sourceHabit?.taskDaysMode || 'every_day',
+          taskDaysCount: parseNumber(habit.taskDaysCount, parseNumber(sourceHabit?.taskDaysCount, 3)),
+          monthDays:
+            Array.isArray(habit.monthDays) && habit.monthDays.length
+              ? habit.monthDays
+              : Array.isArray(sourceHabit?.monthDays)
+              ? sourceHabit.monthDays
+              : [],
+          remindersEnabled: habit.remindersEnabled ?? sourceHabit?.remindersEnabled ?? false,
+          reminderTimes:
+            Array.isArray(habit.reminderTimes) && habit.reminderTimes.length
+              ? habit.reminderTimes
+              : Array.isArray(sourceHabit?.reminderTimes)
+              ? sourceHabit.reminderTimes
+              : [],
+          reminderMessage: habit.reminderMessage || sourceHabit?.reminderMessage || '',
+          showMemoAfterCompletion:
+            habit.showMemoAfterCompletion ?? sourceHabit?.showMemoAfterCompletion ?? false,
+          chartType: habit.chartType || sourceHabit?.chartType || 'bar',
+          startDate: habit.startDate || sourceHabit?.startDate || null,
+          endDate: habit.endDate || sourceHabit?.endDate || null,
+          color: habit.color || sourceHabit?.color || habitPalette.habits,
+          emoji: habit.emoji || sourceHabit?.emoji || '',
+          streak: computeCurrentStreakFromIsoDates(myCompletionDays),
+        };
+      }),
+    [groupHabitsForGroup, groupHabitCompletions, authUser?.id, habitPalette.habits, sourceHabitsById]
+  );
+  const completedMembersByHabit = useMemo(() => {
+    const map = {};
+    (groupHabitsWithDefaults || []).forEach((habit) => {
+      const seen = new Set();
+      map[habit.id] = (groupHabitCompletions[habit.id] || [])
+        .filter((completion) => completion.date === todayKey)
+        .map((completion) => {
+          const userId = completion?.userId;
+          if (!userId || seen.has(userId)) return null;
+          seen.add(userId);
+          return membersById[userId] || { id: userId, name: 'Member', avatarUrl: null };
+        })
+        .filter(Boolean);
+    });
+    return map;
+  }, [groupHabitsWithDefaults, groupHabitCompletions, membersById, todayKey]);
+  const selectedHabit = useMemo(
+    () => groupHabitsWithDefaults.find((habit) => habit.id === activeHabitId) || null,
+    [activeHabitId, groupHabitsWithDefaults]
+  );
+  const selectedHabitColor = selectedHabit?.color || habitPalette.habits;
+  const selectedHabitProgress = selectedHabit
+    ? groupLocalProgressMap[selectedHabit.id] ??
+      (() => {
+        const row = (groupHabitCompletions[selectedHabit.id] || []).find(
+          (completion) => completion.userId === authUser?.id && completion.date === todayKey
+        );
+        if (!row) return 0;
+        const rawAmount = Number(row.amount);
+        return Number.isFinite(rawAmount) && rawAmount > 0 ? rawAmount : 1;
+      })()
+    : 0;
 
   useEffect(() => {
     ensureGroupDataLoaded();
@@ -124,25 +758,6 @@ const GroupDetailScreen = () => {
       fetchGroupMembers(groupId).then((res) => setMembers(res || []));
     }
   }, [groupId, fetchGroupMembers]);
-
-  const handleAddHabit = async () => {
-    if (!habitTitle.trim()) return;
-    setSubmittingHabit(true);
-    try {
-      await addGroupHabit({
-        groupId,
-        title: habitTitle.trim(),
-        description: habitDescription.trim(),
-      });
-      setHabitTitle('');
-      setHabitDescription('');
-      setShowHabitModal(false);
-    } catch (err) {
-      Alert.alert('Unable to create habit', err?.message || 'Please try again.');
-    } finally {
-      setSubmittingHabit(false);
-    }
-  };
 
   const handleAddRoutine = async () => {
     if (!routineName.trim()) return;
@@ -200,6 +815,19 @@ const GroupDetailScreen = () => {
     }
     setShowInviteModal(true);
   };
+  const openGroupHabitCreator = useCallback(() => {
+    if (!groupId) return;
+    navigation.navigate('Main', {
+      screen: 'Habits',
+      params: {
+        openHabitForm: true,
+        openHabitFormKey: `${groupId}-${Date.now()}`,
+        groupId,
+        hideSharing: true,
+        lockGroupSelection: true,
+      },
+    });
+  }, [navigation, groupId]);
 
   const handleToggleInvitee = (userId) => {
     setSelectedInvitees((prev) =>
@@ -224,76 +852,45 @@ const GroupDetailScreen = () => {
     }
   };
 
-  const habitPalette = ['#FCEFE2', '#E7FAEE', '#E8F1FF', '#F2E9FF'];
-  const habitIcons = ['water-outline', 'barbell-outline', 'book-outline', 'sunny-outline'];
-  const hashString = (value) =>
-    String(value || '')
-      .split('')
-      .reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  const pickFromList = (id, list) => list[Math.abs(hashString(id)) % list.length];
+  const getGroupHabitProgressAmount = useCallback(
+    (habit, localMap = groupLocalProgressMap) => {
+      if (!habit?.id) return 0;
+      if (Object.prototype.hasOwnProperty.call(localMap, habit.id)) {
+        return parseNumber(localMap[habit.id], 0);
+      }
+      const mineRow = (groupHabitCompletions[habit.id] || []).find(
+        (completion) => completion.userId === authUser?.id && completion.date === todayKey
+      );
+      if (!mineRow) return 0;
+      const rawAmount = Number(mineRow.amount);
+      return Number.isFinite(rawAmount) && rawAmount > 0 ? rawAmount : 1;
+    },
+    [groupHabitCompletions, groupLocalProgressMap, authUser?.id, todayKey]
+  );
 
-  const renderHabitRow = (habit, index) => {
-    const completions = groupHabitCompletions[habit.id] || [];
-    const todayCompletionsForHabit = completions.filter((c) => c.date === todayKey);
-    const completedByMe = todayCompletionsForHabit.some((c) => c.userId === authUser?.id);
-    const completionCount = todayCompletionsForHabit.length;
-    const progressValue = memberCount ? Math.min(100, Math.round((completionCount / memberCount) * 100)) : 0;
-    const completedMemberIds = Array.from(
-      new Set(todayCompletionsForHabit.map((completion) => completion.userId))
-    );
-    const completedMembers = completedMemberIds
-      .map((id) => memberList.find((member) => member.id === id))
-      .filter(Boolean);
-    const visibleMembers = completedMembers.slice(0, 4);
-    const extraCount = Math.max(0, completedMembers.length - visibleMembers.length);
-    const accentColor = pickFromList(habit.id || index, habitPalette);
-    const iconName = pickFromList(habit.id || index, habitIcons);
+  const applyGroupHabitProgress = useCallback(
+    async (habit, amountValue) => {
+      if (!habit?.id) return;
+      const amount = Math.max(0, parseNumber(amountValue, 0));
+      setGroupLocalProgressMap((prev) => ({ ...prev, [habit.id]: amount }));
+      await toggleGroupHabitCompletion(habit.id, {
+        amount,
+        dateISO: todayKey,
+      });
+    },
+    [toggleGroupHabitCompletion, todayKey]
+  );
 
-    return (
-      <View key={habit.id} style={themedStyles.habitCard}>
-        <View style={themedStyles.habitHeader}>
-          <View style={[themedStyles.habitIcon, { backgroundColor: accentColor }]}>
-            <Ionicons name={iconName} size={18} color={themedStyles.habitIconColor} />
-          </View>
-          <View style={themedStyles.habitText}>
-            <Text style={themedStyles.habitTitle}>{habit.title}</Text>
-            <Text style={themedStyles.habitMeta}>
-              {habit.description || `${completionCount}/${memberCount || 1} completed`}
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={[themedStyles.habitCheck, completedByMe && themedStyles.habitCheckActive]}
-            onPress={() => toggleGroupHabitCompletion(habit.id)}
-          >
-            {completedByMe ? (
-              <Ionicons name="checkmark" size={14} color="#FFFFFF" />
-            ) : null}
-          </TouchableOpacity>
-        </View>
-        <View style={themedStyles.progressTrack}>
-          <View style={[themedStyles.progressFill, { width: `${progressValue}%` }]} />
-        </View>
-        <View style={themedStyles.habitFooter}>
-          <Text style={themedStyles.habitFooterText}>
-            {completionCount}/{memberCount || 1} completed today
-          </Text>
-          <View style={themedStyles.avatarRow}>
-            {visibleMembers.map((member) => (
-              <View key={member.id} style={themedStyles.smallAvatar}>
-                <Text style={themedStyles.smallAvatarText}>
-                  {(member.name || member.username || '?').slice(0, 1).toUpperCase()}
-                </Text>
-              </View>
-            ))}
-            {extraCount > 0 ? (
-              <View style={themedStyles.smallAvatarAlt}>
-                <Text style={themedStyles.smallAvatarText}>+{extraCount}</Text>
-              </View>
-            ) : null}
-          </View>
-        </View>
-      </View>
-    );
+  const submitHabitManualAmount = async () => {
+    if (!selectedHabit) {
+      setShowHabitManualModal(false);
+      setHabitManualAutoComplete(false);
+      return;
+    }
+    const amountToApply = habitManualAutoComplete ? getGoalValue(selectedHabit) : habitManualAmount;
+    await applyGroupHabitProgress(selectedHabit, amountToApply);
+    setShowHabitManualModal(false);
+    setHabitManualAutoComplete(false);
   };
 
   const renderRoutine = (routine) => (
@@ -399,7 +996,7 @@ const GroupDetailScreen = () => {
       label: 'Add Habit',
       icon: 'flame-outline',
       background: '#E8F1FF',
-      onPress: () => setShowHabitModal(true),
+      onPress: openGroupHabitCreator,
     },
     {
       key: 'add-routine',
@@ -447,6 +1044,7 @@ const GroupDetailScreen = () => {
         style={themedStyles.scroll}
         contentContainerStyle={themedStyles.scrollContent}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={activeTab !== 'habits' || !isHabitSwipeActive}
       >
         <View style={[themedStyles.hero, { paddingTop: insets.top || spacing.lg }]}>
           <View style={themedStyles.heroTopRow}>
@@ -475,7 +1073,7 @@ const GroupDetailScreen = () => {
               ) : null}
               <TouchableOpacity
                 style={themedStyles.heroIconButton}
-                onPress={() => setShowHabitModal(true)}
+                onPress={openGroupHabitCreator}
               >
                 <Ionicons name="add" size={22} color={themedStyles.heroIconColor} />
               </TouchableOpacity>
@@ -628,14 +1226,56 @@ const GroupDetailScreen = () => {
           <View style={themedStyles.sectionBlock}>
             <View style={themedStyles.sectionHeader}>
               <Text style={themedStyles.sectionTitle}>Group habits</Text>
-              <TouchableOpacity style={themedStyles.iconButton} onPress={() => setShowHabitModal(true)}>
+              <TouchableOpacity style={themedStyles.iconButton} onPress={openGroupHabitCreator}>
                 <Ionicons name="add" size={18} color={themedStyles.iconColor} />
               </TouchableOpacity>
             </View>
-            {groupHabitsForGroup.length === 0 ? (
+            {groupHabitsWithDefaults.length === 0 ? (
               <Text style={themedStyles.emptyText}>No group habits yet.</Text>
             ) : (
-              groupHabitsForGroup.map((habit, index) => renderHabitRow(habit, index))
+              groupHabitsWithDefaults.map((habit) => {
+                const amount = getGroupHabitProgressAmount(habit);
+                const ratio = getCompletionRatio(habit, amount);
+                const completed = amount >= getGoalValue(habit);
+                return (
+                  <SwipeHabitCard
+                    key={habit.id}
+                    habit={habit}
+                    progress={amount}
+                    ratio={ratio}
+                    completed={completed}
+                    completedMembers={completedMembersByHabit[habit.id] || []}
+                    isInteractive
+                    onTap={(item) => {
+                      setActiveHabitId(item.id);
+                      setHabitManualAmount(String(Math.round(getGroupHabitProgressAmount(item))));
+                      setHabitManualAutoComplete(false);
+                      setShowHabitManualModal(true);
+                    }}
+                    onEdit={(item) => {
+                      navigation.navigate('Main', {
+                        screen: 'Habits',
+                        params: {
+                          openGroupHabitDetail: true,
+                          openGroupHabitDetailKey: `${groupId}:${item.id}:${Date.now()}`,
+                          groupId,
+                          groupHabitId: item.id,
+                        },
+                      });
+                    }}
+                    onSkip={async (item) => {
+                      await applyGroupHabitProgress(item, 0);
+                    }}
+                    onReset={async (item) => {
+                      await applyGroupHabitProgress(item, 0);
+                    }}
+                    onSwipeAdd={applyGroupHabitProgress}
+                    onSwipeInteractionChange={setIsHabitSwipeActive}
+                    styles={themedStyles}
+                    palette={habitPalette}
+                  />
+                );
+              })
             )}
           </View>
         ) : null}
@@ -658,42 +1298,85 @@ const GroupDetailScreen = () => {
       </ScrollView>
 
       <Modal
-        visible={showHabitModal}
+        visible={showHabitManualModal}
         onClose={() => {
-          setShowHabitModal(false);
-          setHabitTitle('');
-          setHabitDescription('');
+          setShowHabitManualModal(false);
+          setHabitManualAutoComplete(false);
         }}
-        title="New group habit"
-        fullScreen={false}
+        hideHeader
       >
-        <Input
-          label="Habit title"
-          value={habitTitle}
-          onChangeText={setHabitTitle}
-          placeholder="e.g., Morning check-in"
-        />
-        <Input
-          label="Description"
-          value={habitDescription}
-          onChangeText={setHabitDescription}
-          placeholder="Optional"
-          multiline
-        />
-        <View style={themedStyles.modalActions}>
-          <Button
-            title="Cancel"
-            variant="secondary"
-            onPress={() => setShowHabitModal(false)}
-            style={themedStyles.modalButton}
-          />
-          <Button
-            title="Create"
-            onPress={handleAddHabit}
-            disabled={!habitTitle.trim() || submittingHabit}
-            style={themedStyles.modalButton}
-          />
-        </View>
+        {selectedHabit ? (
+          <View
+            style={[
+              themedStyles.manualCard,
+              {
+                backgroundColor: habitPalette.card,
+                borderColor: habitPalette.cardBorder,
+              },
+            ]}
+          >
+            <Text style={[themedStyles.manualTitle, { color: habitPalette.text }]}>{selectedHabit.title}</Text>
+            <Text style={[themedStyles.manualSub, { color: habitPalette.textMuted }]}>Add progress manually</Text>
+            <TextInput
+              style={[
+                themedStyles.manualInput,
+                {
+                  borderColor: habitPalette.cardBorder,
+                  color: habitPalette.text,
+                  backgroundColor: habitPalette.mutedSurface,
+                },
+              ]}
+              value={habitManualAmount}
+              onChangeText={setHabitManualAmount}
+              keyboardType="decimal-pad"
+              placeholder="0"
+              placeholderTextColor={habitPalette.textLight}
+            />
+            <Text style={[themedStyles.manualGoal, { color: habitPalette.textMuted }]}>
+              Goal: {getGoalValue(selectedHabit)} {selectedHabit.goalUnit || 'times'}
+            </Text>
+            <View style={themedStyles.manualButtons}>
+              <TouchableOpacity
+                style={[themedStyles.manualBtn, { backgroundColor: habitPalette.mutedSurface }]}
+                onPress={() => {
+                  setShowHabitManualModal(false);
+                  setHabitManualAutoComplete(false);
+                }}
+              >
+                <Text style={[themedStyles.manualBtnText, { color: habitPalette.textMuted }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  themedStyles.manualCheckButton,
+                  {
+                    backgroundColor: habitManualAutoComplete ? '#16A34A' : habitPalette.mutedSurface,
+                    borderColor: habitManualAutoComplete ? '#16A34A' : habitPalette.cardBorder,
+                  },
+                ]}
+                onPress={() => {
+                  const next = !habitManualAutoComplete;
+                  setHabitManualAutoComplete(next);
+                  if (next) {
+                    setHabitManualAmount(String(getGoalValue(selectedHabit)));
+                  }
+                }}
+                activeOpacity={0.9}
+              >
+                <Ionicons
+                  name={habitManualAutoComplete ? 'checkbox' : 'square-outline'}
+                  size={20}
+                  color={habitManualAutoComplete ? '#FFFFFF' : '#16A34A'}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[themedStyles.manualBtn, { backgroundColor: selectedHabitColor }]}
+                onPress={submitHabitManualAmount}
+              >
+                <Text style={themedStyles.manualBtnTextWhite}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
       </Modal>
 
       <Modal
@@ -1141,107 +1824,109 @@ const createStyles = (themeColorsParam = colors) => {
       ...typography.body,
       color: baseText,
     },
-    habitCard: {
-      backgroundColor: themeColorsParam?.card || colors.card,
-      borderRadius: borderRadius.lg,
-      padding: spacing.lg,
-      marginBottom: spacing.md,
-      borderWidth: 1,
-      borderColor: themeColorsParam?.border || colors.border,
-      ...shadows.small,
-    },
-    habitHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-    },
-    habitIcon: {
-      width: 40,
-      height: 40,
+    swipeRow: { minHeight: 122, marginBottom: spacing.md, justifyContent: 'center', overflow: 'hidden' },
+    swipeTrack: { flexDirection: 'row', alignItems: 'center' },
+    actionRailInline: { flexDirection: 'row', alignItems: 'center', paddingLeft: spacing.sm },
+    actionTile: {
+      width: 64,
+      height: 86,
       borderRadius: borderRadius.md,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    habitIconColor: themeColorsParam?.primary || colors.primary,
-    habitText: {
-      flex: 1,
-    },
-    habitTitle: {
-      ...typography.body,
-      color: baseText,
-      fontWeight: '700',
-    },
-    habitMeta: {
-      ...typography.bodySmall,
-      color: subdued,
-      marginTop: 2,
-    },
-    habitCheck: {
-      width: 28,
-      height: 28,
-      borderRadius: borderRadius.full,
       borderWidth: 1,
-      borderColor: themeColorsParam?.border || colors.border,
       alignItems: 'center',
       justifyContent: 'center',
+      marginLeft: spacing.sm,
+    },
+    actionTileEdit: { backgroundColor: '#EAF1FF', borderColor: '#D7E5FF' },
+    actionTileSkip: { backgroundColor: '#FFF3E7', borderColor: '#FFE2C9' },
+    actionTileReset: { backgroundColor: '#E9F8F3', borderColor: '#CDEFE2' },
+    actionText: { ...typography.caption, fontWeight: '700', marginTop: spacing.xs },
+    habitWrapper: { borderRadius: borderRadius.xl, overflow: 'hidden', ...shadows.small },
+    fillTrack: { ...StyleSheet.absoluteFillObject, borderRadius: borderRadius.xl, overflow: 'hidden' },
+    fillValue: { height: '100%' },
+    habitCard: {
+      borderRadius: borderRadius.xl,
+      borderWidth: 1,
+      padding: spacing.md,
+      minHeight: 110,
       backgroundColor: themeColorsParam?.card || colors.card,
     },
-    habitCheckActive: {
-      backgroundColor: themeColorsParam?.primary || colors.primary,
-      borderColor: themeColorsParam?.primary || colors.primary,
-    },
-    progressTrack: {
-      height: 8,
-      borderRadius: borderRadius.full,
-      backgroundColor: themeColorsParam?.divider || colors.divider,
-      marginTop: spacing.md,
-    },
-    progressFill: {
-      height: 8,
-      borderRadius: borderRadius.full,
-      backgroundColor: themeColorsParam?.success || colors.success,
-    },
-    habitFooter: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginTop: spacing.md,
-    },
-    habitFooterText: {
-      ...typography.caption,
-      color: subdued,
-    },
-    avatarRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-    },
-    smallAvatar: {
-      width: 22,
-      height: 22,
-      borderRadius: borderRadius.full,
+    habitRow: { flexDirection: 'row', alignItems: 'center' },
+    habitAvatar: {
+      width: 48,
+      height: 48,
+      borderRadius: 14,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: themeColorsParam?.primaryLight || colors.primaryLight,
-      marginLeft: -4,
-      borderWidth: 1,
-      borderColor: themeColorsParam?.card || colors.card,
+      marginRight: spacing.md,
     },
-    smallAvatarAlt: {
-      width: 22,
-      height: 22,
-      borderRadius: borderRadius.full,
+    habitAvatarText: { ...typography.h3, fontWeight: '700' },
+    habitInfo: { flex: 1, marginRight: spacing.md },
+    habitTitle: { ...typography.h3, fontWeight: '700', marginBottom: spacing.xs },
+    habitMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    habitMeta: { ...typography.caption, fontWeight: '600' },
+    completedMembersRow: { flexDirection: 'row', alignItems: 'center', marginLeft: spacing.sm },
+    completedMemberAvatar: {
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      borderWidth: 1,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
-      marginLeft: -4,
+      overflow: 'hidden',
+    },
+    completedMemberAvatarOverlap: { marginLeft: -6 },
+    completedMemberImage: { width: '100%', height: '100%' },
+    completedMemberInitial: { ...typography.caption, fontSize: 9, fontWeight: '700' },
+    progressMeta: { alignItems: 'flex-end', justifyContent: 'center', minWidth: 104 },
+    progressStreakRow: { flexDirection: 'row', alignItems: 'center' },
+    progressMetaStreak: { ...typography.bodySmall, fontWeight: '800', marginLeft: 4 },
+    progressMetaPercent: { ...typography.bodySmall, fontWeight: '800', marginTop: 8 },
+    habitHint: { ...typography.caption, marginTop: spacing.sm, textAlign: 'center' },
+    manualCard: { borderRadius: borderRadius.xl, borderWidth: 1, padding: spacing.lg },
+    manualTitle: { ...typography.h3, fontWeight: '700' },
+    manualSub: { ...typography.bodySmall, marginTop: 2, marginBottom: spacing.sm },
+    manualInput: {
       borderWidth: 1,
-      borderColor: themeColorsParam?.card || colors.card,
+      borderRadius: borderRadius.lg,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
+      ...typography.body,
     },
-    smallAvatarText: {
-      ...typography.caption,
-      color: baseText,
-      fontWeight: '700',
+    manualGoal: { ...typography.caption, marginTop: spacing.sm },
+    manualButtons: { flexDirection: 'row', marginTop: spacing.lg },
+    manualBtn: {
+      flex: 1,
+      borderRadius: borderRadius.lg,
+      paddingVertical: spacing.md,
+      alignItems: 'center',
+      marginHorizontal: spacing.xs,
     },
+    manualBtnText: { ...typography.bodySmall, fontWeight: '700' },
+    manualBtnTextWhite: { ...typography.bodySmall, color: '#FFFFFF', fontWeight: '700' },
+    manualCheckButton: {
+      width: 48,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginHorizontal: spacing.xs,
+    },
+    habitDetailCard: { borderRadius: borderRadius.xl, borderWidth: 1, padding: spacing.lg },
+    habitDetailTitle: { ...typography.h3, fontWeight: '700' },
+    habitDetailMeta: { ...typography.bodySmall, marginTop: 2, marginBottom: spacing.md },
+    habitDetailStatsRow: { flexDirection: 'row', marginBottom: spacing.md },
+    habitDetailStat: {
+      flex: 1,
+      borderWidth: 1,
+      borderRadius: borderRadius.lg,
+      padding: spacing.md,
+      marginHorizontal: spacing.xs,
+      alignItems: 'center',
+    },
+    habitDetailStatValue: { ...typography.h3, fontWeight: '700' },
+    habitDetailStatLabel: { ...typography.caption, marginTop: spacing.xs },
+    habitDetailAction: { borderRadius: borderRadius.full, paddingVertical: spacing.md, alignItems: 'center' },
+    habitDetailActionText: { ...typography.bodySmall, color: '#FFFFFF', fontWeight: '700' },
     routineCard: {
       borderWidth: 1,
       borderColor: themeColorsParam?.border || colors.border,

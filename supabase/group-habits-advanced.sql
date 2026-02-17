@@ -1,0 +1,79 @@
+-- Group habit advanced/customization fields used by Habits and Group Details flows.
+-- Run in Supabase SQL editor.
+
+alter table if exists public.group_habits
+  add column if not exists habit_type text default 'build';
+
+alter table if exists public.group_habits
+  add column if not exists goal_period text default 'day';
+
+alter table if exists public.group_habits
+  add column if not exists goal_value numeric default 1;
+
+alter table if exists public.group_habits
+  add column if not exists goal_unit text default 'times';
+
+alter table if exists public.group_habits
+  add column if not exists time_range text default 'all_day';
+
+alter table if exists public.group_habits
+  add column if not exists reminders_enabled boolean default false;
+
+alter table if exists public.group_habits
+  add column if not exists reminder_times text[];
+
+alter table if exists public.group_habits
+  add column if not exists reminder_message text;
+
+alter table if exists public.group_habits
+  add column if not exists task_days_mode text default 'every_day';
+
+alter table if exists public.group_habits
+  add column if not exists task_days_count integer default 3;
+
+alter table if exists public.group_habits
+  add column if not exists month_days integer[];
+
+alter table if exists public.group_habits
+  add column if not exists show_memo_after_completion boolean default false;
+
+alter table if exists public.group_habits
+  add column if not exists chart_type text default 'bar';
+
+alter table if exists public.group_habits
+  add column if not exists start_date date;
+
+alter table if exists public.group_habits
+  add column if not exists end_date date;
+
+alter table if exists public.group_habits
+  add column if not exists color text default '#9B59B6';
+
+alter table if exists public.group_habits
+  add column if not exists emoji text;
+
+alter table if exists public.group_habits
+  add column if not exists source_habit_id uuid;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'group_habits'
+      and column_name = 'source_habit_id'
+  ) then
+    begin
+      alter table public.group_habits
+        add constraint group_habits_source_habit_id_fkey
+        foreign key (source_habit_id) references public.habits(id) on delete set null;
+    exception
+      when duplicate_object then null;
+    end;
+  end if;
+end $$;
+
+alter table if exists public.group_habit_completions
+  add column if not exists amount numeric;
+

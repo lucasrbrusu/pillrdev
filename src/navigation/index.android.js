@@ -4,10 +4,11 @@ import {
   StyleSheet,
   ActivityIndicator,
   Pressable,
+  Animated,
   useWindowDimensions,
   Dimensions,
 } from 'react-native';
-import { NavigationContainer, DefaultTheme, useNavigation } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, useNavigation, useIsFocused } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -61,6 +62,46 @@ const FRIENDS_GESTURE_DISTANCE = Math.round(Dimensions.get('window').width);
 const CHAT_BUTTON_SIZE = 60;
 const CHAT_BUTTON_LIFT = 14;
 const CHAT_BUTTON_SPACER = CHAT_BUTTON_SIZE;
+const TAB_FADE_DURATION_MS = 90;
+const TAB_FADE_START_OPACITY = 0.96;
+
+const QuickTabFade = ({ children }) => {
+  const isFocused = useIsFocused();
+  const opacity = React.useRef(new Animated.Value(1)).current;
+
+  React.useEffect(() => {
+    if (!isFocused) return undefined;
+
+    opacity.stopAnimation();
+    opacity.setValue(TAB_FADE_START_OPACITY);
+    const animation = Animated.timing(opacity, {
+      toValue: 1,
+      duration: TAB_FADE_DURATION_MS,
+      useNativeDriver: true,
+    });
+
+    animation.start();
+    return () => animation.stop();
+  }, [isFocused, opacity]);
+
+  return <Animated.View style={{ flex: 1, opacity }}>{children}</Animated.View>;
+};
+
+const createFadedTabScreen = (ScreenComponent, displayName) => {
+  const FadedTabScreen = (props) => (
+    <QuickTabFade>
+      <ScreenComponent {...props} />
+    </QuickTabFade>
+  );
+  FadedTabScreen.displayName = displayName;
+  return FadedTabScreen;
+};
+
+const HabitsTabScreen = createFadedTabScreen(HabitsScreen, 'HabitsTabScreen');
+const TasksTabScreen = createFadedTabScreen(TasksScreen, 'TasksTabScreen');
+const HealthTabScreen = createFadedTabScreen(HealthScreen, 'HealthTabScreen');
+const RoutineTabScreen = createFadedTabScreen(RoutineScreen, 'RoutineTabScreen');
+const FinanceTabScreen = createFadedTabScreen(FinanceScreen, 'FinanceTabScreen');
 
 const useBottomOffset = () => {
   const insets = useSafeAreaInsets();
@@ -187,11 +228,11 @@ const TabNavigator = ({ styles }) => {
       backBehavior="history"
     >
       <Tab.Screen name="Home" component={HomeScreen} />
-      <Tab.Screen name="Habits" component={HabitsScreen} />
-      <Tab.Screen name="Tasks" component={TasksScreen} />
-      <Tab.Screen name="Health" component={HealthScreen} />
-      <Tab.Screen name="Routine" component={RoutineScreen} />
-      <Tab.Screen name="Finance" component={FinanceScreen} />
+      <Tab.Screen name="Habits" component={HabitsTabScreen} />
+      <Tab.Screen name="Tasks" component={TasksTabScreen} />
+      <Tab.Screen name="Health" component={HealthTabScreen} />
+      <Tab.Screen name="Routine" component={RoutineTabScreen} />
+      <Tab.Screen name="Finance" component={FinanceTabScreen} />
     </Tab.Navigator>
   );
 };

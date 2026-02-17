@@ -447,18 +447,16 @@ const FinanceScreen = () => {
   useEffect(() => {
     if (!assignToBudget) return;
     if (!selectedBudgetGroup) {
-      setCategory('');
+      setCategory((prev) => (prev === '' ? prev : ''));
       return;
     }
     const allowedIds = expenseCategoryOptions.map((cat) => cat.id);
-    if (!allowedIds.includes(category)) {
-      setCategory(allowedIds[0] || '');
-    }
+    const fallback = allowedIds[0] || '';
+    setCategory((prev) => (allowedIds.includes(prev) ? prev : fallback));
   }, [
     assignToBudget,
     selectedBudgetGroup,
     expenseCategoryOptions,
-    category,
   ]);
 
   const handleOpenIncome = () => {

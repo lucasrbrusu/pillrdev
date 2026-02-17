@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Modal } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { colors, borderRadius, spacing, typography, shadows } from '../utils/theme';
@@ -43,15 +43,22 @@ const PlatformTimePicker = ({
   accentColor = colors.primary,
 }) => {
   const [current, setCurrent] = useState(normalizeDate(value));
+  const wasVisibleRef = useRef(false);
 
   useEffect(() => {
-    if (!visible) return;
-    setCurrent(normalizeDate(value));
+    if (!visible) {
+      wasVisibleRef.current = false;
+      return;
+    }
+    if (wasVisibleRef.current) return;
+    wasVisibleRef.current = true;
+    const next = normalizeDate(value);
+    setCurrent((prev) => (prev?.getTime?.() === next.getTime() ? prev : next));
   }, [value, visible]);
 
   const handleChange = (_event, selectedDate) => {
     const picked = selectedDate || current;
-    setCurrent(picked);
+    setCurrent((prev) => (prev?.getTime?.() === picked.getTime() ? prev : picked));
   };
 
   const handleDone = () => {

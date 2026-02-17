@@ -2124,11 +2124,74 @@ const mapExternalProfile = (row) => ({
         return [];
       }
 
-      const { data, error } = await supabase
-        .from('group_habits')
-        .select('id, group_id, title, category, description, repeat, days, created_at, created_by')
-        .in('group_id', groupIds)
-        .order('created_at', { ascending: false });
+      const requiredColumns = [
+        'id',
+        'group_id',
+        'title',
+        'category',
+        'description',
+        'repeat',
+        'days',
+        'created_at',
+        'created_by',
+      ];
+      const optionalColumns = [
+        'color',
+        'emoji',
+        'habit_type',
+        'goal_period',
+        'goal_value',
+        'goal_unit',
+        'time_range',
+        'reminders_enabled',
+        'reminder_times',
+        'reminder_message',
+        'task_days_mode',
+        'task_days_count',
+        'month_days',
+        'show_memo_after_completion',
+        'chart_type',
+        'start_date',
+        'end_date',
+        'source_habit_id',
+      ];
+
+      const fetchGroupHabitRows = async (columnList = []) =>
+        supabase
+          .from('group_habits')
+          .select(columnList.join(', '))
+          .in('group_id', groupIds)
+          .order('created_at', { ascending: false });
+
+      let data = null;
+      let error = null;
+      let remainingOptionalColumns = [...optionalColumns];
+
+      for (
+        let attemptIndex = 0;
+        attemptIndex <= optionalColumns.length + 1;
+        attemptIndex += 1
+      ) {
+        const selectColumns = [...requiredColumns, ...remainingOptionalColumns];
+        ({ data, error } = await fetchGroupHabitRows(selectColumns));
+
+        if (!error) break;
+        if (!isMissingColumnError(error)) break;
+
+        const missingColumn = extractMissingColumnName(error);
+        if (
+          missingColumn &&
+          remainingOptionalColumns.includes(missingColumn)
+        ) {
+          remainingOptionalColumns = remainingOptionalColumns.filter(
+            (columnName) => columnName !== missingColumn
+          );
+          continue;
+        }
+
+        if (!remainingOptionalColumns.length) break;
+        remainingOptionalColumns = remainingOptionalColumns.slice(0, -1);
+      }
 
       if (error) {
         if (!isMissingRelationError(error, 'group_habits')) {
@@ -2143,10 +2206,17 @@ const mapExternalProfile = (row) => ({
       const completionMap = {};
 
       if (habitIds.length) {
-        const { data: completionRows, error: completionError } = await supabase
+        let { data: completionRows, error: completionError } = await supabase
           .from('group_habit_completions')
-          .select('group_habit_id, user_id, date')
+          .select('group_habit_id, user_id, date, amount')
           .in('group_habit_id', habitIds);
+
+        if (completionError && isMissingColumnError(completionError, 'amount')) {
+          ({ data: completionRows, error: completionError } = await supabase
+            .from('group_habit_completions')
+            .select('group_habit_id, user_id, date')
+            .in('group_habit_id', habitIds));
+        }
 
         if (completionError) {
           if (!isMissingRelationError(completionError, 'group_habit_completions')) {
@@ -2160,23 +2230,45 @@ const mapExternalProfile = (row) => ({
               habitId: row.group_habit_id,
               userId: row.user_id,
               date: normalizeDateKey(row.date),
+              amount: Number(row.amount) || null,
             });
             completionMap[row.group_habit_id] = list;
           });
         }
       }
 
-      const mapped = (data || []).map((h) => ({
-        id: h.id,
-        groupId: h.group_id,
-        title: h.title,
-        category: h.category || 'Group',
-        description: h.description,
-        repeat: h.repeat || 'Daily',
-        days: Array.isArray(h.days) ? h.days : [],
-        createdAt: h.created_at,
-        createdBy: h.created_by,
-      }));
+      const mapped = (data || []).map((h) => {
+        const goalValue = Number(h.goal_value) || 1;
+        return {
+          id: h.id,
+          groupId: h.group_id,
+          title: h.title,
+          category: h.category || 'Group',
+          description: h.description,
+          repeat: h.repeat || 'Daily',
+          days: Array.isArray(h.days) ? h.days : [],
+          createdAt: h.created_at,
+          createdBy: h.created_by,
+          habitType: h.habit_type || 'build',
+          goalPeriod: h.goal_period || 'day',
+          goalValue,
+          goalUnit: h.goal_unit || 'times',
+          timeRange: h.time_range || 'all_day',
+          remindersEnabled: h.reminders_enabled ?? false,
+          reminderTimes: Array.isArray(h.reminder_times) ? h.reminder_times : [],
+          reminderMessage: h.reminder_message || '',
+          taskDaysMode: h.task_days_mode || 'every_day',
+          taskDaysCount: Number(h.task_days_count) || 3,
+          monthDays: Array.isArray(h.month_days) ? h.month_days : [],
+          showMemoAfterCompletion: h.show_memo_after_completion ?? false,
+          chartType: h.chart_type || 'bar',
+          startDate: h.start_date || null,
+          endDate: h.end_date || null,
+          sourceHabitId: h.source_habit_id || null,
+          color: h.color ?? null,
+          emoji: typeof h.emoji === 'string' ? h.emoji : '',
+        };
+      });
 
       setGroupHabits(mapped);
       setGroupHabitCompletions(completionMap);
@@ -2186,25 +2278,139 @@ const mapExternalProfile = (row) => ({
   );
 
   const addGroupHabit = useCallback(
-    async ({ groupId, title, category, description, repeat, days }) => {
+    async ({
+      groupId,
+      title,
+      category,
+      description,
+      repeat,
+      days,
+      emoji,
+      color,
+      habitType,
+      goalPeriod,
+      goalValue,
+      goalUnit,
+      timeRange,
+      remindersEnabled,
+      reminderTimes,
+      reminderMessage,
+      taskDaysMode,
+      taskDaysCount,
+      monthDays,
+      showMemoAfterCompletion,
+      chartType,
+      startDate,
+      endDate,
+      sourceHabitId,
+    }) => {
       if (!authUser?.id) throw new Error('You must be logged in to create a group habit.');
       if (!groupId) throw new Error('Select a group to share this habit with.');
       const trimmedTitle = (title || '').trim();
       if (!trimmedTitle) throw new Error('Habit title is required.');
 
-      const { data, error } = await supabase
-        .from('group_habits')
-        .insert({
-          group_id: groupId,
-          created_by: authUser.id,
-          title: trimmedTitle,
-          category: category || 'Group',
-          description: description?.trim() || null,
-          repeat: repeat || 'Daily',
-          days: days || [],
-        })
-        .select()
-        .single();
+      const compactObject = (value) =>
+        Object.fromEntries(
+          Object.entries(value || {}).filter(([, entry]) => entry !== undefined)
+        );
+
+      const baseInsert = {
+        group_id: groupId,
+        created_by: authUser.id,
+        title: trimmedTitle,
+        category: category || 'Group',
+        description: description?.trim() || null,
+        repeat: repeat || 'Daily',
+        days: days || [],
+        color: color || colors.habits,
+        emoji: emoji || null,
+      };
+      const advancedInsert = {
+        habit_type: habitType,
+        goal_period: goalPeriod,
+        goal_value: goalValue,
+        goal_unit: goalUnit,
+        time_range: timeRange,
+        reminders_enabled: remindersEnabled,
+        reminder_times: reminderTimes,
+        reminder_message: reminderMessage,
+        task_days_mode: taskDaysMode,
+        task_days_count: taskDaysCount,
+        month_days: monthDays,
+        show_memo_after_completion: showMemoAfterCompletion,
+        chart_type: chartType,
+        start_date: startDate,
+        end_date: endDate,
+        source_habit_id: sourceHabitId || null,
+      };
+
+      let data = null;
+      let error = null;
+      const requiredColumns = new Set(['group_id', 'created_by', 'title']);
+      const optionalDropOrder = [
+        'chart_type',
+        'show_memo_after_completion',
+        'month_days',
+        'task_days_count',
+        'task_days_mode',
+        'reminder_message',
+        'reminder_times',
+        'reminders_enabled',
+        'time_range',
+        'goal_unit',
+        'goal_value',
+        'goal_period',
+        'habit_type',
+        'end_date',
+        'start_date',
+        'emoji',
+        'color',
+        'source_habit_id',
+        'days',
+        'repeat',
+        'description',
+        'category',
+      ];
+      let payload = compactObject({ ...baseInsert, ...advancedInsert });
+
+      for (
+        let attemptIndex = 0;
+        attemptIndex <= optionalDropOrder.length + 1;
+        attemptIndex += 1
+      ) {
+        if (!Object.keys(payload).length) break;
+        ({ data, error } = await supabase
+          .from('group_habits')
+          .insert(payload)
+          .select()
+          .single());
+
+        if (!error) break;
+        if (!isMissingColumnError(error)) break;
+
+        const missingColumn = extractMissingColumnName(error);
+        let removed = false;
+        if (
+          missingColumn &&
+          Object.prototype.hasOwnProperty.call(payload, missingColumn) &&
+          !requiredColumns.has(missingColumn)
+        ) {
+          delete payload[missingColumn];
+          removed = true;
+        } else {
+          const fallbackColumn = optionalDropOrder.find(
+            (columnName) =>
+              Object.prototype.hasOwnProperty.call(payload, columnName) &&
+              !requiredColumns.has(columnName)
+          );
+          if (fallbackColumn) {
+            delete payload[fallbackColumn];
+            removed = true;
+          }
+        }
+
+        if (!removed) break;
+      }
 
       if (error) {
         console.log('Error creating group habit:', error);
@@ -2217,22 +2423,181 @@ const mapExternalProfile = (row) => ({
     [authUser?.id, fetchGroupHabits]
   );
 
-  const toggleGroupHabitCompletion = useCallback(
-    async (habitId) => {
+  const updateGroupHabit = useCallback(
+    async (habitId, updates = {}) => {
       if (!authUser?.id || !habitId) return;
-      const todayISO = new Date().toISOString().slice(0, 10);
-      const completions = groupHabitCompletions[habitId] || [];
-      const existing = completions.find(
-        (c) => c.userId === authUser.id && normalizeDateKey(c.date) === todayISO
+
+      const existingHabit = (groupHabits || []).find((habit) => habit.id === habitId) || null;
+      const updateData = {};
+      const directFields = ['title', 'category', 'description', 'repeat', 'days', 'color', 'emoji'];
+      directFields.forEach((key) => {
+        if (updates[key] !== undefined) updateData[key] = updates[key];
+      });
+      if (updates.habitType !== undefined) updateData.habit_type = updates.habitType;
+      if (updates.goalPeriod !== undefined) updateData.goal_period = updates.goalPeriod;
+      if (updates.goalValue !== undefined) updateData.goal_value = updates.goalValue;
+      if (updates.goalUnit !== undefined) updateData.goal_unit = updates.goalUnit;
+      if (updates.timeRange !== undefined) updateData.time_range = updates.timeRange;
+      if (updates.remindersEnabled !== undefined) updateData.reminders_enabled = updates.remindersEnabled;
+      if (updates.reminderTimes !== undefined) updateData.reminder_times = updates.reminderTimes;
+      if (updates.reminderMessage !== undefined) updateData.reminder_message = updates.reminderMessage;
+      if (updates.taskDaysMode !== undefined) updateData.task_days_mode = updates.taskDaysMode;
+      if (updates.taskDaysCount !== undefined) updateData.task_days_count = updates.taskDaysCount;
+      if (updates.monthDays !== undefined) updateData.month_days = updates.monthDays;
+      if (updates.showMemoAfterCompletion !== undefined)
+        updateData.show_memo_after_completion = updates.showMemoAfterCompletion;
+      if (updates.chartType !== undefined) updateData.chart_type = updates.chartType;
+      if (updates.startDate !== undefined) updateData.start_date = updates.startDate;
+      if (updates.endDate !== undefined) updateData.end_date = updates.endDate;
+      if (updates.sourceHabitId !== undefined) updateData.source_habit_id = updates.sourceHabitId;
+
+      if (Object.keys(updateData).length) {
+        const optionalDropOrder = [
+          'chart_type',
+          'show_memo_after_completion',
+          'month_days',
+          'task_days_count',
+          'task_days_mode',
+          'reminder_message',
+          'reminder_times',
+          'reminders_enabled',
+          'time_range',
+          'goal_unit',
+          'goal_value',
+          'goal_period',
+          'habit_type',
+          'end_date',
+          'start_date',
+          'emoji',
+          'color',
+          'source_habit_id',
+          'days',
+          'repeat',
+          'description',
+          'category',
+          'title',
+        ];
+        let payload = { ...updateData };
+        let error = null;
+
+        for (
+          let attemptIndex = 0;
+          attemptIndex <= optionalDropOrder.length + 1;
+          attemptIndex += 1
+        ) {
+          if (!Object.keys(payload).length) {
+            error = null;
+            break;
+          }
+          let query = supabase.from('group_habits').update(payload).eq('id', habitId);
+          if (existingHabit?.groupId) query = query.eq('group_id', existingHabit.groupId);
+          ({ error } = await query);
+          if (!error) break;
+          if (!isMissingColumnError(error)) break;
+
+          const missingColumn = extractMissingColumnName(error);
+          if (missingColumn && Object.prototype.hasOwnProperty.call(payload, missingColumn)) {
+            delete payload[missingColumn];
+            continue;
+          }
+
+          const fallbackColumn = optionalDropOrder.find((columnName) =>
+            Object.prototype.hasOwnProperty.call(payload, columnName)
+          );
+          if (!fallbackColumn) break;
+          delete payload[fallbackColumn];
+        }
+
+        if (error) {
+          console.log('Error updating group habit:', error);
+          return;
+        }
+      }
+
+      setGroupHabits((prev) =>
+        (prev || []).map((habit) => (habit.id === habitId ? { ...habit, ...updates } : habit))
+      );
+    },
+    [authUser?.id, groupHabits]
+  );
+
+  const deleteGroupHabit = useCallback(
+    async (habitId) => {
+      if (!authUser?.id || !habitId) return false;
+
+      const groupHabit = (groupHabits || []).find((habit) => habit.id === habitId) || null;
+      const linkedSourceHabitId = groupHabit?.sourceHabitId || null;
+      const linkedSourceHabit =
+        linkedSourceHabitId && Array.isArray(habits)
+          ? (habits || []).find((habit) => habit.id === linkedSourceHabitId) || null
+          : null;
+      const canDeleteLinkedSourceHabit = Boolean(
+        linkedSourceHabit &&
+          (!linkedSourceHabit.ownerId || linkedSourceHabit.ownerId === authUser.id)
       );
 
-      if (existing) {
+      // For mirrored personal/group habits, deleting either side should remove the source habit too.
+      if (canDeleteLinkedSourceHabit) {
+        await deleteHabit(linkedSourceHabitId);
+        return true;
+      }
+
+      const { data: deletedRows, error } = await supabase
+        .from('group_habits')
+        .delete()
+        .eq('id', habitId)
+        .select('id');
+
+      if (error) {
+        console.log('Error deleting group habit:', error);
+        throw error;
+      }
+      if (!Array.isArray(deletedRows) || !deletedRows.length) {
+        throw new Error('Unable to delete this group habit from the database.');
+      }
+
+      setGroupHabits((prev) => (prev || []).filter((habit) => habit.id !== habitId));
+      setGroupHabitCompletions((prev) => {
+        if (!prev || !Object.prototype.hasOwnProperty.call(prev, habitId)) return prev;
+        const next = { ...prev };
+        delete next[habitId];
+        return next;
+      });
+      return true;
+    },
+    [authUser?.id, groupHabits, habits]
+  );
+
+  const toggleGroupHabitCompletion = useCallback(
+    async (habitId, options = {}) => {
+      if (!authUser?.id || !habitId) return;
+      const providedDate = normalizeDateKey(options?.dateISO);
+      const targetDateISO = providedDate || new Date().toISOString().slice(0, 10);
+      const amountOverride =
+        options?.amount === null || options?.amount === undefined
+          ? null
+          : Math.max(0, Number(options.amount) || 0);
+      const shouldSyncSourceHabit = options?.syncSourceHabit !== false;
+      const groupHabit = (groupHabits || []).find((habit) => habit.id === habitId) || null;
+
+      const completions = groupHabitCompletions[habitId] || [];
+      const existing = completions.find(
+        (c) => c.userId === authUser.id && normalizeDateKey(c.date) === targetDateISO
+      );
+      const nextAmount =
+        amountOverride !== null
+          ? amountOverride
+          : existing
+          ? 0
+          : Math.max(1, Number(groupHabit?.goalValue) || 1);
+
+      if (nextAmount <= 0) {
         const { error } = await supabase
           .from('group_habit_completions')
           .delete()
           .eq('group_habit_id', habitId)
           .eq('user_id', authUser.id)
-          .eq('date', todayISO);
+          .eq('date', targetDateISO);
 
         if (error) {
           console.log('Error removing group habit completion:', error);
@@ -2244,16 +2609,35 @@ const mapExternalProfile = (row) => ({
           return {
             ...prev,
             [habitId]: list.filter(
-              (c) => !(c.userId === authUser.id && normalizeDateKey(c.date) === todayISO)
+              (c) => !(c.userId === authUser.id && normalizeDateKey(c.date) === targetDateISO)
             ),
           };
         });
+
+        if (shouldSyncSourceHabit && groupHabit?.sourceHabitId) {
+          await setHabitProgress(groupHabit.sourceHabitId, 0, targetDateISO, {
+            syncLinkedGroupHabits: false,
+          });
+        }
         return;
       }
 
-      const { error } = await supabase
+      await supabase
         .from('group_habit_completions')
-        .insert({ group_habit_id: habitId, user_id: authUser.id, date: todayISO });
+        .delete()
+        .eq('group_habit_id', habitId)
+        .eq('user_id', authUser.id)
+        .eq('date', targetDateISO);
+
+      let { error } = await supabase
+        .from('group_habit_completions')
+        .insert({ group_habit_id: habitId, user_id: authUser.id, date: targetDateISO, amount: nextAmount });
+
+      if (error && isMissingColumnError(error, 'amount')) {
+        ({ error } = await supabase
+          .from('group_habit_completions')
+          .insert({ group_habit_id: habitId, user_id: authUser.id, date: targetDateISO }));
+      }
 
       if (error) {
         console.log('Error adding group habit completion:', error);
@@ -2261,14 +2645,22 @@ const mapExternalProfile = (row) => ({
       }
 
       setGroupHabitCompletions((prev) => {
-        const list = prev[habitId] || [];
+        const list = (prev[habitId] || []).filter(
+          (c) => !(c.userId === authUser.id && normalizeDateKey(c.date) === targetDateISO)
+        );
         return {
           ...prev,
-          [habitId]: [...list, { habitId, userId: authUser.id, date: todayISO }],
+          [habitId]: [...list, { habitId, userId: authUser.id, date: targetDateISO, amount: nextAmount }],
         };
       });
+
+      if (shouldSyncSourceHabit && groupHabit?.sourceHabitId) {
+        await setHabitProgress(groupHabit.sourceHabitId, nextAmount, targetDateISO, {
+          syncLinkedGroupHabits: false,
+        });
+      }
     },
-    [authUser?.id, groupHabitCompletions]
+    [authUser?.id, groupHabitCompletions, groupHabits, habits]
   );
 
   const fetchGroupRoutines = useCallback(
@@ -3262,35 +3654,83 @@ const mapExternalProfile = (row) => ({
 
 const fetchHabitsFromSupabase = async (userId, _groupListParam) => {
   const habitSelectBase =
-    'id, title, category, description, repeat, days, streak, created_at, notification_ids, color';
-  const habitSelectAdvanced = `${habitSelectBase}, habit_type, goal_period, goal_value, goal_unit, time_range, reminders_enabled, reminder_times, reminder_message, task_days_mode, task_days_count, month_days, show_memo_after_completion, chart_type, start_date, end_date`;
+    'id, user_id, title, category, description, repeat, days, streak, created_at, notification_ids, color';
+  const habitSelectWithEmoji = `${habitSelectBase}, emoji`;
+  const habitSelectAdvanced = `${habitSelectWithEmoji}, habit_type, goal_period, goal_value, goal_unit, time_range, reminders_enabled, reminder_times, reminder_message, task_days_mode, task_days_count, month_days, show_memo_after_completion, chart_type, start_date, end_date`;
 
-  let { data: habitRows, error: habitError } = await supabase
-    .from('habits')
-    .select(habitSelectAdvanced)
-    .eq('user_id', userId)
-    .order('created_at', { ascending: true });
+  const fetchHabitRows = async (buildQuery) => {
+    let result = await buildQuery(habitSelectAdvanced);
+    if (result.error && isMissingColumnError(result.error)) {
+      result = await buildQuery(habitSelectWithEmoji);
+    }
+    if (result.error && isMissingColumnError(result.error)) {
+      result = await buildQuery(habitSelectBase);
+    }
+    if (result.error && isMissingColumnError(result.error)) {
+      result = await buildQuery(
+        'id, user_id, title, category, description, repeat, days, streak, created_at'
+      );
+    }
+    return result;
+  };
 
-  if (habitError && isMissingColumnError(habitError)) {
-    ({ data: habitRows, error: habitError } = await supabase
+  const {
+    data: ownedHabitRows,
+    error: ownedHabitError,
+  } = await fetchHabitRows((selectClause) =>
+    supabase
       .from('habits')
-      .select(habitSelectBase)
+      .select(selectClause)
       .eq('user_id', userId)
-      .order('created_at', { ascending: true }));
-  }
+      .order('created_at', { ascending: true })
+  );
 
-  if (habitError && isMissingColumnError(habitError)) {
-    ({ data: habitRows, error: habitError } = await supabase
-      .from('habits')
-      .select('id, title, category, description, repeat, days, streak, created_at')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: true }));
-  }
-
-  if (habitError) {
-    console.log('Error fetching habits:', habitError);
+  if (ownedHabitError) {
+    console.log('Error fetching habits:', ownedHabitError);
     return;
   }
+
+  let sharedHabitIds = [];
+  const { data: participantRows, error: participantError } = await supabase
+    .from('habit_participants')
+    .select('habit_id')
+    .eq('user_id', userId);
+
+  if (participantError) {
+    if (!isMissingRelationError(participantError, 'habit_participants')) {
+      console.log('Error fetching shared habits:', participantError);
+    }
+  } else {
+    sharedHabitIds = Array.from(
+      new Set((participantRows || []).map((row) => row?.habit_id).filter(Boolean))
+    );
+  }
+
+  let sharedHabitRows = [];
+  if (sharedHabitIds.length) {
+    const { data: sharedRows, error: sharedError } = await fetchHabitRows((selectClause) =>
+      supabase
+        .from('habits')
+        .select(selectClause)
+        .in('id', sharedHabitIds)
+        .order('created_at', { ascending: true })
+    );
+
+    if (sharedError) {
+      console.log('Error fetching shared habit rows:', sharedError);
+    } else {
+      sharedHabitRows = sharedRows || [];
+    }
+  }
+
+  const dedupedRowMap = new Map();
+  [...(ownedHabitRows || []), ...(sharedHabitRows || [])].forEach((row) => {
+    if (!row?.id) return;
+    dedupedRowMap.set(row.id, row);
+  });
+  const habitRows = Array.from(dedupedRowMap.values()).sort(
+    (a, b) => new Date(a?.created_at || 0) - new Date(b?.created_at || 0)
+  );
 
   seedNotificationCacheFromRows('habit', habitRows || []);
 
@@ -3336,10 +3776,13 @@ const fetchHabitsFromSupabase = async (userId, _groupListParam) => {
       })
       .map((entry) => entry.dateString);
 
-    return {
-    id: h.id,
-    title: h.title,
-    category: h.category,
+	    return {
+	    id: h.id,
+      ownerId: h.user_id || null,
+      isOwned: h.user_id === userId,
+      isShared: Boolean(h.user_id && h.user_id !== userId),
+	    title: h.title,
+	    category: h.category,
     description: h.description,
     repeat: h.repeat,
     days: h.days || [],
@@ -3363,6 +3806,7 @@ const fetchHabitsFromSupabase = async (userId, _groupListParam) => {
     startDate: h.start_date || null,
     endDate: h.end_date || null,
     color: h.color || colors.habits,
+    emoji: h.emoji || '',
   };
   });
 
@@ -3385,6 +3829,54 @@ const fetchHabitsFromSupabase = async (userId, _groupListParam) => {
 
 
   // HABIT FUNCTIONS
+const shareHabitWithFriends = async (habitId, friendIds = []) => {
+  if (!authUser?.id || !habitId) return [];
+
+  const normalizedIds = Array.from(
+    new Set((friendIds || []).filter((id) => id && id !== authUser.id))
+  );
+  if (!normalizedIds.length) return [];
+
+  const friendSet = new Set((friends || []).map((friend) => friend?.id).filter(Boolean));
+  const validFriendIds = normalizedIds.filter((id) => friendSet.has(id));
+  if (!validFriendIds.length) return [];
+
+  const { data: habitRow, error: habitError } = await supabase
+    .from('habits')
+    .select('id, user_id')
+    .eq('id', habitId)
+    .single();
+
+  if (habitError) {
+    console.log('Error validating habit before sharing:', habitError);
+    throw habitError;
+  }
+
+  if (habitRow?.user_id !== authUser.id) {
+    throw new Error('Only the habit owner can share this habit.');
+  }
+
+  const upsertRows = validFriendIds.map((friendId) => ({
+    habit_id: habitId,
+    owner_user_id: authUser.id,
+    user_id: friendId,
+  }));
+
+  const { error: shareError } = await supabase
+    .from('habit_participants')
+    .upsert(upsertRows, { onConflict: 'habit_id,user_id' });
+
+  if (shareError) {
+    if (isMissingRelationError(shareError, 'habit_participants')) {
+      throw new Error('Habit sharing table is missing. Run the habit-sharing SQL migration first.');
+    }
+    console.log('Error sharing habit with friends:', shareError);
+    throw shareError;
+  }
+
+  return validFriendIds;
+};
+
 const addHabit = async (habit) => {
   if (!authUser?.id) {
     throw new Error('You must be logged in to create a habit.');
@@ -3399,6 +3891,7 @@ const addHabit = async (habit) => {
     days: habit.days || [],
     streak: 0,
     color: habit.color || colors.habits,
+    emoji: habit.emoji || null,
   };
   const advancedInsert = {
     habit_type: habit.habitType,
@@ -3432,9 +3925,11 @@ const addHabit = async (habit) => {
       .single());
   }
 
-  if (error && isMissingColumnError(error, 'color')) {
+  if (error && isMissingColumnError(error)) {
     const legacyInsert = { ...baseInsert };
-    delete legacyInsert.color;
+    const lowerMessage = (error.message || '').toLowerCase();
+    if (lowerMessage.includes('color') || !lowerMessage.includes('emoji')) delete legacyInsert.color;
+    if (lowerMessage.includes('emoji') || !lowerMessage.includes('color')) delete legacyInsert.emoji;
     ({ data, error } = await supabase
       .from('habits')
       .insert(legacyInsert)
@@ -3463,8 +3958,7 @@ const updateHabit = async (habitId, updates) => {
   if (!authUser?.id) return;
 
   const updateData = {};
-  const directFields = ['title', 'category', 'description', 'repeat', 'days', 'streak', 'color'];
-  const legacyDirectFields = ['title', 'category', 'description', 'repeat', 'days', 'streak'];
+  const directFields = ['title', 'category', 'description', 'repeat', 'days', 'streak', 'color', 'emoji'];
   directFields.forEach((key) => {
     if (updates[key] !== undefined) updateData[key] = updates[key];
   });
@@ -3494,7 +3988,7 @@ const updateHabit = async (habitId, updates) => {
 
     if (error && isMissingColumnError(error)) {
       const fallbackData = {};
-      legacyDirectFields.forEach((key) => {
+      directFields.forEach((key) => {
         if (updates[key] !== undefined) fallbackData[key] = updates[key];
       });
       if (Object.keys(fallbackData).length) {
@@ -3503,6 +3997,20 @@ const updateHabit = async (habitId, updates) => {
           .update(fallbackData)
           .eq('id', habitId)
           .eq('user_id', authUser.id));
+
+        if (error && isMissingColumnError(error)) {
+          const legacyFallbackData = { ...fallbackData };
+          const lowerMessage = (error.message || '').toLowerCase();
+          if (lowerMessage.includes('color') || !lowerMessage.includes('emoji')) delete legacyFallbackData.color;
+          if (lowerMessage.includes('emoji') || !lowerMessage.includes('color')) delete legacyFallbackData.emoji;
+          if (Object.keys(legacyFallbackData).length) {
+            ({ error } = await supabase
+              .from('habits')
+              .update(legacyFallbackData)
+              .eq('id', habitId)
+              .eq('user_id', authUser.id));
+          }
+        }
       }
     }
 
@@ -3517,21 +4025,139 @@ const updateHabit = async (habitId, updates) => {
 };
 
 const deleteHabit = async (habitId) => {
-  if (!authUser?.id) return;
+  if (!authUser?.id) return false;
+  const deletingHabit = (habits || []).find((habit) => habit.id === habitId) || null;
 
   await cancelItemNotifications('habits', 'habit', habitId);
 
-  const { error } = await supabase
+  const { error: completionError } = await supabase
+    .from('habit_completions')
+    .delete()
+    .eq('habit_id', habitId);
+
+  if (completionError && !isMissingRelationError(completionError, 'habit_completions')) {
+    console.log('Error deleting habit completions:', completionError);
+    throw completionError;
+  }
+
+  const { error: participantError } = await supabase
+    .from('habit_participants')
+    .delete()
+    .eq('habit_id', habitId);
+
+  if (participantError && !isMissingRelationError(participantError, 'habit_participants')) {
+    console.log('Error deleting habit participants:', participantError);
+    throw participantError;
+  }
+
+  let linkedGroupHabitIds = [];
+  const { data: linkedGroupRows, error: linkedGroupRowsError } = await supabase
+    .from('group_habits')
+    .select('id')
+    .eq('source_habit_id', habitId)
+    .eq('created_by', authUser.id);
+
+  if (linkedGroupRowsError) {
+    if (
+      !isMissingRelationError(linkedGroupRowsError, 'group_habits') &&
+      !isMissingColumnError(linkedGroupRowsError, 'source_habit_id')
+    ) {
+      console.log('Error loading linked group habits before delete:', linkedGroupRowsError);
+      throw linkedGroupRowsError;
+    }
+  } else {
+    linkedGroupHabitIds = (linkedGroupRows || []).map((row) => row?.id).filter(Boolean);
+  }
+
+  // Backward compatibility: older group_habits rows may not have source_habit_id.
+  // In that case, best-effort match likely mirrored rows created at the same time.
+  if (!linkedGroupHabitIds.length && deletingHabit?.title) {
+    const { data: maybeLinkedRows, error: maybeLinkedError } = await supabase
+      .from('group_habits')
+      .select('id, title, description, repeat, created_at')
+      .eq('created_by', authUser.id)
+      .eq('title', deletingHabit.title)
+      .eq('repeat', deletingHabit.repeat || 'Daily');
+
+    if (maybeLinkedError) {
+      if (!isMissingRelationError(maybeLinkedError, 'group_habits')) {
+        console.log('Error loading possible linked group habits:', maybeLinkedError);
+      }
+    } else {
+      const habitCreatedAtMs = new Date(deletingHabit.createdAt || Date.now()).getTime();
+      const habitDescription = deletingHabit.description || null;
+      linkedGroupHabitIds = (maybeLinkedRows || [])
+        .filter((row) => {
+          const rowDescription = row?.description || null;
+          if (rowDescription !== habitDescription) return false;
+          const rowCreatedAtMs = new Date(row?.created_at || 0).getTime();
+          if (!Number.isFinite(rowCreatedAtMs) || !Number.isFinite(habitCreatedAtMs)) return false;
+          return Math.abs(rowCreatedAtMs - habitCreatedAtMs) <= 10 * 60 * 1000;
+        })
+        .map((row) => row?.id)
+        .filter(Boolean);
+    }
+  }
+
+  if (linkedGroupHabitIds.length) {
+    const { data: deletedLinkedGroupRows, error: linkedGroupDeleteError } = await supabase
+      .from('group_habits')
+      .delete()
+      .in('id', linkedGroupHabitIds)
+      .eq('created_by', authUser.id)
+      .select('id');
+
+    if (linkedGroupDeleteError) {
+      if (!isMissingRelationError(linkedGroupDeleteError, 'group_habits')) {
+        console.log('Error deleting linked group habits:', linkedGroupDeleteError);
+        throw linkedGroupDeleteError;
+      }
+    } else {
+      const deletedIdSet = new Set(
+        (deletedLinkedGroupRows || []).map((row) => row?.id).filter(Boolean)
+      );
+      const missingLinkedIds = linkedGroupHabitIds.filter((id) => !deletedIdSet.has(id));
+      if (missingLinkedIds.length) {
+        throw new Error('Unable to delete linked group habits from the database.');
+      }
+    }
+  }
+
+  const { data: deletedHabitRows, error: deleteError } = await supabase
     .from('habits')
     .delete()
     .eq('id', habitId)
-    .eq('user_id', authUser.id);
+    .eq('user_id', authUser.id)
+    .select('id');
 
-  if (error) {
-    console.log('Error deleting habit:', error);
+  if (deleteError) {
+    console.log('Error deleting habit:', deleteError);
+    throw deleteError;
+  }
+  if (!Array.isArray(deletedHabitRows) || !deletedHabitRows.length) {
+    throw new Error('Unable to delete this habit from the database.');
   }
 
   setHabits((prev) => prev.filter((h) => h.id !== habitId));
+  if (linkedGroupHabitIds.length) {
+    const linkedIdSet = new Set(linkedGroupHabitIds);
+    setGroupHabits((prev) =>
+      (prev || []).filter(
+        (habit) => !linkedIdSet.has(habit.id) && habit?.sourceHabitId !== habitId
+      )
+    );
+    setGroupHabitCompletions((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev };
+      linkedGroupHabitIds.forEach((id) => {
+        if (Object.prototype.hasOwnProperty.call(next, id)) {
+          delete next[id];
+        }
+      });
+      return next;
+    });
+  }
+  return true;
 };
 
 const toggleHabitCompletion = async (habitId) => {
@@ -3545,113 +4171,18 @@ const toggleHabitCompletion = async (habitId) => {
   if (!habit) return;
 
   const isCompletedToday = habit.completedDates?.includes(todayKey);
-
-  if (isCompletedToday) {
-    // Remove completion for today
-    const { error } = await supabase
-      .from('habit_completions')
-      .delete()
-      .eq('habit_id', habitId)
-      .eq('user_id', authUser.id)
-      .eq('date', todayISO);
-
-    if (error) {
-      console.log('Error removing habit completion:', error);
-      return;
-    }
-
-    const newCompletedDates = habit.completedDates.filter(
-      (d) => d !== todayKey
-    );
-
-    const updatedHabit = {
-      ...habit,
-      completedDates: newCompletedDates,
-      streak: Math.max((habit.streak || 0) - 1, 0),
-      progressByDate: {
-        ...(habit.progressByDate || {}),
-        [todayKey]: 0,
-      },
-    };
-
-    setHabits((prev) =>
-      prev.map((h) => (h.id === habitId ? updatedHabit : h))
-    );
-
-    await supabase
-      .from('habits')
-      .update({ streak: updatedHabit.streak })
-      .eq('id', habitId)
-      .eq('user_id', authUser.id);
-
-    return;
-  }
-
-  // Mark as completed for today
-  const completionAmount = Number(habit.goalValue) || 1;
-  let { error } = await supabase
-    .from('habit_completions')
-    .insert({
-      habit_id: habitId,
-      user_id: authUser.id,
-      date: todayISO,
-      amount: completionAmount,
-    });
-
-  if (error && isMissingColumnError(error, 'amount')) {
-    ({ error } = await supabase
-      .from('habit_completions')
-      .insert({
-        habit_id: habitId,
-        user_id: authUser.id,
-        date: todayISO,
-      }));
-  }
-
-  if (error) {
-    console.log('Error adding habit completion:', error);
-    return;
-  }
-
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayKey = yesterday.toDateString();
-  const wasCompletedYesterday = habit.completedDates?.includes(yesterdayKey);
-
-  const newStreak = wasCompletedYesterday ? (habit.streak || 0) + 1 : 1;
-  const newCompletedDates = [...(habit.completedDates || []), todayKey];
-
-  const updatedHabit = {
-    ...habit,
-    completedDates: newCompletedDates,
-    streak: newStreak,
-    progressByDate: {
-      ...(habit.progressByDate || {}),
-      [todayKey]: completionAmount,
-    },
-  };
-
-  setHabits((prev) =>
-    prev.map((h) => (h.id === habitId ? updatedHabit : h))
-  );
-
-  await supabase
-    .from('habits')
-    .update({ streak: newStreak })
-    .eq('id', habitId)
-    .eq('user_id', authUser.id);
-
-  if (streakFrozen) {
-    await persistStreakFrozenState(false);
-  }
+  const completionAmount = Math.max(Number(habit.goalValue) || 1, 1);
+  const nextAmount = isCompletedToday ? 0 : completionAmount;
+  await setHabitProgress(habitId, nextAmount, todayISO);
 };
 
-const setHabitProgress = async (habitId, amount = 0, dateISO = null) => {
+const setHabitProgress = async (habitId, amount = 0, dateISO = null, options = {}) => {
   if (!authUser?.id || !habitId) return;
 
   const dateValue = dateISO || new Date().toISOString().slice(0, 10);
   const dateKey = new Date(dateValue).toDateString();
   const todayKey = new Date().toDateString();
+  const syncLinkedGroupHabits = options?.syncLinkedGroupHabits !== false;
   const numericAmount = Math.max(0, Number(amount) || 0);
   const habit = habits.find((item) => item.id === habitId);
   if (!habit) return;
@@ -3742,6 +4273,23 @@ const setHabitProgress = async (habitId, amount = 0, dateISO = null) => {
       .update({ streak: nextStreak })
       .eq('id', habitId)
       .eq('user_id', authUser.id);
+  }
+
+  if (syncLinkedGroupHabits) {
+    const linkedGroupHabits = (groupHabits || []).filter(
+      (groupHabit) => groupHabit?.sourceHabitId === habitId
+    );
+    for (const linkedGroupHabit of linkedGroupHabits) {
+      await toggleGroupHabitCompletion(linkedGroupHabit.id, {
+        amount: numericAmount,
+        dateISO: dateValue,
+        syncSourceHabit: false,
+      });
+    }
+  }
+
+  if (isTargetToday && shouldComplete && streakFrozen) {
+    await persistStreakFrozenState(false);
   }
 };
 
@@ -6123,12 +6671,45 @@ const getFinanceSummaryForDate = (date) => {
   const isMissingColumnError = (error, column) => {
     if (!error) return false;
     const message = (error.message || '').toLowerCase();
+    const details = (error.details || '').toLowerCase();
+    const hint = (error.hint || '').toLowerCase();
+    const combined = `${message} ${details} ${hint}`;
     const columnName = (column || '').toLowerCase();
     return (
       error.code === '42703' ||
-      message.includes('does not exist') ||
-      (columnName && message.includes(columnName))
+      error.code === 'PGRST204' ||
+      combined.includes('does not exist') ||
+      (combined.includes('could not find') && combined.includes('column')) ||
+      (combined.includes('schema cache') && combined.includes('column')) ||
+      (columnName && combined.includes(columnName))
     );
+  };
+
+  const extractMissingColumnName = (error) => {
+    if (!error) return null;
+    const parts = [error.message, error.details, error.hint]
+      .filter((value) => typeof value === 'string' && value.trim())
+      .join(' ');
+    if (!parts) return null;
+
+    const patterns = [
+      /could not find the ['"]([^'"]+)['"] column/i,
+      /column ['"]([^'"]+)['"] does not exist/i,
+      /column\s+([a-z0-9_.]+)\s+does not exist/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = parts.match(pattern);
+      if (!match?.[1]) continue;
+      const normalized = String(match[1])
+        .split('.')
+        .pop()
+        .replace(/[^a-z0-9_]/gi, '')
+        .toLowerCase();
+      if (normalized) return normalized;
+    }
+
+    return null;
   };
 
 const mapProfileRow = (row) => {
@@ -7613,6 +8194,7 @@ const mapProfileRow = (row) => {
     // Habits
     habits,
     addHabit,
+    shareHabitWithFriends,
     updateHabit,
     deleteHabit,
     toggleHabitCompletion,
@@ -7737,6 +8319,8 @@ const mapProfileRow = (row) => {
     deleteGroup,
     respondToGroupInvite,
     addGroupHabit,
+    updateGroupHabit,
+    deleteGroupHabit,
     toggleGroupHabitCompletion,
     addGroupRoutine,
     deleteGroupRoutine,

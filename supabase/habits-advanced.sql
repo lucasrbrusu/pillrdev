@@ -49,5 +49,8 @@ alter table if exists public.habits
 alter table if exists public.habits
   add column if not exists color text default '#9B59B6';
 
+alter table if exists public.habits
+  add column if not exists emoji text;
+
 alter table if exists public.habit_completions
   add column if not exists amount numeric;
