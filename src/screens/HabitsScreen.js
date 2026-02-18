@@ -343,9 +343,30 @@ const SwipeHabitCard = ({
   const [actionsOpen, setActionsOpen] = useState(false);
   const [dragFillRatio, setDragFillRatio] = useState(0);
   const dragFillRatioRef = useRef(0);
+  const progressRatioRef = useRef(clamp(ratio, 0, 1));
+  const swipeStartRatioRef = useRef(clamp(ratio, 0, 1));
   const swipeActiveRef = useRef(false);
   const fillRafRef = useRef(null);
   const fillResetTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    progressRatioRef.current = clamp(ratio, 0, 1);
+  }, [ratio]);
+
+  const getSwipeTargetRatio = useCallback(
+    (dx, startRatio = progressRatioRef.current) => {
+      const base = clamp(startRatio, 0, 1);
+      if (dx <= 0) return base;
+
+      const remaining = Math.max(0, 1 - base);
+      if (remaining <= 0) return 1;
+
+      const swipeProgress = clamp(dx / FILL_SWIPE_DISTANCE, 0, 1);
+      const delta = swipeProgress * remaining;
+      return clamp(base + delta, base, 1);
+    },
+    [FILL_SWIPE_DISTANCE]
+  );
 
   const flushDragFillToState = useCallback(() => {
     if (fillRafRef.current !== null) {
@@ -447,6 +468,7 @@ const SwipeHabitCard = ({
           isInteractive && Math.abs(g.dx) > Math.abs(g.dy) && Math.abs(g.dx) > 7,
         onPanResponderGrant: () => {
           if (!isInteractive) return;
+          swipeStartRatioRef.current = progressRatioRef.current;
           setSwipeInteractionActive(true);
         },
         onPanResponderMove: (_, g) => {
@@ -470,7 +492,7 @@ const SwipeHabitCard = ({
 
           // Right swipe should fill progress only; card stays in place.
           translateX.setValue(0);
-          setDragFillPreview(g.dx / FILL_SWIPE_DISTANCE);
+          setDragFillPreview(getSwipeTargetRatio(g.dx, swipeStartRatioRef.current));
         },
         onPanResponderRelease: (_, g) => {
           setSwipeInteractionActive(false);
@@ -503,16 +525,16 @@ const SwipeHabitCard = ({
           }
 
           if (g.dx >= 12) {
-            const swipeRatio = clamp(
-              Math.max(dragFillRatioRef.current, g.dx / FILL_SWIPE_DISTANCE),
-              0,
-              1
+            const targetRatio = Math.max(
+              dragFillRatioRef.current,
+              getSwipeTargetRatio(g.dx, swipeStartRatioRef.current)
             );
-            if (swipeRatio < 0.03) {
+            const ratioDelta = targetRatio - swipeStartRatioRef.current;
+            if (ratioDelta < 0.012) {
+              clearDragFillPreview();
               closeActions();
               return;
             }
-            const targetRatio = Math.max(ratio, swipeRatio);
             setDragFillPreview(targetRatio, { instant: true });
             onSwipeAdd(habit, Math.max(1, Math.round(getGoalValue(habit) * targetRatio)));
             clearDragFillPreview({ deferMs: 120 });
@@ -535,11 +557,11 @@ const SwipeHabitCard = ({
       }),
     [
       ACTION_RAIL_WIDTH,
-      FILL_SWIPE_DISTANCE,
       actionsOpen,
       clearDragFillPreview,
       closeActions,
       dragFillRatioRef,
+      getSwipeTargetRatio,
       habit,
       isInteractive,
       onSwipeAdd,
@@ -557,7 +579,8 @@ const SwipeHabitCard = ({
   const fillWidth = rowWidth * visualFillRatio;
   const habitColor = habit.color || palette.habits;
   const tintedTrack = withAlpha(habitColor, 0.16);
-  const tintedSurface = withAlpha(habitColor, completed ? 0.18 : 0.1);
+  const surfaceTone = shadeColor(habitColor, completed ? -0.16 : -0.24);
+  const tintedSurface = withAlpha(surfaceTone, completed ? 0.58 : 0.52);
   const colorBackdrop = palette.background || palette.card || '#FFFFFF';
   const tintedTrackColor = isAndroid ? toOpaqueColor(tintedTrack, colorBackdrop) : tintedTrack;
   const tintedSurfaceColor = isAndroid
