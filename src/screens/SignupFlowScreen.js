@@ -52,6 +52,51 @@ const badges = [
   },
 ];
 
+const onboardingJourneySteps = [
+  {
+    key: 'onboarding_habits',
+    title: 'Want to become a more disciplined you?',
+    subtitle:
+      'Build momentum with streaks and small wins that compound every day.',
+    buttonLabel: 'Yes lets do it',
+  },
+  {
+    key: 'onboarding_tasks',
+    title: 'Want to better plan your day?',
+    subtitle:
+      'Break goals into clear tasks and execute one focused action at a time.',
+    buttonLabel: 'Keep going',
+  },
+  {
+    key: 'onboarding_health',
+    title: 'Want more energy and focus?',
+    subtitle:
+      'Track sleep, hydration, and nutrition so your discipline stays strong.',
+    buttonLabel: 'I want this',
+  },
+  {
+    key: 'onboarding_routine',
+    title: 'Want structure that actually sticks?',
+    subtitle:
+      'Use routines, lists, and reminders to stay consistent and accountable.',
+    buttonLabel: 'Continue',
+  },
+  {
+    key: 'onboarding_finance',
+    title: 'Want to take control of your money too?',
+    subtitle:
+      'Track spending, cash flow, and insights so your progress is complete.',
+    buttonLabel: 'Continue',
+  },
+  {
+    key: 'onboarding_ready',
+    title: 'Ready to level up every area of your life?',
+    subtitle:
+      'Hold to commit. Once complete, we will create your account and launch your dashboard.',
+    buttonLabel: "I'm ready",
+  },
+];
+
 const stepContent = [
   {
     key: 'name',
@@ -78,6 +123,34 @@ const stepContent = [
     title: 'Terms & Privacy',
     subtitle: 'Please review and accept to continue',
   },
+  ...onboardingJourneySteps,
+];
+
+const habitPreviewRows = [
+  { id: 'habit-1', name: 'Study the book', progress: '0 / 5 times', streak: '0 day streak', percent: '0%', color: '#5AB9B1' },
+  { id: 'habit-2', name: 'Practise pitches', progress: '30 / 50 times', streak: '0 day streak', percent: '60%', color: '#6B4AE2' },
+  { id: 'habit-3', name: 'Night exercises', progress: '1 / 1 times', streak: '2 day streak', percent: '100%', color: '#2F6BDF' },
+  { id: 'habit-4', name: 'Morning stretches', progress: '1 / 1 times', streak: '2 day streak', percent: '100%', color: '#E13838' },
+];
+
+const taskPreviewRows = [
+  { id: 'task-1', title: 'Meeting with associate', priority: 'Low', due: '02/23/2026', priorityColor: '#9CA3AF' },
+  { id: 'task-2', title: 'Presentation with team', priority: 'High', due: '02/25/2026', priorityColor: '#EF4444' },
+  { id: 'task-3', title: 'Discuss documents to John', priority: 'Medium', due: '03/05/2026', priorityColor: '#F59E0B' },
+];
+
+const routinePreviewRows = [
+  { id: 'routine-1', title: 'morning routine', meta: '0 tasks · no range set' },
+  { id: 'routine-2', title: 'Weekly reset', meta: 'Family · 0 tasks' },
+  { id: 'routine-3', title: 'group routine', meta: '12:00 - 13:00 (1h)' },
+];
+
+const financePreviewLegend = [
+  { id: 'bills', name: 'bills', amount: '850', color: '#16A34A' },
+  { id: 'health', name: 'health', amount: '400', color: '#EF4444' },
+  { id: 'food', name: 'food', amount: '200', color: '#6366F1' },
+  { id: 'shopping', name: 'shopping', amount: '160', color: '#F59E0B' },
+  { id: 'entertainment', name: 'entertainment', amount: '50', color: '#EC4899' },
 ];
 
 const termsHighlights = [
@@ -114,6 +187,8 @@ const getPasswordError = (password) => {
   return '';
 };
 
+const HOLD_TO_CREATE_DURATION_MS = 3000;
+
 const SignupFlowScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const { signUp, themeColors, themeName } = useApp();
@@ -123,9 +198,13 @@ const SignupFlowScreen = ({ navigation }) => {
   const { width } = useWindowDimensions();
   const translateX = useRef(new Animated.Value(0)).current;
   const entryAnim = useRef(new Animated.Value(0)).current;
+  const holdProgress = useRef(new Animated.Value(0)).current;
+  const holdAnimationRef = useRef(null);
+  const holdCompletedRef = useRef(false);
 
   const [stepIndex, setStepIndex] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isHolding, setIsHolding] = useState(false);
   const [error, setError] = useState('');
   const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
   const [form, setForm] = useState({
@@ -212,6 +291,32 @@ const SignupFlowScreen = ({ navigation }) => {
     Linking.openURL(url);
   };
 
+  const resetHoldProgress = () => {
+    holdAnimationRef.current?.stop();
+    holdAnimationRef.current = null;
+    holdCompletedRef.current = false;
+    holdProgress.stopAnimation();
+    holdProgress.setValue(0);
+    setIsHolding(false);
+  };
+
+  const createAccount = async () => {
+    try {
+      setIsSubmitting(true);
+      await signUp({
+        fullName: form.fullName.trim(),
+        username: form.username.trim(),
+        email: form.email.trim(),
+        password: form.password,
+      });
+    } catch (submitError) {
+      setError(submitError?.message || 'Something went wrong. Please try again.');
+      resetHoldProgress();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleContinue = async () => {
     const stepError = getStepError();
     if (stepError) {
@@ -224,33 +329,28 @@ const SignupFlowScreen = ({ navigation }) => {
       animateToStep(stepIndex + 1, 'left');
       return;
     }
-
-    try {
-      setIsSubmitting(true);
-      await signUp({
-        fullName: form.fullName.trim(),
-        username: form.username.trim(),
-        email: form.email.trim(),
-        password: form.password,
-      });
-    } catch (submitError) {
-      setError(submitError?.message || 'Something went wrong. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
   };
+
+  useEffect(() => {
+    resetHoldProgress();
+    return () => {
+      holdAnimationRef.current?.stop();
+      holdAnimationRef.current = null;
+    };
+  }, [stepIndex]);
 
   const getStepError = () => {
     const trimmedName = form.fullName.trim();
     const trimmedUsername = form.username.trim();
     const trimmedEmail = form.email.trim();
+    const currentStepKey = stepContent[stepIndex]?.key;
 
-    switch (stepIndex) {
-      case 0:
+    switch (currentStepKey) {
+      case 'name':
         return trimmedName ? '' : 'Please enter your full name.';
-      case 1:
+      case 'username':
         return trimmedUsername ? '' : 'Please choose a username.';
-      case 2:
+      case 'email':
         if (!trimmedEmail) {
           return 'Please enter your email address.';
         }
@@ -258,7 +358,7 @@ const SignupFlowScreen = ({ navigation }) => {
           return 'Please enter a valid email address.';
         }
         return '';
-      case 3: {
+      case 'password': {
         const passwordError = getPasswordError(form.password);
         if (passwordError) {
           return passwordError;
@@ -271,7 +371,7 @@ const SignupFlowScreen = ({ navigation }) => {
         }
         return '';
       }
-      case 4:
+      case 'terms':
         return hasAcceptedTerms ? '' : 'Please accept the terms to continue.';
       default:
         return '';
@@ -279,23 +379,25 @@ const SignupFlowScreen = ({ navigation }) => {
   };
 
   const isStepComplete = useMemo(() => {
-    switch (stepIndex) {
-      case 0:
+    const currentStepKey = stepContent[stepIndex]?.key;
+
+    switch (currentStepKey) {
+      case 'name':
         return Boolean(form.fullName.trim());
-      case 1:
+      case 'username':
         return Boolean(form.username.trim());
-      case 2:
+      case 'email':
         return Boolean(form.email.trim()) && /^\S+@\S+\.\S+$/.test(form.email.trim());
-      case 3:
+      case 'password':
         return (
           Boolean(form.password) &&
           !getPasswordError(form.password) &&
           form.password === form.confirmPassword
         );
-      case 4:
+      case 'terms':
         return hasAcceptedTerms;
       default:
-        return false;
+        return true;
     }
   }, [form, hasAcceptedTerms, stepIndex]);
 
@@ -310,8 +412,14 @@ const SignupFlowScreen = ({ navigation }) => {
   };
 
   const stepMeta = stepContent[stepIndex];
+  const isJourneyStep = stepMeta?.key?.startsWith('onboarding_');
+  const isHoldToCreateStep = stepMeta?.key === 'onboarding_ready';
   const progress = (stepIndex + 1) / stepContent.length;
   const isLastStep = stepIndex === stepContent.length - 1;
+  const ctaLabel = stepMeta?.buttonLabel || (isLastStep ? 'Create Account' : 'Continue');
+  const isCtaDisabled = isHoldToCreateStep
+    ? isSubmitting
+    : (!isStepComplete || isSubmitting);
   const entryOpacity = entryAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [0, 1],
@@ -329,6 +437,212 @@ const SignupFlowScreen = ({ navigation }) => {
     outputRange: [0, 1, 0],
     extrapolate: 'clamp',
   });
+  const holdFillWidth = holdProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0%', '100%'],
+  });
+
+  const handleHoldStart = () => {
+    if (!isHoldToCreateStep || isSubmitting) return;
+    setError('');
+    holdAnimationRef.current?.stop();
+    holdCompletedRef.current = false;
+    holdProgress.setValue(0);
+    setIsHolding(true);
+
+    holdAnimationRef.current = Animated.timing(holdProgress, {
+      toValue: 1,
+      duration: HOLD_TO_CREATE_DURATION_MS,
+      easing: Easing.linear,
+      useNativeDriver: false,
+    });
+
+    holdAnimationRef.current.start(({ finished }) => {
+      if (!finished || holdCompletedRef.current) return;
+      holdCompletedRef.current = true;
+      setIsHolding(false);
+      createAccount();
+    });
+  };
+
+  const handleHoldEnd = () => {
+    if (!isHoldToCreateStep || isSubmitting) return;
+    if (holdCompletedRef.current) return;
+
+    holdAnimationRef.current?.stop();
+    holdAnimationRef.current = null;
+    setIsHolding(false);
+    Animated.timing(holdProgress, {
+      toValue: 0,
+      duration: 180,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  };
+
+  const renderOnboardingPreview = () => {
+    if (stepMeta.key === 'onboarding_habits') {
+      return (
+        <View style={styles.previewWrap}>
+          {habitPreviewRows.map((row) => (
+            <View key={row.id} style={[styles.previewHabitCard, { backgroundColor: row.color }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.previewHabitTitle}>{row.name}</Text>
+                <Text style={styles.previewHabitMeta}>{row.progress}</Text>
+              </View>
+              <View style={styles.previewHabitRight}>
+                <Text style={styles.previewHabitMeta}>{row.streak}</Text>
+                <Text style={styles.previewHabitPercent}>{row.percent}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      );
+    }
+
+    if (stepMeta.key === 'onboarding_tasks') {
+      return (
+        <View style={styles.previewWrap}>
+          <View style={styles.previewTaskButtonRow}>
+            <View style={[styles.previewTaskButton, styles.previewTaskButtonPrimary]}>
+              <Text style={styles.previewTaskButtonPrimaryText}>Add Task</Text>
+            </View>
+            <View style={styles.previewTaskButton}>
+              <Text style={styles.previewTaskButtonText}>Create Note</Text>
+            </View>
+          </View>
+          {taskPreviewRows.map((row) => (
+            <View key={row.id} style={styles.previewTaskRow}>
+              <View style={[styles.previewTaskPriority, { backgroundColor: `${row.priorityColor}22` }]}>
+                <Text style={[styles.previewTaskPriorityText, { color: row.priorityColor }]}>{row.priority}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text numberOfLines={1} style={styles.previewTaskTitle}>{row.title}</Text>
+                <Text style={styles.previewTaskDue}>{row.due}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      );
+    }
+
+    if (stepMeta.key === 'onboarding_health') {
+      return (
+        <View style={styles.previewWrap}>
+          <View style={styles.previewHealthRow}>
+            <View style={styles.previewHealthStat}>
+              <Text style={styles.previewHealthLabel}>Avg Water</Text>
+              <Text style={[styles.previewHealthValue, { color: '#3B82F6' }]}>0.49 L</Text>
+            </View>
+            <View style={styles.previewHealthStat}>
+              <Text style={styles.previewHealthLabel}>Avg Sleep</Text>
+              <Text style={[styles.previewHealthValue, { color: '#A855F7' }]}>7.5 h</Text>
+            </View>
+          </View>
+          <View style={styles.previewCalorieCard}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.previewCalorieTitle}>Calorie Tracker</Text>
+              <Text style={styles.previewCalorieMeta}>Goal 2159 cal</Text>
+              <Text style={styles.previewCalorieMeta}>Consumed 0 cal</Text>
+            </View>
+            <View style={styles.previewRing}>
+              <Text style={styles.previewRingValue}>2159</Text>
+            </View>
+          </View>
+          <View style={styles.previewTipCard}>
+            <Text style={styles.previewTipText}>Tip: Focus on carbs to stay on track today.</Text>
+          </View>
+        </View>
+      );
+    }
+
+    if (stepMeta.key === 'onboarding_routine') {
+      return (
+        <View style={styles.previewWrap}>
+          <View style={styles.previewRoutineSummaryRow}>
+            <View style={styles.previewRoutineSummary}>
+              <Text style={styles.previewRoutineSummaryValue}>3</Text>
+              <Text style={styles.previewRoutineSummaryLabel}>Routines</Text>
+            </View>
+            <View style={styles.previewRoutineSummary}>
+              <Text style={styles.previewRoutineSummaryValue}>2</Text>
+              <Text style={styles.previewRoutineSummaryLabel}>Open</Text>
+            </View>
+            <View style={styles.previewRoutineSummary}>
+              <Text style={styles.previewRoutineSummaryValue}>2</Text>
+              <Text style={styles.previewRoutineSummaryLabel}>Reminders</Text>
+            </View>
+          </View>
+          {routinePreviewRows.map((row) => (
+            <View key={row.id} style={styles.previewRoutineRow}>
+              <View>
+                <Text style={styles.previewRoutineTitle}>{row.title}</Text>
+                <Text style={styles.previewRoutineMeta}>{row.meta}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color="#7C83A3" />
+            </View>
+          ))}
+        </View>
+      );
+    }
+
+    if (stepMeta.key === 'onboarding_ready') {
+      return (
+        <View style={styles.previewWrap}>
+          <View style={styles.previewReadyCard}>
+            <Text style={styles.previewReadyTitle}>Your system is ready</Text>
+            <Text style={styles.previewReadyText}>
+              Habits + Tasks + Health + Routine + Finance
+            </Text>
+          </View>
+          <View style={styles.previewReadyGrid}>
+            <View style={[styles.previewReadyPill, { backgroundColor: '#EDE9FE' }]}>
+              <Text style={[styles.previewReadyPillText, { color: '#5B21B6' }]}>Consistency</Text>
+            </View>
+            <View style={[styles.previewReadyPill, { backgroundColor: '#DBEAFE' }]}>
+              <Text style={[styles.previewReadyPillText, { color: '#1D4ED8' }]}>Planning</Text>
+            </View>
+            <View style={[styles.previewReadyPill, { backgroundColor: '#D1FAE5' }]}>
+              <Text style={[styles.previewReadyPillText, { color: '#047857' }]}>Health</Text>
+            </View>
+            <View style={[styles.previewReadyPill, { backgroundColor: '#FCE7F3' }]}>
+              <Text style={[styles.previewReadyPillText, { color: '#BE185D' }]}>Growth</Text>
+            </View>
+          </View>
+          <View style={styles.previewReadyNote}>
+            <Ionicons name="time-outline" size={15} color="#6B7280" />
+            <Text style={styles.previewReadyNoteText}>Hold the button for 3 seconds to begin.</Text>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.previewWrap}>
+        <View style={styles.previewFinanceHeader}>
+          <Text style={styles.previewFinanceHeaderLabel}>Total Balance</Text>
+          <Text style={styles.previewFinanceHeaderValue}>GBP 410</Text>
+          <View style={styles.previewFinanceMetaRow}>
+            <Text style={styles.previewFinanceMeta}>Income 2100</Text>
+            <Text style={styles.previewFinanceMeta}>Expenses 1690</Text>
+          </View>
+        </View>
+        <View style={styles.previewFinanceCard}>
+          <View style={styles.previewFinancePie} />
+          <View style={styles.previewFinanceLegend}>
+            {financePreviewLegend.map((item) => (
+              <View key={item.id} style={styles.previewFinanceLegendRow}>
+                <View style={[styles.previewFinanceDot, { backgroundColor: item.color }]} />
+                <Text style={styles.previewFinanceLegendText}>
+                  {`${item.name} ${item.amount}`}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      </View>
+    );
+  };
 
   return (
     <LinearGradient
@@ -397,7 +711,9 @@ const SignupFlowScreen = ({ navigation }) => {
             </View>
             <Text style={styles.logoTitle}>PillarUp</Text>
           </View>
-          <Text style={styles.subtitle}>Create your account</Text>
+          <Text style={styles.subtitle}>
+            {isJourneyStep ? 'Build your onboarding foundation' : 'Create your account'}
+          </Text>
 
           <Animated.View style={{ transform: [{ translateX }], opacity: fadeOpacity }}>
             <View
@@ -551,32 +867,73 @@ const SignupFlowScreen = ({ navigation }) => {
                 </>
               )}
 
+              {isJourneyStep && (
+                <View style={styles.onboardingVisualCard}>
+                  {renderOnboardingPreview()}
+                </View>
+              )}
+
               {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-              <TouchableOpacity
-                style={[styles.ctaButton, (!isStepComplete || isSubmitting) && styles.ctaDisabled]}
-                onPress={handleContinue}
-                disabled={!isStepComplete || isSubmitting}
-                activeOpacity={0.85}
-              >
-                <LinearGradient colors={signupTheme.buttonGradient} style={styles.ctaGradient}>
-                  {isSubmitting ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <>
-                      <Text style={styles.ctaText}>
-                        {isLastStep ? 'Create Account' : 'Continue'}
-                      </Text>
-                      <Ionicons
-                        name="arrow-forward"
-                        size={18}
-                        color="#FFFFFF"
-                        style={styles.ctaIcon}
+              {isHoldToCreateStep ? (
+                <>
+                  <TouchableOpacity
+                    style={[styles.ctaButton, isCtaDisabled && styles.ctaDisabled]}
+                    onPressIn={handleHoldStart}
+                    onPressOut={handleHoldEnd}
+                    disabled={isCtaDisabled}
+                    activeOpacity={0.95}
+                  >
+                    <LinearGradient colors={signupTheme.buttonGradient} style={styles.ctaGradient}>
+                      <Animated.View
+                        pointerEvents="none"
+                        style={[styles.holdFill, { width: holdFillWidth }]}
                       />
-                    </>
+                      {isSubmitting ? (
+                        <ActivityIndicator color="#FFFFFF" />
+                      ) : (
+                        <>
+                          <Text style={styles.ctaText}>{ctaLabel}</Text>
+                          <Ionicons
+                            name={isHolding ? 'lock-closed' : 'hand-left-outline'}
+                            size={18}
+                            color="#FFFFFF"
+                            style={styles.ctaIcon}
+                          />
+                        </>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                  {!isSubmitting && (
+                    <Text style={styles.holdHintText}>
+                      Hold for 3 seconds to create your account
+                    </Text>
                   )}
-                </LinearGradient>
-              </TouchableOpacity>
+                </>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.ctaButton, isCtaDisabled && styles.ctaDisabled]}
+                  onPress={handleContinue}
+                  disabled={isCtaDisabled}
+                  activeOpacity={0.85}
+                >
+                  <LinearGradient colors={signupTheme.buttonGradient} style={styles.ctaGradient}>
+                    {isSubmitting ? (
+                      <ActivityIndicator color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <Text style={styles.ctaText}>{ctaLabel}</Text>
+                        <Ionicons
+                          name="arrow-forward"
+                          size={18}
+                          color="#FFFFFF"
+                          style={styles.ctaIcon}
+                        />
+                      </>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
             </View>
           </Animated.View>
         </Animated.View>
@@ -788,6 +1145,347 @@ const createStyles = (themeColorsParam = colors) => {
       fontWeight: '600',
       textDecorationLine: 'underline',
     },
+    onboardingVisualCard: {
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: '#E8E3F2',
+      backgroundColor: '#FFFFFF',
+      padding: spacing.md,
+      marginBottom: spacing.md,
+      minHeight: 300,
+    },
+    previewWrap: {
+      flex: 1,
+    },
+    previewHabitCard: {
+      borderRadius: 14,
+      paddingHorizontal: 10,
+      paddingVertical: 10,
+      marginBottom: spacing.xs,
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    previewHabitTitle: {
+      color: '#FFFFFF',
+      fontSize: 14,
+      fontWeight: '800',
+    },
+    previewHabitMeta: {
+      color: 'rgba(255,255,255,0.9)',
+      fontSize: 11,
+      marginTop: 2,
+      fontWeight: '600',
+    },
+    previewHabitRight: {
+      alignItems: 'flex-end',
+      marginLeft: spacing.sm,
+    },
+    previewHabitPercent: {
+      color: '#FFFFFF',
+      fontSize: 18,
+      fontWeight: '800',
+      marginTop: 1,
+    },
+    previewTaskButtonRow: {
+      flexDirection: 'row',
+      marginBottom: spacing.sm,
+    },
+    previewTaskButton: {
+      flex: 1,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: '#E4DEEF',
+      paddingVertical: 9,
+      alignItems: 'center',
+      marginRight: spacing.xs,
+      backgroundColor: '#FFFFFF',
+    },
+    previewTaskButtonPrimary: {
+      backgroundColor: '#C34CEC',
+      borderColor: '#C34CEC',
+    },
+    previewTaskButtonText: {
+      color: '#2A3247',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    previewTaskButtonPrimaryText: {
+      color: '#FFFFFF',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    previewTaskRow: {
+      borderRadius: 14,
+      backgroundColor: '#F7F3FF',
+      borderWidth: 1,
+      borderColor: '#EAE1F7',
+      paddingHorizontal: 9,
+      paddingVertical: 9,
+      marginBottom: spacing.xs,
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    previewTaskPriority: {
+      paddingHorizontal: 7,
+      paddingVertical: 4,
+      borderRadius: borderRadius.full,
+      marginRight: spacing.sm,
+    },
+    previewTaskPriorityText: {
+      fontSize: 10,
+      fontWeight: '700',
+    },
+    previewTaskTitle: {
+      color: '#20273A',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    previewTaskDue: {
+      marginTop: 2,
+      color: '#778097',
+      fontSize: 10,
+      fontWeight: '600',
+    },
+    previewHealthRow: {
+      flexDirection: 'row',
+      marginBottom: spacing.sm,
+    },
+    previewHealthStat: {
+      flex: 1,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: '#E7E3F2',
+      backgroundColor: '#FDFDFF',
+      paddingHorizontal: 9,
+      paddingVertical: 8,
+      marginRight: spacing.xs,
+    },
+    previewHealthLabel: {
+      color: '#798199',
+      fontSize: 10,
+      fontWeight: '600',
+    },
+    previewHealthValue: {
+      marginTop: 2,
+      fontSize: 16,
+      fontWeight: '800',
+    },
+    previewCalorieCard: {
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: '#BEE8D0',
+      backgroundColor: '#F7FFFA',
+      padding: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: spacing.sm,
+    },
+    previewCalorieTitle: {
+      color: '#199B5E',
+      fontSize: 14,
+      fontWeight: '800',
+      marginBottom: 3,
+    },
+    previewCalorieMeta: {
+      color: '#4D8E6C',
+      fontSize: 11,
+      fontWeight: '600',
+      marginBottom: 2,
+    },
+    previewRing: {
+      width: 82,
+      height: 82,
+      borderRadius: 41,
+      borderWidth: 3,
+      borderColor: '#10B981',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    previewRingValue: {
+      color: '#0D9B64',
+      fontSize: 16,
+      fontWeight: '800',
+    },
+    previewTipCard: {
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: '#DDE4EF',
+      backgroundColor: '#FFFFFF',
+      paddingHorizontal: 10,
+      paddingVertical: 10,
+    },
+    previewTipText: {
+      color: '#6C7490',
+      fontSize: 11,
+      fontWeight: '600',
+    },
+    previewRoutineSummaryRow: {
+      flexDirection: 'row',
+      marginBottom: spacing.sm,
+    },
+    previewRoutineSummary: {
+      flex: 1,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: '#E6E0F2',
+      paddingVertical: 8,
+      alignItems: 'center',
+      marginRight: spacing.xs,
+      backgroundColor: '#FBF8FF',
+    },
+    previewRoutineSummaryValue: {
+      color: '#2A3147',
+      fontSize: 16,
+      fontWeight: '800',
+    },
+    previewRoutineSummaryLabel: {
+      color: '#768099',
+      fontSize: 10,
+      fontWeight: '700',
+      marginTop: 2,
+    },
+    previewRoutineRow: {
+      borderRadius: 12,
+      backgroundColor: '#F5F2FB',
+      borderWidth: 1,
+      borderColor: '#E4DEF1',
+      paddingHorizontal: 10,
+      paddingVertical: 9,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: spacing.xs,
+    },
+    previewRoutineTitle: {
+      color: '#5460E5',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    previewRoutineMeta: {
+      color: '#79819B',
+      fontSize: 10,
+      fontWeight: '600',
+      marginTop: 2,
+    },
+    previewFinanceHeader: {
+      borderRadius: 14,
+      backgroundColor: '#32A5F6',
+      paddingHorizontal: 10,
+      paddingVertical: 10,
+      marginBottom: spacing.sm,
+    },
+    previewFinanceHeaderLabel: {
+      color: 'rgba(255,255,255,0.92)',
+      fontSize: 10,
+      fontWeight: '700',
+    },
+    previewFinanceHeaderValue: {
+      color: '#FFFFFF',
+      fontSize: 24,
+      fontWeight: '800',
+      marginTop: 2,
+    },
+    previewFinanceMetaRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginTop: 4,
+    },
+    previewFinanceMeta: {
+      color: 'rgba(255,255,255,0.92)',
+      fontSize: 10,
+      fontWeight: '700',
+    },
+    previewFinanceCard: {
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: '#DFE7F3',
+      backgroundColor: '#FFFFFF',
+      padding: 10,
+      flexDirection: 'row',
+      flex: 1,
+    },
+    previewFinancePie: {
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      backgroundColor: '#EAF5FF',
+      borderWidth: 6,
+      borderColor: '#22C55E',
+      marginRight: spacing.sm,
+      alignSelf: 'center',
+    },
+    previewFinanceLegend: {
+      flex: 1,
+      justifyContent: 'center',
+    },
+    previewFinanceLegendRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 5,
+    },
+    previewFinanceDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      marginRight: 6,
+    },
+    previewFinanceLegendText: {
+      color: '#30374D',
+      fontSize: 10,
+      fontWeight: '700',
+    },
+    previewReadyCard: {
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: '#E6E0F2',
+      backgroundColor: '#FBF8FF',
+      paddingHorizontal: 12,
+      paddingVertical: 12,
+      marginBottom: spacing.sm,
+    },
+    previewReadyTitle: {
+      color: '#1F2937',
+      fontSize: 16,
+      fontWeight: '800',
+      marginBottom: 4,
+    },
+    previewReadyText: {
+      color: '#6B7280',
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    previewReadyGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      marginBottom: spacing.sm,
+    },
+    previewReadyPill: {
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+      borderRadius: borderRadius.full,
+      marginRight: spacing.xs,
+      marginBottom: spacing.xs,
+    },
+    previewReadyPillText: {
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    previewReadyNote: {
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: '#DDE4EF',
+      backgroundColor: '#FFFFFF',
+      paddingHorizontal: 10,
+      paddingVertical: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    previewReadyNoteText: {
+      marginLeft: spacing.xs,
+      color: '#6C7490',
+      fontSize: 11,
+      fontWeight: '600',
+    },
     errorText: {
       color: themeColorsParam?.danger || colors.danger,
       marginBottom: spacing.sm,
@@ -806,6 +1504,15 @@ const createStyles = (themeColorsParam = colors) => {
       justifyContent: 'center',
       paddingVertical: spacing.md,
       paddingHorizontal: spacing.lg,
+      position: 'relative',
+      overflow: 'hidden',
+    },
+    holdFill: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(255,255,255,0.28)',
     },
     ctaText: {
       ...typography.body,
@@ -815,6 +1522,13 @@ const createStyles = (themeColorsParam = colors) => {
     },
     ctaIcon: {
       marginLeft: spacing.sm,
+    },
+    holdHintText: {
+      ...typography.caption,
+      textAlign: 'center',
+      color: mutedText,
+      marginTop: spacing.sm,
+      fontWeight: '600',
     },
   });
 };

@@ -7763,7 +7763,7 @@ const mapProfileRow = (row) => {
       const { data, error } = await supabase
         .from('profiles')
         .select(
-          'id, user_id, username, full_name, email, avatar_url, photo, daily_calorie_goal, daily_water_goal, daily_sleep_goal, weight_manager_unit, weight_manager_current_weight, weight_manager_target_weight, weight_manager_current_body_type, weight_manager_target_body_type, weight_manager_target_calories, weight_manager_protein_grams, weight_manager_carbs_grams, weight_manager_fat_grams, plan, premium_expires_at, is_premium, has_onboarded, created_at, updated_at'
+          'id, user_id, username, full_name, email, avatar_url, photo, daily_calorie_goal, daily_water_goal, daily_sleep_goal, weight_manager_unit, weight_manager_current_weight, weight_manager_target_weight, weight_manager_current_body_type, weight_manager_target_body_type, weight_manager_target_calories, weight_manager_protein_grams, weight_manager_carbs_grams, weight_manager_fat_grams, plan, premium_expires_at, is_premium, has_onboarded, has_completed_app_tutorial, app_tutorial_completed_at, created_at, updated_at'
         )
         .eq(column, userId)
         .limit(1);
