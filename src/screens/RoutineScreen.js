@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useApp } from '../context/AppContext';
 import {
@@ -175,6 +175,7 @@ const formatRoutineScheduleSummary = (routine) => {
 const RoutineScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const route = useRoute();
     const {
       routines,
       groupRoutines,
@@ -365,7 +366,11 @@ const RoutineScreen = () => {
   const [activeGroceryListId, setActiveGroceryListId] = useState(null);
   const [groceryListEditorMode, setGroceryListEditorMode] = useState(null);
   const [isGroceryItemEditorOpen, setIsGroceryItemEditorOpen] = useState(false);
+  const handledRoutineOpenRequestKeyRef = useRef(null);
   const grocerySceneAnim = useRef(new Animated.Value(1)).current;
+  const pendingRoutineOpenKey = route?.params?.openRoutineFormKey || null;
+  const pendingRoutineCreateType = route?.params?.routineCreateType || null;
+  const pendingRoutineGroupId = route?.params?.groupId || null;
   const normalizedReminderTime = useMemo(
     () => normalizeTimeValue(reminderTime),
     [reminderTime]
@@ -384,6 +389,27 @@ const RoutineScreen = () => {
     });
     return map;
   }, [groups]);
+
+  useEffect(() => {
+    if (!pendingRoutineOpenKey) return;
+    if (handledRoutineOpenRequestKeyRef.current === pendingRoutineOpenKey) return;
+
+    handledRoutineOpenRequestKeyRef.current = pendingRoutineOpenKey;
+    setRoutineName('');
+    setRoutineStartTime('');
+    setRoutineEndTime('');
+    setShowRoutineTimePicker(false);
+    setRoutineTimePickerTarget(null);
+
+    const targetType = pendingRoutineCreateType === 'group' ? 'group' : 'personal';
+    setRoutineCreateType(targetType);
+    if (targetType === 'group') {
+      setRoutineGroupId(pendingRoutineGroupId || null);
+    } else {
+      setRoutineGroupId(null);
+    }
+    setShowRoutineModal(true);
+  }, [pendingRoutineOpenKey, pendingRoutineCreateType, pendingRoutineGroupId]);
 
   const handleCreateRoutine = async () => {
     if (!routineName.trim()) return;

@@ -244,6 +244,8 @@ const getExpoProjectId = () =>
   null;
 
 const asNumber = (value, fallback = null) => {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === 'string' && value.trim() === '') return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 };
@@ -533,6 +535,56 @@ const isInvalidRefreshTokenError = (error) => {
   );
 };
 
+const TASK_ARCHIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+const getTaskDueDateTime = (task) => {
+  if (!task?.date) return null;
+  return buildDateWithTime(task.date, task.time, 23, 59);
+};
+
+const getTaskSortMs = (task) => {
+  const due = getTaskDueDateTime(task);
+  if (due instanceof Date && !Number.isNaN(due.getTime())) return due.getTime();
+  const created = new Date(task?.createdAt || task?.created_at || 0).getTime();
+  if (Number.isFinite(created) && created > 0) return created;
+  return 0;
+};
+
+const isTaskPastArchiveWindow = (task, nowMs = Date.now()) => {
+  const due = getTaskDueDateTime(task);
+  if (!(due instanceof Date) || Number.isNaN(due.getTime())) return false;
+  return nowMs - due.getTime() >= TASK_ARCHIVE_WINDOW_MS;
+};
+
+const splitTaskBuckets = (items = [], nowMs = Date.now()) => {
+  const active = [];
+  const archived = [];
+  const newlyArchivedIds = [];
+
+  (items || []).forEach((task) => {
+    const isPastArchiveWindow = isTaskPastArchiveWindow(task, nowMs);
+    const isArchived = Boolean(task?.archivedAt) || isPastArchiveWindow;
+
+    if (isArchived) {
+      archived.push(task);
+      if (!task?.archivedAt && isPastArchiveWindow && task?.id) {
+        newlyArchivedIds.push(task.id);
+      }
+      return;
+    }
+    active.push(task);
+  });
+
+  active.sort((a, b) => getTaskSortMs(a) - getTaskSortMs(b));
+  archived.sort((a, b) => getTaskSortMs(b) - getTaskSortMs(a));
+
+  return {
+    active: dedupeById(active),
+    archived: dedupeById(archived),
+    newlyArchivedIds: Array.from(new Set(newlyArchivedIds)),
+  };
+};
+
 
 export const AppProvider = ({ children }) => {
   // Habits State
@@ -541,6 +593,7 @@ export const AppProvider = ({ children }) => {
 
   // Tasks State
   const [tasks, setTasks] = useState([]);
+  const [archivedTasks, setArchivedTasks] = useState([]);
   const [notes, setNotes] = useState([]);
 
   // Health State
@@ -847,6 +900,7 @@ const loadUserDataFromSupabase = async (userId) => {
       // User logged out → clear in-memory state
       setHabits([]);
       setTasks([]);
+      setArchivedTasks([]);
       setNotes([]);
       setHealthData({});
       setTodayHealth(defaultHealthDay());
@@ -3276,6 +3330,7 @@ const mapExternalProfile = (row) => ({
         time: newRow.time,
         completed: newRow.completed,
         createdAt: newRow.created_at,
+        archivedAt: newRow.archived_at || null,
         sharedTaskId: invite.task_id,
       };
 
@@ -4665,9 +4720,33 @@ const TASK_SELECT_FIELDS_BASE_NO_DESC =
   'id,title,priority,date,time,completed,created_at,shared_task_id';
 const TASK_SELECT_FIELDS_BASE_MINIMAL =
   'id,title,date,time,completed,created_at,shared_task_id';
+const TASK_SELECT_FIELDS_ARCHIVE_BASE = `${TASK_SELECT_FIELDS_BASE},archived_at`;
+const TASK_SELECT_FIELDS_ARCHIVE_BASE_NO_DESC = `${TASK_SELECT_FIELDS_BASE_NO_DESC},archived_at`;
+const TASK_SELECT_FIELDS_ARCHIVE_BASE_MINIMAL = `${TASK_SELECT_FIELDS_BASE_MINIMAL},archived_at`;
 const TASK_SELECT_FIELDS = `${TASK_SELECT_FIELDS_BASE},notification_ids`;
 const TASK_SELECT_FIELDS_NO_DESC = `${TASK_SELECT_FIELDS_BASE_NO_DESC},notification_ids`;
 const TASK_SELECT_FIELDS_MINIMAL = `${TASK_SELECT_FIELDS_BASE_MINIMAL},notification_ids`;
+const TASK_SELECT_FIELDS_ARCHIVE = `${TASK_SELECT_FIELDS_ARCHIVE_BASE},notification_ids`;
+const TASK_SELECT_FIELDS_ARCHIVE_NO_DESC = `${TASK_SELECT_FIELDS_ARCHIVE_BASE_NO_DESC},notification_ids`;
+const TASK_SELECT_FIELDS_ARCHIVE_MINIMAL = `${TASK_SELECT_FIELDS_ARCHIVE_BASE_MINIMAL},notification_ids`;
+
+const TASK_SELECT_VARIANTS_WITH_ARCHIVE = [
+  TASK_SELECT_FIELDS_ARCHIVE,
+  TASK_SELECT_FIELDS_ARCHIVE_NO_DESC,
+  TASK_SELECT_FIELDS_ARCHIVE_MINIMAL,
+  TASK_SELECT_FIELDS_ARCHIVE_BASE,
+  TASK_SELECT_FIELDS_ARCHIVE_BASE_NO_DESC,
+  TASK_SELECT_FIELDS_ARCHIVE_BASE_MINIMAL,
+];
+
+const TASK_SELECT_VARIANTS_LEGACY = [
+  TASK_SELECT_FIELDS,
+  TASK_SELECT_FIELDS_NO_DESC,
+  TASK_SELECT_FIELDS_MINIMAL,
+  TASK_SELECT_FIELDS_BASE,
+  TASK_SELECT_FIELDS_BASE_NO_DESC,
+  TASK_SELECT_FIELDS_BASE_MINIMAL,
+];
 
 const fetchTasksFromSupabase = async (userId) => {
   const buildQuery = (table, selectFields) =>
@@ -4676,81 +4755,36 @@ const fetchTasksFromSupabase = async (userId) => {
       .select(selectFields)
       .eq('user_id', userId)
       .order('date', { ascending: true })
-      .order('created_at', { ascending: true })
-      .limit(50);
+      .order('created_at', { ascending: true });
 
-  const attempts = [
-    { table: 'tasks_list', fields: TASK_SELECT_FIELDS, reason: null },
-    {
-      table: 'tasks_list',
-      fields: TASK_SELECT_FIELDS_NO_DESC,
-      reason: 'tasks_list.description missing; retrying without description column',
-    },
-    {
-      table: 'tasks_list',
-      fields: TASK_SELECT_FIELDS_MINIMAL,
-      reason: 'tasks_list.priority missing; retrying without priority column',
-    },
-    {
-      table: 'tasks_list',
-      fields: TASK_SELECT_FIELDS_BASE,
-      reason: 'tasks_list.notification_ids missing; retrying without notification_ids column',
-    },
-    {
-      table: 'tasks_list',
-      fields: TASK_SELECT_FIELDS_BASE_NO_DESC,
-      reason: 'tasks_list.description missing; retrying without description column',
-    },
-    {
-      table: 'tasks_list',
-      fields: TASK_SELECT_FIELDS_BASE_MINIMAL,
-      reason: 'tasks_list.priority missing; retrying without priority column',
-    },
-    {
-      table: 'tasks',
-      fields: TASK_SELECT_FIELDS,
-      reason: 'Falling back to tasks table with full fields',
-    },
-    {
-      table: 'tasks',
-      fields: TASK_SELECT_FIELDS_NO_DESC,
-      reason: 'tasks table description missing; retrying without description column',
-    },
-    {
-      table: 'tasks',
-      fields: TASK_SELECT_FIELDS_MINIMAL,
-      reason: 'tasks table priority missing; retrying without priority column',
-    },
-    {
-      table: 'tasks',
-      fields: TASK_SELECT_FIELDS_BASE,
-      reason: 'tasks table notification_ids missing; retrying without notification_ids column',
-    },
-    {
-      table: 'tasks',
-      fields: TASK_SELECT_FIELDS_BASE_NO_DESC,
-      reason: 'tasks table description missing; retrying without description column',
-    },
-    {
-      table: 'tasks',
-      fields: TASK_SELECT_FIELDS_BASE_MINIMAL,
-      reason: 'tasks table priority missing; retrying without priority column',
-    },
-  ];
+  const attempts = [];
+  ['tasks_list', 'tasks'].forEach((table) => {
+    TASK_SELECT_VARIANTS_WITH_ARCHIVE.forEach((fields) => {
+      attempts.push({ table, fields });
+    });
+  });
+  ['tasks_list', 'tasks'].forEach((table) => {
+    TASK_SELECT_VARIANTS_LEGACY.forEach((fields) => {
+      attempts.push({ table, fields });
+    });
+  });
 
   let data = null;
   let error = null;
+  let selectedAttempt = null;
   for (const attempt of attempts) {
-    if (attempt.reason) {
-      console.log(attempt.reason);
-    }
     ({ data, error } = await buildQuery(attempt.table, attempt.fields));
     if (error) {
-      if (error.code === '42703' || isMissingColumnError(error)) {
+      if (
+        error.code === '42703' ||
+        isMissingColumnError(error) ||
+        (attempt.table === 'tasks_list' && isMissingRelationError(error, 'tasks_list'))
+      ) {
         continue;
       }
       break;
     }
+    selectedAttempt = attempt;
     break;
   }
 
@@ -4770,6 +4804,7 @@ const fetchTasksFromSupabase = async (userId) => {
     time: t.time,
     completed: t.completed,
     createdAt: t.created_at,
+    archivedAt: t.archived_at || null,
     sharedTaskId: t.shared_task_id || t.id,
   }));
 
@@ -4801,7 +4836,24 @@ const fetchTasksFromSupabase = async (userId) => {
     }
   }
 
-  setTasks(dedupeById(mappedTasks));
+  const { active, archived, newlyArchivedIds } = splitTaskBuckets(mappedTasks);
+  setTasks(active);
+  setArchivedTasks(archived);
+
+  const supportsArchivedAt = Boolean(selectedAttempt?.fields?.includes('archived_at'));
+  if (supportsArchivedAt && newlyArchivedIds.length) {
+    const archiveTimestamp = new Date().toISOString();
+    const { error: archiveError } = await supabase
+      .from('tasks')
+      .update({ archived_at: archiveTimestamp })
+      .in('id', newlyArchivedIds)
+      .eq('user_id', userId)
+      .is('archived_at', null);
+
+    if (archiveError && !isMissingColumnError(archiveError, 'archived_at')) {
+      console.log('Error auto-archiving overdue tasks:', archiveError);
+    }
+  }
 };
 
 
@@ -4846,10 +4898,12 @@ const fetchTasksFromSupabase = async (userId) => {
     time: data.time,
     completed: data.completed,
     createdAt: data.created_at,
+    archivedAt: data.archived_at || null,
     sharedTaskId: data.shared_task_id || data.id,
   };
 
   setTasks((prev) => dedupeById([...prev, newTask]));
+  setArchivedTasks((prev) => prev.filter((t) => t.id !== newTask.id));
   return newTask;
 };
 
@@ -4859,13 +4913,19 @@ const fetchTasksFromSupabase = async (userId) => {
   if (!authUser?.id) return;
 
   const updateData = {};
-  ['title', 'description', 'priority', 'date', 'time', 'completed'].forEach(
-    (key) => {
-      if (updates[key] !== undefined) {
-        updateData[key] = updates[key];
-      }
+  [
+    ['title', 'title'],
+    ['description', 'description'],
+    ['priority', 'priority'],
+    ['date', 'date'],
+    ['time', 'time'],
+    ['completed', 'completed'],
+    ['archivedAt', 'archived_at'],
+  ].forEach(([sourceKey, targetKey]) => {
+    if (updates[sourceKey] !== undefined) {
+      updateData[targetKey] = updates[sourceKey];
     }
-  );
+  });
 
   if (Object.keys(updateData).length > 0) {
     const { error } = await supabase
@@ -4880,6 +4940,9 @@ const fetchTasksFromSupabase = async (userId) => {
   }
 
   setTasks((prev) =>
+    prev.map((t) => (t.id === taskId ? { ...t, ...updates } : t))
+  );
+  setArchivedTasks((prev) =>
     prev.map((t) => (t.id === taskId ? { ...t, ...updates } : t))
   );
 
@@ -4920,13 +4983,14 @@ const fetchTasksFromSupabase = async (userId) => {
   }
 
   setTasks((prev) => prev.filter((t) => t.id !== taskId));
+  setArchivedTasks((prev) => prev.filter((t) => t.id !== taskId));
 };
 
 
 
   //Completes task
   const toggleTaskCompletion = async (taskId) => {
-  const task = tasks.find((t) => t.id === taskId);
+  const task = tasks.find((t) => t.id === taskId) || archivedTasks.find((t) => t.id === taskId);
   if (!task || !authUser?.id) return;
 
   const newCompleted = !task.completed;
@@ -4943,6 +5007,11 @@ const fetchTasksFromSupabase = async (userId) => {
   }
 
   setTasks((prev) =>
+    prev.map((t) =>
+      t.id === taskId ? { ...t, completed: newCompleted } : t
+    )
+  );
+  setArchivedTasks((prev) =>
     prev.map((t) =>
       t.id === taskId ? { ...t, completed: newCompleted } : t
     )
@@ -8960,7 +9029,10 @@ const mapProfileRow = (row) => {
   const getTodayTasks = () => {
     const today = new Date().toDateString();
     return tasks.filter(
-      (t) => new Date(t.date).toDateString() === today && !t.completed
+      (t) =>
+        new Date(t.date).toDateString() === today &&
+        !t.completed &&
+        !isTaskPastArchiveWindow(t)
     );
   };
 
@@ -8968,7 +9040,12 @@ const mapProfileRow = (row) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     return tasks
-      .filter((t) => new Date(t.date) >= today && !t.completed)
+      .filter(
+        (t) =>
+          new Date(t.date) >= today &&
+          !t.completed &&
+          !isTaskPastArchiveWindow(t)
+      )
       .sort((a, b) => new Date(a.date) - new Date(b.date));
   };
 
@@ -9063,6 +9140,7 @@ const mapProfileRow = (row) => {
 
     // Tasks
     tasks,
+    archivedTasks,
     addTask,
     updateTask,
     deleteTask,

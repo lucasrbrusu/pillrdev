@@ -229,6 +229,11 @@ const resolveContrastColor = ({
   const fallbackRatio = getContrastRatio(fallback, background);
   return fallbackRatio > preferredRatio ? fallbackColor : preferredColor;
 };
+const toOpaqueColor = (value, backdrop = '#FFFFFF') => {
+  const solid = toSolidColor(value, backdrop);
+  if (!solid) return value;
+  return `rgb(${solid.r},${solid.g},${solid.b})`;
+};
 
 const withDefaults = (habit) => ({
   ...habit,
@@ -546,19 +551,28 @@ const SwipeHabitCard = ({
     ]
   );
 
-  const displayRatio = clamp(Math.max(ratio, dragFillRatio), 0, 1);
-  const fillWidth = rowWidth * displayRatio;
+  const isAndroid = Platform.OS === 'android';
+  const displayRatio = clamp(isAndroid ? ratio : Math.max(ratio, dragFillRatio), 0, 1);
+  const visualFillRatio = completed ? 1 : displayRatio;
+  const fillWidth = rowWidth * visualFillRatio;
   const habitColor = habit.color || palette.habits;
   const tintedTrack = withAlpha(habitColor, 0.16);
   const tintedSurface = withAlpha(habitColor, completed ? 0.18 : 0.1);
-  const habitTextColor = getReadableTextColor(habitColor);
-  const habitSubTextColor = withAlpha(habitTextColor, 0.8);
+  const colorBackdrop = palette.background || palette.card || '#FFFFFF';
+  const tintedTrackColor = isAndroid ? toOpaqueColor(tintedTrack, colorBackdrop) : tintedTrack;
+  const tintedSurfaceColor = isAndroid
+    ? toOpaqueColor(tintedSurface, colorBackdrop)
+    : tintedSurface;
+  const androidFillOverlayColor = isAndroid ? habitColor : null;
+  const shouldRenderFillTrack = !isAndroid && visualFillRatio > 0.001;
+  const habitTextColor = '#F8FAFC';
+  const habitSubTextColor = withAlpha(habitTextColor, 0.82);
   const habitHintColor = withAlpha(habitTextColor, 0.72);
   const streakIconColor = resolveContrastColor({
     preferredColor: '#F97316',
-    backgroundColor: tintedSurface,
-    fallbackColor: habitTextColor,
-    backgroundBaseColor: tintedTrack,
+    backgroundColor: tintedSurfaceColor,
+    fallbackColor: habitTextColor === '#F8FAFC' ? '#F97316' : habitTextColor,
+    backgroundBaseColor: tintedTrackColor,
   });
 
   return (
@@ -574,15 +588,17 @@ const SwipeHabitCard = ({
         {...panResponder.panHandlers}
       >
         <View style={[styles.habitWrapper, { width: rowWidth }]}>
-          <View style={[styles.fillTrack, { backgroundColor: tintedTrack }]}>
-            <View style={[styles.fillValue, { width: fillWidth, backgroundColor: habitColor }]} />
-          </View>
+          {shouldRenderFillTrack ? (
+            <View pointerEvents="none" style={[styles.fillTrack, { backgroundColor: tintedTrackColor }]}>
+              <View style={[styles.fillValue, { width: fillWidth, backgroundColor: habitColor }]} />
+            </View>
+          ) : null}
           <TouchableOpacity
             style={[
               styles.habitCard,
               {
                 borderColor: habitColor,
-                backgroundColor: tintedSurface,
+                backgroundColor: tintedSurfaceColor,
                 opacity: isInteractive ? 1 : 0.78,
               },
             ]}
@@ -595,33 +611,51 @@ const SwipeHabitCard = ({
             }}
             activeOpacity={0.9}
           >
-            <View style={styles.habitRow}>
-              <View style={[styles.habitAvatar, { backgroundColor: withAlpha(habitColor, 0.2) }]}>
-                <Text style={[styles.habitAvatarText, { color: habitTextColor }]}>
-                  {habit.emoji || habit.title?.slice(0, 1)?.toUpperCase() || 'H'}
-                </Text>
-              </View>
-              <View style={styles.habitInfo}>
-                <Text style={[styles.habitTitle, { color: habitTextColor }]} numberOfLines={1}>{habit.title}</Text>
-                <Text style={[styles.habitMeta, { color: habitSubTextColor }]}>
-                  {Math.round(progress)} / {getGoalValue(habit)} {habit.goalUnit || 'times'}
-                </Text>
-              </View>
-              <View style={styles.progressMeta}>
-                <View style={styles.progressStreakRow}>
-                  <Ionicons name="flame" size={14} color={streakIconColor} />
-                  <Text style={[styles.progressMetaStreak, { color: habitTextColor }]}>
-                    {habit.streak || 0} day streak
+            {isAndroid && visualFillRatio > 0.001 ? (
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.androidFillOverlay,
+                  {
+                    ...(visualFillRatio >= 0.999
+                      ? { right: 0 }
+                      : { width: `${visualFillRatio * 100}%` }),
+                    backgroundColor: androidFillOverlayColor,
+                    borderTopRightRadius: visualFillRatio >= 0.999 ? borderRadius.xl : 0,
+                    borderBottomRightRadius: visualFillRatio >= 0.999 ? borderRadius.xl : 0,
+                  },
+                ]}
+              />
+            ) : null}
+            <View style={styles.habitCardContent}>
+              <View style={styles.habitRow}>
+                <View style={[styles.habitAvatar, { backgroundColor: withAlpha(habitColor, 0.2) }]}>
+                  <Text style={[styles.habitAvatarText, { color: habitTextColor }]}>
+                    {habit.emoji || habit.title?.slice(0, 1)?.toUpperCase() || 'H'}
                   </Text>
                 </View>
-                <Text style={[styles.progressMetaPercent, { color: habitTextColor }]}>
-                  {Math.round(ratio * 100)}%
-                </Text>
+                <View style={styles.habitInfo}>
+                  <Text style={[styles.habitTitle, { color: habitTextColor }]} numberOfLines={1}>{habit.title}</Text>
+                  <Text style={[styles.habitMeta, { color: habitSubTextColor }]}>
+                    {Math.round(progress)} / {getGoalValue(habit)} {habit.goalUnit || 'times'}
+                  </Text>
+                </View>
+                <View style={styles.progressMeta}>
+                  <View style={styles.progressStreakRow}>
+                    <Ionicons name="flame" size={14} color={streakIconColor} />
+                    <Text style={[styles.progressMetaStreak, { color: habitTextColor }]}>
+                      {habit.streak || 0} day streak
+                    </Text>
+                  </View>
+                  <Text style={[styles.progressMetaPercent, { color: habitTextColor }]}>
+                    {Math.round(ratio * 100)}%
+                  </Text>
+                </View>
               </View>
+              <Text style={[styles.habitHint, { color: habitHintColor }]}>
+                Swipe right to add progress - Swipe left for actions - Tap for exact amount
+              </Text>
             </View>
-            <Text style={[styles.habitHint, { color: habitHintColor }]}>
-              Swipe right to add progress - Swipe left for actions - Tap for exact amount
-            </Text>
           </TouchableOpacity>
         </View>
         <View style={[styles.actionRailInline, { width: ACTION_RAIL_WIDTH }]}>
@@ -1725,8 +1759,8 @@ const HabitsScreen = () => {
           transparent
           animationType="none"
           onRequestClose={closeAddTypePicker}
-          statusBarTranslucent
-          navigationBarTranslucent
+          statusBarTranslucent={Platform.OS === 'android'}
+          hardwareAccelerated={Platform.OS === 'android'}
         >
           <Animated.View style={[styles.addTypeDimOverlay, { opacity: addTypeBackdropOpacity }]}>
             <TouchableOpacity
@@ -2494,8 +2528,6 @@ const createStyles = (palette) =>
     addTypeDimOverlay: {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: 'rgba(8,12,24,0.58)',
-      zIndex: 70,
-      elevation: 70,
     },
     addTypeDimOverlayTouch: {
       ...StyleSheet.absoluteFillObject,
@@ -2506,8 +2538,7 @@ const createStyles = (palette) =>
       height: 42,
       alignItems: 'center',
       justifyContent: 'center',
-      zIndex: 71,
-      elevation: 71,
+      zIndex: 2,
     },
     addTypeInlineMenu: {
       position: 'absolute',
@@ -2572,10 +2603,40 @@ const createStyles = (palette) =>
     actionTileSkip: { backgroundColor: '#FFF3E7', borderColor: '#FFE2C9' },
     actionTileReset: { backgroundColor: '#E9F8F3', borderColor: '#CDEFE2' },
     actionText: { ...typography.caption, fontWeight: '700', marginTop: spacing.xs },
-    habitWrapper: { borderRadius: borderRadius.xl, overflow: 'hidden', ...shadows.small },
-    fillTrack: { ...StyleSheet.absoluteFillObject, borderRadius: borderRadius.xl, overflow: 'hidden' },
+    habitWrapper: {
+      borderRadius: borderRadius.xl,
+      overflow: 'hidden',
+      position: 'relative',
+      ...shadows.small,
+    },
+    fillTrack: {
+      ...StyleSheet.absoluteFillObject,
+      borderRadius: borderRadius.xl,
+      overflow: 'hidden',
+      zIndex: 0,
+    },
     fillValue: { height: '100%' },
-    habitCard: { borderRadius: borderRadius.xl, borderWidth: 1, padding: spacing.md, minHeight: 110, backgroundColor: palette.card },
+    habitCard: {
+      borderRadius: borderRadius.xl,
+      borderWidth: 1,
+      padding: spacing.md,
+      minHeight: 110,
+      backgroundColor: palette.card,
+      position: 'relative',
+      zIndex: 1,
+      overflow: 'hidden',
+    },
+    androidFillOverlay: {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      bottom: 0,
+      zIndex: 0,
+    },
+    habitCardContent: {
+      position: 'relative',
+      zIndex: 1,
+    },
     habitRow: { flexDirection: 'row', alignItems: 'center' },
     habitAvatar: { width: 48, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: spacing.md },
     habitAvatarText: { ...typography.h3, fontWeight: '700' },

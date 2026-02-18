@@ -30,6 +30,7 @@ import EditProfileScreen from '../screens/EditProfileScreen';
 import ChangePasswordScreen from '../screens/ChangePasswordScreen';
 import CurrencyScreen from '../screens/CurrencyScreen';
 import CalendarScreen from '../screens/CalendarScreen';
+import ArchiveTasksScreen from '../screens/ArchiveTasksScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import AuthScreen from '../screens/AuthScreen';
 import SignupFlowScreen from '../screens/SignupFlowScreen';
@@ -325,6 +326,7 @@ const Navigation = () => {
             component={BudgetGroupInsightScreen}
           />
           <Stack.Screen name="Calendar" component={CalendarScreen} />
+          <Stack.Screen name="TaskArchive" component={ArchiveTasksScreen} />
           <Stack.Screen name="RoutineDetail" component={RoutineDetailScreen} />
           <Stack.Screen name="Appearance" component={AppearanceScreen} />
           <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />

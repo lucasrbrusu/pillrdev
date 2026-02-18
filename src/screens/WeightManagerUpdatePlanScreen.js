@@ -106,6 +106,17 @@ const WeightManagerUpdatePlanScreen = () => {
 
   useEffect(() => {
     let isMounted = true;
+    const normalizeUnit = (value) =>
+      WEIGHT_MANAGER_WEIGHT_UNITS.some((unit) => unit.key === value) ? value : null;
+    const normalizeBodyType = (value) =>
+      typeof value === 'string' && WEIGHT_MANAGER_BODY_TYPE_MAP[value] ? value : null;
+    const normalizeWeightValue = (value) => {
+      if (value === null || value === undefined || value === '') return null;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return null;
+      return parsed > 0 ? parsed : null;
+    };
+
     const hydrateFromProfile = () => {
       const hasProfileData =
         profile?.weightManagerCurrentWeight !== null ||
@@ -114,11 +125,7 @@ const WeightManagerUpdatePlanScreen = () => {
         profile?.weightManagerTargetBodyType ||
         profile?.weightManagerUnit;
       if (!hasProfileData) return false;
-      const nextUnit = WEIGHT_MANAGER_WEIGHT_UNITS.some(
-        (unit) => unit.key === profile?.weightManagerUnit
-      )
-        ? profile?.weightManagerUnit
-        : DEFAULT_WEIGHT_MANAGER_UNIT;
+      const nextUnit = normalizeUnit(profile?.weightManagerUnit) || DEFAULT_WEIGHT_MANAGER_UNIT;
       setWeightUnit(nextUnit);
       if (profile?.weightManagerCurrentWeight !== null && profile?.weightManagerCurrentWeight !== undefined) {
         setCurrentWeight(String(profile.weightManagerCurrentWeight));
@@ -143,25 +150,36 @@ const WeightManagerUpdatePlanScreen = () => {
           return;
         }
         const parsed = JSON.parse(stored);
-        if (!isMounted || !parsed) return;
-        if (
-          parsed.weightUnit &&
-          WEIGHT_MANAGER_WEIGHT_UNITS.some((unit) => unit.key === parsed.weightUnit)
-        ) {
-          setWeightUnit(parsed.weightUnit);
+        if (!isMounted) return;
+        if (!parsed) {
+          hydrateFromProfile();
+          return;
         }
-        if (parsed.currentWeight !== undefined && parsed.currentWeight !== null) {
-          setCurrentWeight(String(parsed.currentWeight));
-        }
-        if (parsed.targetWeight !== undefined && parsed.targetWeight !== null) {
-          setTargetWeight(String(parsed.targetWeight));
-        }
-        if (parsed.currentBodyType && WEIGHT_MANAGER_BODY_TYPE_MAP[parsed.currentBodyType]) {
-          setCurrentBodyType(parsed.currentBodyType);
-        }
-        if (parsed.targetBodyType && WEIGHT_MANAGER_BODY_TYPE_MAP[parsed.targetBodyType]) {
-          setTargetBodyType(parsed.targetBodyType);
-        }
+
+        const mergedUnit =
+          normalizeUnit(parsed?.weightUnit) ||
+          normalizeUnit(profile?.weightManagerUnit) ||
+          DEFAULT_WEIGHT_MANAGER_UNIT;
+        const mergedCurrentWeight =
+          normalizeWeightValue(parsed?.currentWeight) ??
+          normalizeWeightValue(profile?.weightManagerCurrentWeight);
+        const mergedTargetWeight =
+          normalizeWeightValue(parsed?.targetWeight) ??
+          normalizeWeightValue(profile?.weightManagerTargetWeight);
+        const mergedCurrentBodyType =
+          normalizeBodyType(parsed?.currentBodyType) ||
+          normalizeBodyType(profile?.weightManagerCurrentBodyType) ||
+          DEFAULT_WEIGHT_MANAGER_BODY_TYPE;
+        const mergedTargetBodyType =
+          normalizeBodyType(parsed?.targetBodyType) ||
+          normalizeBodyType(profile?.weightManagerTargetBodyType) ||
+          DEFAULT_WEIGHT_MANAGER_BODY_TYPE;
+
+        setWeightUnit(mergedUnit);
+        setCurrentWeight(mergedCurrentWeight === null ? '' : String(mergedCurrentWeight));
+        setTargetWeight(mergedTargetWeight === null ? '' : String(mergedTargetWeight));
+        setCurrentBodyType(mergedCurrentBodyType);
+        setTargetBodyType(mergedTargetBodyType);
       } catch (err) {
         console.log('Error loading weight manager state:', err);
       }

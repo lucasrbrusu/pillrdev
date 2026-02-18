@@ -11,6 +11,7 @@ import {
   TextInput,
   Image,
   useWindowDimensions,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -130,6 +131,11 @@ const resolveContrastColor = ({
   if (!fallback) return preferredColor;
   const fallbackRatio = getContrastRatio(fallback, background);
   return fallbackRatio > preferredRatio ? fallbackColor : preferredColor;
+};
+const toOpaqueColor = (value, backdrop = '#FFFFFF') => {
+  const solid = toSolidColor(value, backdrop);
+  if (!solid) return value;
+  return `rgb(${solid.r},${solid.g},${solid.b})`;
 };
 const getGoalValue = (habit) => Math.max(1, parseNumber(habit?.goalValue, 1));
 const getCompletionRatio = (habit, amount) => {
@@ -387,19 +393,28 @@ const SwipeHabitCard = ({
     ]
   );
 
-  const displayRatio = clamp(Math.max(ratio, dragFillRatio), 0, 1);
-  const fillWidth = rowWidth * displayRatio;
+  const isAndroid = Platform.OS === 'android';
+  const displayRatio = clamp(isAndroid ? ratio : Math.max(ratio, dragFillRatio), 0, 1);
+  const visualFillRatio = completed ? 1 : displayRatio;
+  const fillWidth = rowWidth * visualFillRatio;
   const habitColor = habit.color || palette.habits;
   const tintedTrack = withAlpha(habitColor, 0.16);
   const tintedSurface = withAlpha(habitColor, completed ? 0.18 : 0.1);
-  const habitTextColor = getReadableTextColor(habitColor);
-  const habitSubTextColor = withAlpha(habitTextColor, 0.8);
+  const colorBackdrop = palette.background || palette.card || '#FFFFFF';
+  const tintedTrackColor = isAndroid ? toOpaqueColor(tintedTrack, colorBackdrop) : tintedTrack;
+  const tintedSurfaceColor = isAndroid
+    ? toOpaqueColor(tintedSurface, colorBackdrop)
+    : tintedSurface;
+  const androidFillOverlayColor = isAndroid ? habitColor : null;
+  const shouldRenderFillTrack = !isAndroid && visualFillRatio > 0.001;
+  const habitTextColor = '#F8FAFC';
+  const habitSubTextColor = withAlpha(habitTextColor, 0.82);
   const habitHintColor = withAlpha(habitTextColor, 0.72);
   const streakIconColor = resolveContrastColor({
     preferredColor: '#F97316',
-    backgroundColor: tintedSurface,
-    fallbackColor: habitTextColor,
-    backgroundBaseColor: tintedTrack,
+    backgroundColor: tintedSurfaceColor,
+    fallbackColor: habitTextColor === '#F8FAFC' ? '#F97316' : habitTextColor,
+    backgroundBaseColor: tintedTrackColor,
   });
 
   return (
@@ -415,15 +430,17 @@ const SwipeHabitCard = ({
         {...panResponder.panHandlers}
       >
         <View style={[styles.habitWrapper, { width: rowWidth }]}>
-          <View style={[styles.fillTrack, { backgroundColor: tintedTrack }]}>
-            <View style={[styles.fillValue, { width: fillWidth, backgroundColor: habitColor }]} />
-          </View>
+          {shouldRenderFillTrack ? (
+            <View pointerEvents="none" style={[styles.fillTrack, { backgroundColor: tintedTrackColor }]}>
+              <View style={[styles.fillValue, { width: fillWidth, backgroundColor: habitColor }]} />
+            </View>
+          ) : null}
           <TouchableOpacity
             style={[
               styles.habitCard,
               {
                 borderColor: habitColor,
-                backgroundColor: tintedSurface,
+                backgroundColor: tintedSurfaceColor,
                 opacity: isInteractive ? 1 : 0.78,
               },
             ]}
@@ -436,66 +453,84 @@ const SwipeHabitCard = ({
             }}
             activeOpacity={0.9}
           >
-            <View style={styles.habitRow}>
-              <View style={[styles.habitAvatar, { backgroundColor: withAlpha(habitColor, 0.2) }]}>
-                <Text style={[styles.habitAvatarText, { color: habitTextColor }]}>
-                  {habit.emoji || habit.title?.slice(0, 1)?.toUpperCase() || 'H'}
-                </Text>
-              </View>
-              <View style={styles.habitInfo}>
-                <Text style={[styles.habitTitle, { color: habitTextColor }]} numberOfLines={1}>
-                  {habit.title}
-                </Text>
-                <View style={styles.habitMetaRow}>
-                  <Text style={[styles.habitMeta, { color: habitSubTextColor }]}>
-                    {Math.round(progress)} / {getGoalValue(habit)} {habit.goalUnit || 'times'}
-                  </Text>
-                  {completedMembers.length ? (
-                    <View style={styles.completedMembersRow}>
-                      {completedMembers.map((member, index) => (
-                        <View
-                          key={`${member?.id || 'member'}-${index}`}
-                          style={[
-                            styles.completedMemberAvatar,
-                            index > 0 && styles.completedMemberAvatarOverlap,
-                            {
-                              backgroundColor: withAlpha(habitColor, 0.22),
-                              borderColor: tintedSurface,
-                            },
-                          ]}
-                        >
-                          {member?.avatarUrl ? (
-                            <Image
-                              source={{ uri: member.avatarUrl }}
-                              style={styles.completedMemberImage}
-                              resizeMode="cover"
-                            />
-                          ) : (
-                            <Text style={[styles.completedMemberInitial, { color: habitTextColor }]}>
-                              {(member?.name || member?.username || '?').slice(0, 1).toUpperCase()}
-                            </Text>
-                          )}
-                        </View>
-                      ))}
-                    </View>
-                  ) : null}
-                </View>
-              </View>
-              <View style={styles.progressMeta}>
-                <View style={styles.progressStreakRow}>
-                  <Ionicons name="flame" size={14} color={streakIconColor} />
-                  <Text style={[styles.progressMetaStreak, { color: habitTextColor }]}>
-                    {habit.streak || 0} day streak
+            {isAndroid && visualFillRatio > 0.001 ? (
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.androidFillOverlay,
+                  {
+                    ...(visualFillRatio >= 0.999
+                      ? { right: 0 }
+                      : { width: `${visualFillRatio * 100}%` }),
+                    backgroundColor: androidFillOverlayColor,
+                    borderTopRightRadius: visualFillRatio >= 0.999 ? borderRadius.xl : 0,
+                    borderBottomRightRadius: visualFillRatio >= 0.999 ? borderRadius.xl : 0,
+                  },
+                ]}
+              />
+            ) : null}
+            <View style={styles.habitCardContent}>
+              <View style={styles.habitRow}>
+                <View style={[styles.habitAvatar, { backgroundColor: withAlpha(habitColor, 0.2) }]}>
+                  <Text style={[styles.habitAvatarText, { color: habitTextColor }]}>
+                    {habit.emoji || habit.title?.slice(0, 1)?.toUpperCase() || 'H'}
                   </Text>
                 </View>
-                <Text style={[styles.progressMetaPercent, { color: habitTextColor }]}>
-                  {Math.round(ratio * 100)}%
-                </Text>
+                <View style={styles.habitInfo}>
+                  <Text style={[styles.habitTitle, { color: habitTextColor }]} numberOfLines={1}>
+                    {habit.title}
+                  </Text>
+                  <View style={styles.habitMetaRow}>
+                    <Text style={[styles.habitMeta, { color: habitSubTextColor }]}>
+                      {Math.round(progress)} / {getGoalValue(habit)} {habit.goalUnit || 'times'}
+                    </Text>
+                    {completedMembers.length ? (
+                      <View style={styles.completedMembersRow}>
+                        {completedMembers.map((member, index) => (
+                          <View
+                            key={`${member?.id || 'member'}-${index}`}
+                            style={[
+                              styles.completedMemberAvatar,
+                              index > 0 && styles.completedMemberAvatarOverlap,
+                              {
+                                backgroundColor: withAlpha(habitColor, 0.22),
+                                borderColor: tintedSurface,
+                              },
+                            ]}
+                          >
+                            {member?.avatarUrl ? (
+                              <Image
+                                source={{ uri: member.avatarUrl }}
+                                style={styles.completedMemberImage}
+                                resizeMode="cover"
+                              />
+                            ) : (
+                              <Text style={[styles.completedMemberInitial, { color: habitTextColor }]}>
+                                {(member?.name || member?.username || '?').slice(0, 1).toUpperCase()}
+                              </Text>
+                            )}
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+                  </View>
+                </View>
+                <View style={styles.progressMeta}>
+                  <View style={styles.progressStreakRow}>
+                    <Ionicons name="flame" size={14} color={streakIconColor} />
+                    <Text style={[styles.progressMetaStreak, { color: habitTextColor }]}>
+                      {habit.streak || 0} day streak
+                    </Text>
+                  </View>
+                  <Text style={[styles.progressMetaPercent, { color: habitTextColor }]}>
+                    {Math.round(ratio * 100)}%
+                  </Text>
+                </View>
               </View>
+              <Text style={[styles.habitHint, { color: habitHintColor }]}>
+                Swipe right to add progress - Swipe left for actions - Tap for exact amount
+              </Text>
             </View>
-            <Text style={[styles.habitHint, { color: habitHintColor }]}>
-              Swipe right to add progress - Swipe left for actions - Tap for exact amount
-            </Text>
           </TouchableOpacity>
         </View>
         <View style={[styles.actionRailInline, { width: ACTION_RAIL_WIDTH }]}>
@@ -549,7 +584,6 @@ const GroupDetailScreen = () => {
     groupRoutines,
     fetchGroupMembers,
     toggleGroupHabitCompletion,
-    addGroupRoutine,
     addTaskToGroupRoutine,
     removeTaskFromGroupRoutine,
     reorderGroupRoutineTasks,
@@ -567,12 +601,9 @@ const GroupDetailScreen = () => {
   const isDark = themeName === 'dark';
 
   const [members, setMembers] = useState([]);
-  const [showRoutineModal, setShowRoutineModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
-  const [routineName, setRoutineName] = useState('');
   const [taskName, setTaskName] = useState('');
   const [selectedRoutineId, setSelectedRoutineId] = useState(null);
-  const [submittingRoutine, setSubmittingRoutine] = useState(false);
   const [deletingGroup, setDeletingGroup] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [selectedInvitees, setSelectedInvitees] = useState([]);
@@ -761,20 +792,6 @@ const GroupDetailScreen = () => {
     }
   }, [groupId, fetchGroupMembers]);
 
-  const handleAddRoutine = async () => {
-    if (!routineName.trim()) return;
-    setSubmittingRoutine(true);
-    try {
-      const routine = await addGroupRoutine({ groupId, name: routineName.trim() });
-      setRoutineName('');
-      setShowRoutineModal(false);
-    } catch (err) {
-      Alert.alert('Unable to create routine', err?.message || 'Please try again.');
-    } finally {
-      setSubmittingRoutine(false);
-    }
-  };
-
   const handleAddTask = async () => {
     if (!taskName.trim() || !selectedRoutineId) return;
     await addTaskToGroupRoutine(selectedRoutineId, { name: taskName.trim() });
@@ -827,6 +844,18 @@ const GroupDetailScreen = () => {
         groupId,
         hideSharing: true,
         lockGroupSelection: true,
+      },
+    });
+  }, [navigation, groupId]);
+  const openGroupRoutineCreator = useCallback(() => {
+    if (!groupId) return;
+    navigation.navigate('Main', {
+      screen: 'Routine',
+      params: {
+        openRoutineForm: true,
+        openRoutineFormKey: `${groupId}-${Date.now()}`,
+        routineCreateType: 'group',
+        groupId,
       },
     });
   }, [navigation, groupId]);
@@ -896,7 +925,12 @@ const GroupDetailScreen = () => {
   };
 
   const renderRoutine = (routine) => (
-    <View key={routine.id} style={themedStyles.routineCard}>
+    <TouchableOpacity
+      key={routine.id}
+      style={themedStyles.routineCard}
+      activeOpacity={0.92}
+      onPress={() => navigation.navigate('RoutineDetail', { routineId: routine.id, isGroup: true })}
+    >
       <View style={themedStyles.routineHeader}>
         <View style={themedStyles.routineTitleWrap}>
           <View style={themedStyles.routineIcon}>
@@ -989,7 +1023,7 @@ const GroupDetailScreen = () => {
           );
         })
       )}
-    </View>
+    </TouchableOpacity>
   );
 
   const quickActions = [
@@ -1005,7 +1039,7 @@ const GroupDetailScreen = () => {
       label: 'Add Routine',
       icon: 'sparkles-outline',
       background: isDark ? '#332C46' : '#F3E8FF',
-      onPress: () => setShowRoutineModal(true),
+      onPress: openGroupRoutineCreator,
     },
     {
       key: 'invite',
@@ -1286,7 +1320,7 @@ const GroupDetailScreen = () => {
           <View style={themedStyles.sectionBlock}>
             <View style={themedStyles.sectionHeader}>
               <Text style={themedStyles.sectionTitle}>Group routines</Text>
-              <TouchableOpacity style={themedStyles.iconButton} onPress={() => setShowRoutineModal(true)}>
+              <TouchableOpacity style={themedStyles.iconButton} onPress={openGroupRoutineCreator}>
                 <Ionicons name="add" size={18} color={themedStyles.iconColor} />
               </TouchableOpacity>
             </View>
@@ -1379,37 +1413,6 @@ const GroupDetailScreen = () => {
             </View>
           </View>
         ) : null}
-      </Modal>
-
-      <Modal
-        visible={showRoutineModal}
-        onClose={() => {
-          setShowRoutineModal(false);
-          setRoutineName('');
-        }}
-        title="New group routine"
-        fullScreen={false}
-      >
-        <Input
-          label="Routine name"
-          value={routineName}
-          onChangeText={setRoutineName}
-          placeholder="e.g., Weekly reset"
-        />
-        <View style={themedStyles.modalActions}>
-          <Button
-            title="Cancel"
-            variant="secondary"
-            onPress={() => setShowRoutineModal(false)}
-            style={themedStyles.modalButton}
-          />
-          <Button
-            title="Create"
-            onPress={handleAddRoutine}
-            disabled={!routineName.trim() || submittingRoutine}
-            style={themedStyles.modalButton}
-          />
-        </View>
       </Modal>
 
       <Modal
@@ -1853,8 +1856,18 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
       borderColor: isDark ? '#346150' : '#CDEFE2',
     },
     actionText: { ...typography.caption, fontWeight: '700', marginTop: spacing.xs },
-    habitWrapper: { borderRadius: borderRadius.xl, overflow: 'hidden', ...shadows.small },
-    fillTrack: { ...StyleSheet.absoluteFillObject, borderRadius: borderRadius.xl, overflow: 'hidden' },
+    habitWrapper: {
+      borderRadius: borderRadius.xl,
+      overflow: 'hidden',
+      position: 'relative',
+      ...shadows.small,
+    },
+    fillTrack: {
+      ...StyleSheet.absoluteFillObject,
+      borderRadius: borderRadius.xl,
+      overflow: 'hidden',
+      zIndex: 0,
+    },
     fillValue: { height: '100%' },
     habitCard: {
       borderRadius: borderRadius.xl,
@@ -1862,6 +1875,20 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
       padding: spacing.md,
       minHeight: 110,
       backgroundColor: themeColorsParam?.card || colors.card,
+      position: 'relative',
+      zIndex: 1,
+      overflow: 'hidden',
+    },
+    androidFillOverlay: {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      bottom: 0,
+      zIndex: 0,
+    },
+    habitCardContent: {
+      position: 'relative',
+      zIndex: 1,
     },
     habitRow: { flexDirection: 'row', alignItems: 'center' },
     habitAvatar: {

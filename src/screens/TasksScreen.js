@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
-import { formatTimeFromDate } from '../utils/notifications';
+import { buildDateWithTime, formatTimeFromDate } from '../utils/notifications';
 import {
   Card,
   Modal,
@@ -47,6 +47,7 @@ const TASK_QUICK_DATES = [
 ];
 
 const TASK_QUICK_TIMES = ['09:00', '12:00', '15:00', '18:00', '20:00'];
+const TASK_ARCHIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const getISODateWithOffset = (offset) => {
   const date = new Date();
@@ -65,6 +66,12 @@ const normalizeTimeValue = (value) => {
   if (suffix === 'AM' && hour === 12) hour = 0;
   const paddedHour = hour.toString().padStart(2, '0');
   return `${paddedHour}:${minute}`;
+};
+
+const isTaskPastArchiveWindow = (task, nowMs = Date.now()) => {
+  const due = buildDateWithTime(task?.date, task?.time, 23, 59);
+  if (!(due instanceof Date) || Number.isNaN(due.getTime())) return false;
+  return nowMs - due.getTime() >= TASK_ARCHIVE_WINDOW_MS;
 };
 
 const TasksScreen = () => {
@@ -200,6 +207,7 @@ const TasksScreen = () => {
 
   const filteredTasks = useMemo(() => {
     let filtered = [...tasks];
+    filtered = filtered.filter((task) => !isTaskPastArchiveWindow(task));
 
     // Filter by tab
     switch (activeTab) {
@@ -768,7 +776,21 @@ const TasksScreen = () => {
             },
           ]}
         >
-          <Text style={[styles.sectionTitle, { color: tasksTheme.tasksTitle }]}>Tasks</Text>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={[styles.sectionTitle, { color: tasksTheme.tasksTitle, marginBottom: 0 }]}>
+              Tasks
+            </Text>
+            <TouchableOpacity
+              style={[styles.archiveButton, { borderColor: tasksTheme.taskItemBorder }]}
+              onPress={() => navigation.navigate('TaskArchive')}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="archive-outline" size={16} color={tasksTheme.tasksTitle} />
+              <Text style={[styles.archiveButtonText, { color: tasksTheme.tasksTitle }]}>
+                Archive
+              </Text>
+            </TouchableOpacity>
+          </View>
           {filteredTasks.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons
@@ -1778,6 +1800,25 @@ const createStyles = (themeColors) => {
   sectionTitle: {
     ...typography.h3,
     marginBottom: spacing.md,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  archiveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: borderRadius.full,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  archiveButtonText: {
+    ...typography.bodySmall,
+    fontWeight: '700',
+    marginLeft: 6,
   },
   linkText: {
     ...typography.bodySmall,
