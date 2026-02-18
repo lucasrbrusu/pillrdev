@@ -1443,6 +1443,11 @@ const HealthScreen = () => {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        <View style={styles.headerRow}>
+          <Text style={styles.pageTitle}>Health</Text>
+          <Text style={styles.pageSubtitle}>Track sleep, nutrition, water, and mood</Text>
+        </View>
+
         <View style={styles.dateSwitcher}>
           <TouchableOpacity
             style={styles.dateSwitchButton}
@@ -2501,6 +2506,20 @@ const createStyles = (themeColors) => StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.lg,
     paddingBottom: 100,
+  },
+  headerRow: {
+    marginBottom: spacing.md,
+  },
+  pageTitle: {
+    ...typography.h1,
+    fontSize: 34,
+    fontWeight: '700',
+    color: themeColors.text,
+  },
+  pageSubtitle: {
+    ...typography.bodySmall,
+    marginTop: 2,
+    color: themeColors.textSecondary,
   },
   statsRow: {
     flexDirection: 'row',

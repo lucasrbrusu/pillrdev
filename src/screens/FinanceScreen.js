@@ -513,7 +513,10 @@ const FinanceScreen = () => {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Finances</Text>
+          <View>
+            <Text style={styles.headerTitle}>Finances</Text>
+            <Text style={styles.headerSubtitle}>Track spending, budgets, and cash flow</Text>
+          </View>
           <View style={styles.headerSpacer} />
         </View>
 
@@ -1398,10 +1401,17 @@ const createStyles = (themeColorsParam, isDark = false) => {
       marginBottom: spacing.sm,
     },
     headerTitle: {
-      ...typography.h2,
+      ...typography.h1,
+      fontSize: 34,
+      fontWeight: '700',
       textAlign: 'left',
       flex: 0,
       color: text,
+    },
+    headerSubtitle: {
+      ...typography.bodySmall,
+      marginTop: 2,
+      color: textSecondary,
     },
     headerSpacer: {
       width: 0,

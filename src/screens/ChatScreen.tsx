@@ -58,7 +58,7 @@ function prettyActionTitle(actionType: string) {
     case "create_reminder":
       return "Create reminder";
     case "create_chore":
-      return "Create chore";
+      return "Add to chores list";
     case "create_grocery":
       return "Add grocery item";
     default:
@@ -125,7 +125,7 @@ export default function ChatScreen() {
     {
       id: "m0",
       role: "assistant",
-      text: "Tell me what you want to do: tasks, habits, routines, reminders, groceries, health logs, or notes.",
+      text: "Tell me what you want to do: tasks, habits, routines, lists, reminders, groceries, health logs, or notes.",
       time: formatTime(Date.now()),
     },
   ]);

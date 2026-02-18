@@ -186,6 +186,7 @@ const RoutineScreen = () => {
       addReminder,
       deleteReminder,
       addGroceryList,
+      updateGroceryList,
       deleteGroceryList,
       addGroceryItem,
       toggleGroceryItem,
@@ -354,7 +355,16 @@ const RoutineScreen = () => {
   const [groceryItemInput, setGroceryItemInput] = useState('');
   const [groceryListNameInput, setGroceryListNameInput] = useState('');
   const [groceryListEmojiInput, setGroceryListEmojiInput] = useState(DEFAULT_GROCERY_EMOJI);
+  const [groceryListDueDate, setGroceryListDueDate] = useState('');
+  const [groceryListDueTime, setGroceryListDueTime] = useState('');
+  const [groceryItemDueDate, setGroceryItemDueDate] = useState('');
+  const [groceryItemDueTime, setGroceryItemDueTime] = useState('');
+  const [showGroceryDatePicker, setShowGroceryDatePicker] = useState(false);
+  const [showGroceryTimePicker, setShowGroceryTimePicker] = useState(false);
+  const [groceryPickerTarget, setGroceryPickerTarget] = useState(null);
   const [activeGroceryListId, setActiveGroceryListId] = useState(null);
+  const [groceryListEditorMode, setGroceryListEditorMode] = useState(null);
+  const [isGroceryItemEditorOpen, setIsGroceryItemEditorOpen] = useState(false);
   const grocerySceneAnim = useRef(new Animated.Value(1)).current;
   const normalizedReminderTime = useMemo(
     () => normalizeTimeValue(reminderTime),
@@ -511,6 +521,10 @@ const RoutineScreen = () => {
     (listId) => {
       if (!listId || listId === activeGroceryListId) return;
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setIsGroceryItemEditorOpen(false);
+      setGroceryItemInput('');
+      setGroceryItemDueDate('');
+      setGroceryItemDueTime('');
       setActiveGroceryListId(listId);
       animateGroceryScene();
     },
@@ -519,12 +533,18 @@ const RoutineScreen = () => {
 
   const closeGroceryListDetail = useCallback(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setIsGroceryItemEditorOpen(false);
+    setGroceryItemInput('');
+    setGroceryItemDueDate('');
+    setGroceryItemDueTime('');
     setActiveGroceryListId(null);
     animateGroceryScene();
   }, [animateGroceryScene]);
 
   const openGroceryModal = (listId = null) => {
     setShowGroceryModal(true);
+    setGroceryListEditorMode(null);
+    setIsGroceryItemEditorOpen(false);
     if (listId) {
       setActiveGroceryListId(listId);
     } else {
@@ -536,25 +556,124 @@ const RoutineScreen = () => {
   const closeGroceryModal = () => {
     setShowGroceryModal(false);
     setActiveGroceryListId(null);
+    setGroceryListEditorMode(null);
+    setIsGroceryItemEditorOpen(false);
     setGroceryItemInput('');
+    setGroceryListNameInput('');
+    setGroceryListEmojiInput(DEFAULT_GROCERY_EMOJI);
+    setGroceryListDueDate('');
+    setGroceryListDueTime('');
+    setGroceryItemDueDate('');
+    setGroceryItemDueTime('');
+    setShowGroceryDatePicker(false);
+    setShowGroceryTimePicker(false);
+    setGroceryPickerTarget(null);
   };
 
-  const handleCreateGroceryList = async () => {
+  const openGroceryListCreator = () => {
+    setGroceryListEditorMode('create');
+    setGroceryListNameInput('');
+    setGroceryListEmojiInput(DEFAULT_GROCERY_EMOJI);
+    setGroceryListDueDate('');
+    setGroceryListDueTime('');
+    setShowGroceryDatePicker(false);
+    setShowGroceryTimePicker(false);
+    setGroceryPickerTarget(null);
+    animateGroceryScene();
+  };
+
+  const openGroceryListEditor = () => {
+    if (!selectedGroceryList?.id) return;
+    setIsGroceryItemEditorOpen(false);
+    setGroceryItemInput('');
+    setGroceryItemDueDate('');
+    setGroceryItemDueTime('');
+    setGroceryListEditorMode('edit');
+    setGroceryListNameInput(selectedGroceryList.name || '');
+    setGroceryListEmojiInput(selectedGroceryList.emoji || DEFAULT_GROCERY_EMOJI);
+    setGroceryListDueDate(selectedGroceryList.dueDate || '');
+    setGroceryListDueTime(selectedGroceryList.dueTime || '');
+    setShowGroceryDatePicker(false);
+    setShowGroceryTimePicker(false);
+    setGroceryPickerTarget(null);
+    animateGroceryScene();
+  };
+
+  const closeGroceryListEditor = () => {
+    setGroceryListEditorMode(null);
+    setGroceryListNameInput('');
+    setGroceryListEmojiInput(DEFAULT_GROCERY_EMOJI);
+    setGroceryListDueDate('');
+    setGroceryListDueTime('');
+    setShowGroceryDatePicker(false);
+    setShowGroceryTimePicker(false);
+    setGroceryPickerTarget(null);
+    animateGroceryScene();
+  };
+
+  const openGroceryItemCreator = () => {
+    setIsGroceryItemEditorOpen(true);
+    setGroceryItemInput('');
+    setGroceryItemDueDate('');
+    setGroceryItemDueTime('');
+    setShowGroceryDatePicker(false);
+    setShowGroceryTimePicker(false);
+    setGroceryPickerTarget(null);
+  };
+
+  const closeGroceryItemCreator = () => {
+    setIsGroceryItemEditorOpen(false);
+    setGroceryItemInput('');
+    setGroceryItemDueDate('');
+    setGroceryItemDueTime('');
+    if (groceryPickerTarget === 'item') {
+      setShowGroceryDatePicker(false);
+      setShowGroceryTimePicker(false);
+      setGroceryPickerTarget(null);
+    }
+  };
+
+  const handleSaveGroceryList = async () => {
     const listName = groceryListNameInput.trim();
     if (!listName) return;
 
+    const payload = {
+      dueDate: groceryListDueDate || null,
+      dueTime: groceryListDueTime || null,
+    };
+
     try {
-      const created = await addGroceryList(
-        listName,
-        groceryListEmojiInput.trim() || DEFAULT_GROCERY_EMOJI
-      );
+      if (groceryListEditorMode === 'edit' && selectedGroceryList?.id) {
+        const updated = await updateGroceryList(selectedGroceryList.id, {
+          name: listName,
+          emoji: groceryListEmojiInput.trim() || DEFAULT_GROCERY_EMOJI,
+          ...payload,
+        });
+        if (updated?.id) {
+          setActiveGroceryListId(updated.id);
+        }
+      } else {
+        const created = await addGroceryList(
+          listName,
+          groceryListEmojiInput.trim() || DEFAULT_GROCERY_EMOJI,
+          payload
+        );
+        if (created?.id) {
+          setActiveGroceryListId(created.id);
+        }
+      }
+
+      setGroceryListEditorMode(null);
       setGroceryListNameInput('');
       setGroceryListEmojiInput(DEFAULT_GROCERY_EMOJI);
-      if (created?.id) {
-        openGroceryListDetail(created.id);
-      }
+      setGroceryListDueDate('');
+      setGroceryListDueTime('');
+      animateGroceryScene();
     } catch (error) {
-      Alert.alert('Unable to create list', error?.message || 'Please try again.');
+      Alert.alert(
+        groceryListEditorMode === 'edit' ? 'Unable to update list' : 'Unable to create list',
+        error?.message || 'Please try again.'
+      );
     }
   };
 
@@ -591,8 +710,11 @@ const RoutineScreen = () => {
     }
 
     try {
-      await addGroceryItem(itemName, targetListId);
-      setGroceryItemInput('');
+      await addGroceryItem(itemName, targetListId, {
+        dueDate: groceryItemDueDate || null,
+        dueTime: groceryItemDueTime || null,
+      });
+      closeGroceryItemCreator();
     } catch (error) {
       Alert.alert('Unable to add item', error?.message || 'Please try again.');
     }
@@ -600,6 +722,10 @@ const RoutineScreen = () => {
 
   const handleDeleteActiveGroceryList = async () => {
     if (!activeGroceryListId) return;
+    if (activeGroceryListId === 'default-list') {
+      Alert.alert('Cannot delete', 'Create a new list before deleting this default list.');
+      return;
+    }
     if ((groceryLists || []).length <= 1) {
       Alert.alert('Cannot delete', 'Create another list before deleting this one.');
       return;
@@ -638,6 +764,14 @@ const RoutineScreen = () => {
 
   const formatISODate = (date) => date.toISOString().split('T')[0];
 
+  const formatDueSummary = (dateValue, timeValue, emptyLabel = 'No date or time') => {
+    if (!dateValue && !timeValue) return emptyLabel;
+    const datePart = dateValue ? formatDate(dateValue) : null;
+    const timePart = timeValue || null;
+    if (datePart && timePart) return `${datePart} at ${timePart}`;
+    return datePart || timePart || emptyLabel;
+  };
+
   const reminderTimeOptions = REMINDER_TIME_OPTIONS;
 
   const openReminderDatePicker = () => {
@@ -652,6 +786,51 @@ const RoutineScreen = () => {
   const openReminderTimePicker = () => {
     setShowReminderDatePicker(false);
     setShowReminderTimePicker(true);
+  };
+
+  const openGroceryDatePicker = (target) => {
+    setGroceryPickerTarget(target);
+    setShowGroceryTimePicker(false);
+    setShowGroceryDatePicker(true);
+  };
+
+  const handleSelectGroceryDate = (date) => {
+    const isoDate = formatISODate(date);
+    if (groceryPickerTarget === 'list') {
+      setGroceryListDueDate(isoDate);
+    } else if (groceryPickerTarget === 'item') {
+      setGroceryItemDueDate(isoDate);
+    }
+    setShowGroceryDatePicker(false);
+    setGroceryPickerTarget(null);
+  };
+
+  const openGroceryTimePicker = (target) => {
+    setGroceryPickerTarget(target);
+    setShowGroceryDatePicker(false);
+    setShowGroceryTimePicker(true);
+  };
+
+  const handleSelectGroceryTime = (value) => {
+    const normalized =
+      value instanceof Date ? formatTimeFromDate(value) : value;
+    if (groceryPickerTarget === 'list') {
+      setGroceryListDueTime(normalized);
+    } else if (groceryPickerTarget === 'item') {
+      setGroceryItemDueTime(normalized);
+    }
+    setShowGroceryTimePicker(false);
+    setGroceryPickerTarget(null);
+  };
+
+  const clearGroceryListDue = () => {
+    setGroceryListDueDate('');
+    setGroceryListDueTime('');
+  };
+
+  const clearGroceryItemDue = () => {
+    setGroceryItemDueDate('');
+    setGroceryItemDueTime('');
   };
 
   const handleSelectReminderTime = (value) => {
@@ -689,6 +868,12 @@ const RoutineScreen = () => {
       groceryListSummaries.find((list) => list.id === activeGroceryListId) || null,
     [activeGroceryListId, groceryListSummaries]
   );
+  const isGroceryListEditorOpen =
+    groceryListEditorMode === 'create' || groceryListEditorMode === 'edit';
+  const isEditingActiveGroceryList = groceryListEditorMode === 'edit';
+  const canModifySelectedGroceryList =
+    !!selectedGroceryList && selectedGroceryList.id !== 'default-list';
+  const isGroceryRootScreen = !selectedGroceryList && !isGroceryListEditorOpen;
 
   const selectedGroceryItems = useMemo(() => {
     if (!selectedGroceryList?.id) return [];
@@ -747,7 +932,14 @@ const RoutineScreen = () => {
                   { borderColor: groceriesTheme.itemBorder },
                 ]}
               />
-              <Text style={styles.groceryText}>{item.name}</Text>
+              <View style={styles.groceryItemContent}>
+                <Text style={styles.groceryText}>{item.name}</Text>
+                {(item.dueDate || item.dueTime) ? (
+                  <Text style={styles.groceryItemDueText}>
+                    {formatDueSummary(item.dueDate, item.dueTime, '')}
+                  </Text>
+                ) : null}
+              </View>
               <TouchableOpacity onPress={() => deleteGroceryItem(item.id)}>
                 <Ionicons name="close" size={16} color={themeColors.textLight} />
               </TouchableOpacity>
@@ -783,9 +975,16 @@ const RoutineScreen = () => {
                   >
                     <Ionicons name="checkmark" size={12} color="#FFFFFF" />
                   </View>
-                  <Text style={[styles.groceryText, styles.groceryTextCompleted]}>
-                    {item.name}
-                  </Text>
+                  <View style={styles.groceryItemContent}>
+                    <Text style={[styles.groceryText, styles.groceryTextCompleted]}>
+                      {item.name}
+                    </Text>
+                    {(item.dueDate || item.dueTime) ? (
+                      <Text style={[styles.groceryItemDueText, styles.groceryItemDueTextCompleted]}>
+                        {formatDueSummary(item.dueDate, item.dueTime, '')}
+                      </Text>
+                    ) : null}
+                  </View>
                 </TouchableOpacity>
               ))}
             </>
@@ -1020,6 +1219,7 @@ const RoutineScreen = () => {
             styles.sectionCard,
             { backgroundColor: palette.card, borderColor: palette.cardBorder },
           ]}
+          onPress={() => openGroceryModal()}
         >
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
@@ -1032,9 +1232,9 @@ const RoutineScreen = () => {
               style={[styles.sectionAction, { backgroundColor: groceriesTheme.itemBg }]}
               onPress={() => openGroceryModal()}
             >
-              <Ionicons name="open-outline" size={16} color={groceriesTheme.accent} />
+              <Ionicons name="add" size={16} color={groceriesTheme.accent} />
               <Text style={[styles.sectionActionText, { color: groceriesTheme.accent }]}>
-                Open
+                + Create
               </Text>
             </TouchableOpacity>
           </View>
@@ -1069,6 +1269,11 @@ const RoutineScreen = () => {
                       <Text style={styles.groceryListPreviewMeta}>
                         {list.activeCount} open | {list.completedCount} done
                       </Text>
+                      {(list.dueDate || list.dueTime) ? (
+                        <Text style={styles.groceryDueMeta}>
+                          {formatDueSummary(list.dueDate, list.dueTime, '')}
+                        </Text>
+                      ) : null}
                     </View>
                     <Ionicons name="chevron-forward" size={18} color={themeColors.textLight} />
                   </TouchableOpacity>
@@ -1456,30 +1661,61 @@ const RoutineScreen = () => {
                 { borderColor: palette.cardBorder, backgroundColor: palette.card },
               ]}
               onPress={
-                selectedGroceryList
+                isGroceryRootScreen
+                  ? closeGroceryModal
+                  : isGroceryListEditorOpen
+                  ? closeGroceryListEditor
+                  : selectedGroceryList
                   ? closeGroceryListDetail
                   : closeGroceryModal
               }
             >
               <Ionicons
-                name={selectedGroceryList ? 'chevron-back' : 'close'}
+                name="chevron-back"
                 size={20}
                 color={palette.text}
               />
             </TouchableOpacity>
             <Text style={[styles.createRoutineTitle, { color: palette.text }]}>
-              {selectedGroceryList ? selectedGroceryList.name : 'Lists'}
+              {isGroceryListEditorOpen
+                ? isEditingActiveGroceryList
+                  ? 'Edit List'
+                  : 'Create List'
+                : selectedGroceryList
+                ? selectedGroceryList.name
+                : 'Lists'}
             </Text>
-            {selectedGroceryList ? (
+            {isGroceryRootScreen ? (
               <TouchableOpacity
                 style={[
                   styles.createRoutineTopButton,
                   { borderColor: palette.cardBorder, backgroundColor: palette.card },
                 ]}
-                onPress={handleDeleteActiveGroceryList}
+                onPress={openGroceryListCreator}
               >
-                <Ionicons name="trash-outline" size={18} color={themeColors.danger} />
+                <Ionicons name="add" size={20} color={palette.text} />
               </TouchableOpacity>
+            ) : selectedGroceryList && !isGroceryListEditorOpen && canModifySelectedGroceryList ? (
+              <View style={styles.groceryTopActions}>
+                <TouchableOpacity
+                  style={[
+                    styles.createRoutineTopButton,
+                    { borderColor: palette.cardBorder, backgroundColor: palette.card },
+                  ]}
+                  onPress={openGroceryListEditor}
+                >
+                  <Ionicons name="create-outline" size={17} color={palette.text} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.createRoutineTopButton,
+                    { borderColor: palette.cardBorder, backgroundColor: palette.card, marginLeft: spacing.xs },
+                  ]}
+                  onPress={handleDeleteActiveGroceryList}
+                >
+                  <Ionicons name="trash-outline" size={18} color={themeColors.danger} />
+                </TouchableOpacity>
+              </View>
             ) : (
               <View style={styles.createRoutineTopSpacer} />
             )}
@@ -1507,7 +1743,168 @@ const RoutineScreen = () => {
               },
             ]}
           >
-          {!selectedGroceryList ? (
+          {isGroceryListEditorOpen ? (
+            <View style={styles.createRoutineBody}>
+              <View
+                style={[
+                  styles.createRoutineSectionCard,
+                  { borderColor: groceriesTheme.itemBorder, backgroundColor: palette.card },
+                ]}
+              >
+                <Text style={styles.inputLabel}>List details</Text>
+                <View style={styles.groceryListCreateRow}>
+                  <TextInput
+                    style={[
+                      styles.groceryEmojiInput,
+                      {
+                        backgroundColor: groceriesTheme.itemBg,
+                        borderColor: groceriesTheme.itemBorder,
+                        color: themeColors.text,
+                      },
+                    ]}
+                    value={groceryListEmojiInput}
+                    onChangeText={setGroceryListEmojiInput}
+                    placeholder={DEFAULT_GROCERY_EMOJI}
+                    placeholderTextColor={themeColors.placeholder}
+                    maxLength={2}
+                  />
+                  <TextInput
+                    style={[
+                      styles.groceryInput,
+                      {
+                        backgroundColor: groceriesTheme.itemBg,
+                        borderColor: groceriesTheme.itemBorder,
+                        color: themeColors.text,
+                      },
+                    ]}
+                    value={groceryListNameInput}
+                    onChangeText={setGroceryListNameInput}
+                    placeholder="List name"
+                    placeholderTextColor={themeColors.placeholder}
+                    onSubmitEditing={handleSaveGroceryList}
+                    returnKeyType="done"
+                    autoFocus
+                  />
+                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.groceryEmojiScroll}
+                >
+                  {GROCERY_EMOJI_OPTIONS.map((emoji) => {
+                    const selected = groceryListEmojiInput === emoji;
+                    return (
+                      <TouchableOpacity
+                        key={emoji}
+                        style={[
+                          styles.groceryEmojiChip,
+                          selected && {
+                            borderColor: groceriesTheme.accent,
+                            backgroundColor: groceriesTheme.itemBg,
+                          },
+                        ]}
+                        onPress={() => setGroceryListEmojiInput(emoji)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.groceryEmojiChipText}>{emoji}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+                <View style={styles.dateTimeRow}>
+                  <View style={styles.dateInput}>
+                    <Text style={styles.inputLabel}>List Date</Text>
+                    <TouchableOpacity
+                      style={[
+                        styles.dateButton,
+                        {
+                          backgroundColor: groceriesTheme.itemBg,
+                          borderColor: groceriesTheme.itemBorder,
+                        },
+                      ]}
+                      onPress={() => openGroceryDatePicker('list')}
+                    >
+                      <Text style={[styles.dateButtonText, !groceryListDueDate && styles.placeholderText]}>
+                        {groceryListDueDate ? formatDate(groceryListDueDate) : 'Choose date'}
+                      </Text>
+                      <Ionicons name="calendar-outline" size={18} color={themeColors.textLight} />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.timeInput}>
+                    <Text style={styles.inputLabel}>List Time</Text>
+                    <TouchableOpacity
+                      style={[
+                        styles.dateButton,
+                        {
+                          backgroundColor: groceriesTheme.itemBg,
+                          borderColor: groceriesTheme.itemBorder,
+                        },
+                      ]}
+                      onPress={() => openGroceryTimePicker('list')}
+                    >
+                      <Text style={[styles.dateButtonText, !groceryListDueTime && styles.placeholderText]}>
+                        {groceryListDueTime || '--:--'}
+                      </Text>
+                      <Ionicons name="time-outline" size={18} color={themeColors.textLight} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                <View style={styles.groceryDueActions}>
+                  <Text style={styles.groceryDueMeta}>
+                    {formatDueSummary(groceryListDueDate, groceryListDueTime, 'No due date or time set')}
+                  </Text>
+                  {(groceryListDueDate || groceryListDueTime) ? (
+                    <TouchableOpacity onPress={clearGroceryListDue} activeOpacity={0.75}>
+                      <Text style={styles.clearText}>Clear</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              </View>
+
+              <View
+                style={[
+                  styles.createRoutineSectionCard,
+                  { borderColor: groceriesTheme.itemBorder, backgroundColor: palette.card },
+                ]}
+              >
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[
+                      styles.modalButton,
+                      styles.secondaryButton,
+                      {
+                        backgroundColor: groceriesTheme.itemBg,
+                        borderColor: groceriesTheme.itemBorder,
+                      },
+                    ]}
+                    onPress={closeGroceryListEditor}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.secondaryButtonText, { color: themeColors.text }]}>
+                      Cancel
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.modalButton,
+                      styles.primaryButton,
+                      { backgroundColor: groceriesTheme.accent },
+                      !groceryListNameInput.trim() && styles.primaryButtonDisabled,
+                    ]}
+                    onPress={handleSaveGroceryList}
+                    disabled={!groceryListNameInput.trim()}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.primaryButtonInner}>
+                      <Text style={styles.primaryButtonText}>
+                        {isEditingActiveGroceryList ? 'Save Changes' : 'Create List'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          ) : !selectedGroceryList ? (
             <View style={styles.createRoutineBody}>
               <View
                 style={[
@@ -1562,89 +1959,6 @@ const RoutineScreen = () => {
                   { borderColor: groceriesTheme.itemBorder, backgroundColor: palette.card },
                 ]}
               >
-                <Text style={styles.inputLabel}>Create a new list</Text>
-                <View style={styles.groceryListCreateRow}>
-                  <TextInput
-                    style={[
-                      styles.groceryEmojiInput,
-                      {
-                        backgroundColor: groceriesTheme.itemBg,
-                        borderColor: groceriesTheme.itemBorder,
-                        color: themeColors.text,
-                      },
-                    ]}
-                    value={groceryListEmojiInput}
-                    onChangeText={setGroceryListEmojiInput}
-                    placeholder={DEFAULT_GROCERY_EMOJI}
-                    placeholderTextColor={themeColors.placeholder}
-                    maxLength={2}
-                  />
-                  <TextInput
-                    style={[
-                      styles.groceryInput,
-                      {
-                        backgroundColor: groceriesTheme.itemBg,
-                        borderColor: groceriesTheme.itemBorder,
-                        color: themeColors.text,
-                      },
-                    ]}
-                    value={groceryListNameInput}
-                    onChangeText={setGroceryListNameInput}
-                    placeholder="List name"
-                    placeholderTextColor={themeColors.placeholder}
-                    onSubmitEditing={handleCreateGroceryList}
-                    returnKeyType="done"
-                  />
-                  <TouchableOpacity
-                    style={[
-                      styles.groceryAddButton,
-                      { backgroundColor: groceriesTheme.itemBg, borderColor: groceriesTheme.itemBorder },
-                    ]}
-                    onPress={handleCreateGroceryList}
-                    disabled={!groceryListNameInput.trim()}
-                  >
-                    <Ionicons
-                      name="add"
-                      size={20}
-                      color={
-                        groceryListNameInput.trim() ? groceriesTheme.accent : themeColors.textLight
-                      }
-                    />
-                  </TouchableOpacity>
-                </View>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.groceryEmojiScroll}
-                >
-                  {GROCERY_EMOJI_OPTIONS.map((emoji) => {
-                    const selected = groceryListEmojiInput === emoji;
-                    return (
-                      <TouchableOpacity
-                        key={emoji}
-                        style={[
-                          styles.groceryEmojiChip,
-                          selected && {
-                            borderColor: groceriesTheme.accent,
-                            backgroundColor: groceriesTheme.itemBg,
-                          },
-                        ]}
-                        onPress={() => setGroceryListEmojiInput(emoji)}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={styles.groceryEmojiChipText}>{emoji}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-
-              <View
-                style={[
-                  styles.createRoutineSectionCard,
-                  { borderColor: groceriesTheme.itemBorder, backgroundColor: palette.card },
-                ]}
-              >
                 {groceryListSummaries.length === 0 ? (
                   <Text style={styles.emptyText}>No lists yet</Text>
                 ) : (
@@ -1666,6 +1980,11 @@ const RoutineScreen = () => {
                         <Text style={styles.groceryListCardMeta}>
                           {list.activeCount} open | {list.completedCount} done
                         </Text>
+                        {(list.dueDate || list.dueTime) ? (
+                          <Text style={styles.groceryDueMeta}>
+                            {formatDueSummary(list.dueDate, list.dueTime, '')}
+                          </Text>
+                        ) : null}
                       </View>
                       <Ionicons name="chevron-forward" size={18} color={themeColors.textLight} />
                     </TouchableOpacity>
@@ -1723,48 +2042,161 @@ const RoutineScreen = () => {
                   <Text style={styles.grocerySelectedListSubtitle}>
                     {activeGroceries.length} open | {completedGroceries.length} completed
                   </Text>
+                  {(selectedGroceryList.dueDate || selectedGroceryList.dueTime) ? (
+                    <Text style={styles.groceryDueMeta}>
+                      {formatDueSummary(selectedGroceryList.dueDate, selectedGroceryList.dueTime, '')}
+                    </Text>
+                  ) : null}
                 </View>
-              </View>
-
-              <View style={styles.groceryInputContainer}>
-                <TextInput
-                  style={[
-                    styles.groceryInput,
-                    {
-                      backgroundColor: groceriesTheme.itemBg,
-                      borderColor: groceriesTheme.itemBorder,
-                      color: themeColors.text,
-                    },
-                  ]}
-                  value={groceryItemInput}
-                  onChangeText={setGroceryItemInput}
-                  placeholder={`Add item to ${selectedGroceryList.name}...`}
-                  placeholderTextColor={themeColors.placeholder}
-                  onSubmitEditing={handleAddGroceryItem}
-                  returnKeyType="done"
-                  autoFocus
-                />
                 <TouchableOpacity
                   style={[
-                    styles.groceryAddButton,
+                    styles.groceryDetailAddButton,
                     { backgroundColor: groceriesTheme.itemBg, borderColor: groceriesTheme.itemBorder },
                   ]}
-                  onPress={handleAddGroceryItem}
-                  disabled={!groceryItemInput.trim()}
+                  onPress={openGroceryItemCreator}
+                  activeOpacity={0.85}
                 >
-                  <Ionicons
-                    name="add"
-                    size={20}
-                    color={groceryItemInput.trim() ? groceriesTheme.accent : themeColors.textLight}
-                  />
+                  <Ionicons name="add" size={18} color={groceriesTheme.accent} />
                 </TouchableOpacity>
               </View>
+
+              {isGroceryItemEditorOpen ? (
+                <View
+                  style={[
+                    styles.createRoutineSectionCard,
+                    { borderColor: groceriesTheme.itemBorder, backgroundColor: palette.card },
+                  ]}
+                >
+                  <Text style={styles.inputLabel}>Create item</Text>
+                  <View style={styles.groceryInputContainer}>
+                    <TextInput
+                      style={[
+                        styles.groceryInput,
+                        {
+                          backgroundColor: groceriesTheme.itemBg,
+                          borderColor: groceriesTheme.itemBorder,
+                          color: themeColors.text,
+                        },
+                      ]}
+                      value={groceryItemInput}
+                      onChangeText={setGroceryItemInput}
+                      placeholder={`Add item to ${selectedGroceryList.name}...`}
+                      placeholderTextColor={themeColors.placeholder}
+                      onSubmitEditing={handleAddGroceryItem}
+                      returnKeyType="done"
+                      autoFocus
+                    />
+                  </View>
+                  <View style={styles.dateTimeRow}>
+                    <View style={styles.dateInput}>
+                      <Text style={styles.inputLabel}>Item Date</Text>
+                      <TouchableOpacity
+                        style={[
+                          styles.dateButton,
+                          {
+                            backgroundColor: groceriesTheme.itemBg,
+                            borderColor: groceriesTheme.itemBorder,
+                          },
+                        ]}
+                        onPress={() => openGroceryDatePicker('item')}
+                      >
+                        <Text style={[styles.dateButtonText, !groceryItemDueDate && styles.placeholderText]}>
+                          {groceryItemDueDate ? formatDate(groceryItemDueDate) : 'Choose date'}
+                        </Text>
+                        <Ionicons name="calendar-outline" size={18} color={themeColors.textLight} />
+                      </TouchableOpacity>
+                    </View>
+                    <View style={styles.timeInput}>
+                      <Text style={styles.inputLabel}>Item Time</Text>
+                      <TouchableOpacity
+                        style={[
+                          styles.dateButton,
+                          {
+                            backgroundColor: groceriesTheme.itemBg,
+                            borderColor: groceriesTheme.itemBorder,
+                          },
+                        ]}
+                        onPress={() => openGroceryTimePicker('item')}
+                      >
+                        <Text style={[styles.dateButtonText, !groceryItemDueTime && styles.placeholderText]}>
+                          {groceryItemDueTime || '--:--'}
+                        </Text>
+                        <Ionicons name="time-outline" size={18} color={themeColors.textLight} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  <View style={styles.groceryDueActions}>
+                    <Text style={styles.groceryDueMeta}>
+                      {formatDueSummary(groceryItemDueDate, groceryItemDueTime, 'No due date or time set')}
+                    </Text>
+                    {(groceryItemDueDate || groceryItemDueTime) ? (
+                      <TouchableOpacity onPress={clearGroceryItemDue} activeOpacity={0.75}>
+                        <Text style={styles.clearText}>Clear</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                  <View style={styles.modalButtons}>
+                    <TouchableOpacity
+                      style={[
+                        styles.modalButton,
+                        styles.secondaryButton,
+                        {
+                          backgroundColor: groceriesTheme.itemBg,
+                          borderColor: groceriesTheme.itemBorder,
+                        },
+                      ]}
+                      onPress={closeGroceryItemCreator}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.secondaryButtonText, { color: themeColors.text }]}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.modalButton,
+                        styles.primaryButton,
+                        { backgroundColor: groceriesTheme.accent },
+                        !groceryItemInput.trim() && styles.primaryButtonDisabled,
+                      ]}
+                      onPress={handleAddGroceryItem}
+                      disabled={!groceryItemInput.trim()}
+                      activeOpacity={0.85}
+                    >
+                      <View style={styles.primaryButtonInner}>
+                        <Text style={styles.primaryButtonText}>Create Item</Text>
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null}
 
               {renderActiveGroceryList()}
             </View>
           )}
           </Animated.View>
         </View>
+
+        <PlatformDatePicker
+          visible={showGroceryDatePicker}
+          value={groceryPickerTarget === 'item' ? groceryItemDueDate : groceryListDueDate}
+          onChange={handleSelectGroceryDate}
+          onClose={() => {
+            setShowGroceryDatePicker(false);
+            setGroceryPickerTarget(null);
+          }}
+          accentColor={groceriesTheme.accent}
+        />
+
+        <PlatformTimePicker
+          visible={showGroceryTimePicker}
+          value={groceryPickerTarget === 'item' ? groceryItemDueTime : groceryListDueTime}
+          onChange={handleSelectGroceryTime}
+          onClose={() => {
+            setShowGroceryTimePicker(false);
+            setGroceryPickerTarget(null);
+          }}
+          options={reminderTimeOptions}
+          accentColor={groceriesTheme.accent}
+        />
       </Modal>
 
       {/* Add Reminder Modal */}
@@ -2269,6 +2701,11 @@ const createStyles = (themeColors, palette) => StyleSheet.create({
     color: themeColors.textSecondary,
     marginTop: 2,
   },
+  groceryDueMeta: {
+    ...typography.caption,
+    color: themeColors.textSecondary,
+    marginTop: 2,
+  },
   groceryMoreListsText: {
     ...typography.caption,
     color: themeColors.textLight,
@@ -2389,6 +2826,15 @@ const createStyles = (themeColors, palette) => StyleSheet.create({
   grocerySelectedListMeta: {
     flex: 1,
   },
+  groceryDetailAddButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: spacing.sm,
+  },
   grocerySelectedListTitle: {
     ...typography.h3,
     color: themeColors.text,
@@ -2398,6 +2844,13 @@ const createStyles = (themeColors, palette) => StyleSheet.create({
     ...typography.bodySmall,
     color: themeColors.textSecondary,
     marginTop: 2,
+  },
+  groceryDueActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: -spacing.xs,
+    marginBottom: spacing.md,
   },
   groceryEmptyEmoji: {
     fontSize: 36,
@@ -2465,6 +2918,9 @@ const createStyles = (themeColors, palette) => StyleSheet.create({
     borderRadius: borderRadius.md,
     marginBottom: spacing.sm,
   },
+  groceryItemContent: {
+    flex: 1,
+  },
   groceryCheckbox: {
     width: 20,
     height: 20,
@@ -2480,9 +2936,16 @@ const createStyles = (themeColors, palette) => StyleSheet.create({
     borderColor: themeColors.success,
   },
   groceryText: {
-    flex: 1,
     ...typography.body,
     color: themeColors.text,
+  },
+  groceryItemDueText: {
+    ...typography.caption,
+    color: themeColors.textSecondary,
+    marginTop: 2,
+  },
+  groceryItemDueTextCompleted: {
+    color: themeColors.textLight,
   },
   groceryTextCompleted: {
     textDecorationLine: 'line-through',
@@ -2534,6 +2997,10 @@ const createStyles = (themeColors, palette) => StyleSheet.create({
   createRoutineTopSpacer: {
     width: 38,
     height: 38,
+  },
+  groceryTopActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   createRoutineBody: {
     paddingHorizontal: spacing.lg,

@@ -6,11 +6,14 @@ create table if not exists public.grocery_lists (
   user_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
   emoji text not null default chr(128722),
+  due_date date,
+  due_time text,
   created_at timestamptz not null default now(),
   constraint grocery_lists_name_not_blank check (char_length(trim(name)) > 0),
   constraint grocery_lists_name_limit check (char_length(name) <= 80),
   constraint grocery_lists_emoji_not_blank check (char_length(trim(emoji)) > 0),
-  constraint grocery_lists_emoji_limit check (char_length(emoji) <= 16)
+  constraint grocery_lists_emoji_limit check (char_length(emoji) <= 16),
+  constraint grocery_lists_due_time_limit check (due_time is null or char_length(due_time) <= 20)
 );
 
 create index if not exists grocery_lists_user_created_idx
@@ -49,6 +52,18 @@ using (auth.uid() = user_id);
 
 alter table public.groceries
   add column if not exists list_id uuid references public.grocery_lists(id) on delete cascade;
+
+alter table public.grocery_lists
+  add column if not exists due_date date;
+
+alter table public.grocery_lists
+  add column if not exists due_time text;
+
+alter table public.groceries
+  add column if not exists due_date date;
+
+alter table public.groceries
+  add column if not exists due_time text;
 
 create index if not exists groceries_user_list_created_idx
   on public.groceries (user_id, list_id, created_at);

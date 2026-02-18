@@ -580,6 +580,7 @@ const realtimePresenceChannelRef = useRef(null);
 const realtimeFriendRequestChannelRef = useRef(null);
 const realtimeFriendshipChannelRef = useRef(null);
 const friendDataPromiseRef = useRef(null);
+const healthDataPromiseRef = useRef(null);
 const realtimeEnabledRef = useRef(false);
 const profileCacheRef = useRef({});
   const [blockedUsers, setBlockedUsers] = useState({ blocked: [], blockedBy: [] });
@@ -1224,7 +1225,13 @@ const markDataLoaded = useCallback((key) => {
     if (!storedFoodLogs) return null;
     try {
       const parsed = JSON.parse(storedFoodLogs);
-      setFoodLogs(parsed);
+      setFoodLogs((prev) => {
+        try {
+          return JSON.stringify(prev || {}) === storedFoodLogs ? prev : parsed;
+        } catch (serializeErr) {
+          return parsed;
+        }
+      });
       return parsed;
     } catch (err) {
       console.log('Error parsing stored food logs', err);
@@ -3470,10 +3477,23 @@ const mapExternalProfile = (row) => ({
     async ({ force, ttl } = {}) => {
       const userId = authUser?.id;
       if (!userId) return;
+      if (!force && healthDataPromiseRef.current) return healthDataPromiseRef.current;
       if (!force && !shouldRefreshData('health', ttl)) return;
-      const cachedFoodLogs = await hydrateCachedFoodLogs(userId);
-      await fetchHealthFromSupabase(userId, cachedFoodLogs);
-      markDataLoaded('health');
+
+      const run = (async () => {
+        const cachedFoodLogs = await hydrateCachedFoodLogs(userId);
+        await fetchHealthFromSupabase(userId, cachedFoodLogs);
+        markDataLoaded('health');
+      })();
+
+      healthDataPromiseRef.current = run;
+      try {
+        return await run;
+      } finally {
+        if (healthDataPromiseRef.current === run) {
+          healthDataPromiseRef.current = null;
+        }
+      }
     },
     [authUser?.id, hydrateCachedFoodLogs, markDataLoaded, shouldRefreshData]
   );
@@ -6433,48 +6453,80 @@ const mapGroceryListRow = (row) => ({
   id: row?.id || GROCERY_DEFAULT_LIST_ID,
   name: row?.name || GROCERY_DEFAULT_LIST_NAME,
   emoji: row?.emoji || GROCERY_DEFAULT_LIST_EMOJI,
+  dueDate: row?.due_date || null,
+  dueTime: row?.due_time || null,
   createdAt: row?.created_at || null,
 });
 
 const fetchGroceriesFromSupabase = async (userId) => {
   let listData = [];
-  const { data: rawLists, error: listError } = await supabase
+  let listResult = await supabase
     .from('grocery_lists')
-    .select('id, name, emoji, created_at')
+    .select('id, name, emoji, due_date, due_time, created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: true });
 
-  if (listError) {
-    if (!isMissingRelationError(listError, 'grocery_lists')) {
-      console.log('Error fetching grocery lists:', listError);
-    }
-  } else {
-    listData = rawLists || [];
-  }
-
-  let groceryRows = [];
-  let selectWithListId = true;
-  let result = await supabase
-    .from('groceries')
-    .select('id, name, completed, created_at, list_id')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: true });
-
-  if (result.error && isMissingColumnError(result.error, 'list_id')) {
-    selectWithListId = false;
-    result = await supabase
-      .from('groceries')
-      .select('id, name, completed, created_at')
+  if (
+    listResult.error &&
+    (isMissingColumnError(listResult.error, 'due_date') ||
+      isMissingColumnError(listResult.error, 'due_time'))
+  ) {
+    listResult = await supabase
+      .from('grocery_lists')
+      .select('id, name, emoji, created_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: true });
   }
 
-  if (result.error) {
-    console.log('Error fetching groceries:', result.error);
-    return;
+  if (listResult.error) {
+    if (!isMissingRelationError(listResult.error, 'grocery_lists')) {
+      console.log('Error fetching grocery lists:', listResult.error);
+    }
+  } else {
+    listData = listResult.data || [];
   }
 
-  groceryRows = result.data || [];
+  const groceryAttempts = [
+    { fields: 'id, name, completed, created_at, list_id, due_date, due_time', includesListId: true, includesDue: true },
+    { fields: 'id, name, completed, created_at, list_id', includesListId: true, includesDue: false },
+    { fields: 'id, name, completed, created_at, due_date, due_time', includesListId: false, includesDue: true },
+    { fields: 'id, name, completed, created_at', includesListId: false, includesDue: false },
+  ];
+
+  let groceryRows = [];
+  let selectWithListId = true;
+  let selectWithDue = true;
+  let groceryError = null;
+  for (const attempt of groceryAttempts) {
+    const result = await supabase
+      .from('groceries')
+      .select(attempt.fields)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true });
+
+    if (!result.error) {
+      groceryRows = result.data || [];
+      selectWithListId = attempt.includesListId;
+      selectWithDue = attempt.includesDue;
+      groceryError = null;
+      break;
+    }
+
+    groceryError = result.error;
+    if (
+      isMissingColumnError(result.error, 'list_id') ||
+      isMissingColumnError(result.error, 'due_date') ||
+      isMissingColumnError(result.error, 'due_time')
+    ) {
+      continue;
+    }
+    break;
+  }
+
+  if (groceryError) {
+    console.log('Error fetching groceries:', groceryError);
+    return;
+  }
 
   let mappedLists = (listData || []).map(mapGroceryListRow);
   if (mappedLists.length === 0) {
@@ -6483,6 +6535,8 @@ const fetchGroceriesFromSupabase = async (userId) => {
         id: GROCERY_DEFAULT_LIST_ID,
         name: GROCERY_DEFAULT_LIST_NAME,
         emoji: GROCERY_DEFAULT_LIST_EMOJI,
+        dueDate: null,
+        dueTime: null,
         createdAt: null,
       },
     ];
@@ -6500,6 +6554,8 @@ const fetchGroceriesFromSupabase = async (userId) => {
       completed: g.completed,
       createdAt: g.created_at,
       listId: resolvedListId,
+      dueDate: selectWithDue ? g.due_date || null : null,
+      dueTime: selectWithDue ? g.due_time || null : null,
     };
   });
 
@@ -6507,26 +6563,55 @@ const fetchGroceriesFromSupabase = async (userId) => {
   setGroceries(mappedItems);
 };
 
-const addGroceryList = async (name, emoji = GROCERY_DEFAULT_LIST_EMOJI) => {
+const addGroceryList = async (name, emoji = GROCERY_DEFAULT_LIST_EMOJI, options = {}) => {
   if (!authUser?.id) {
     throw new Error('You must be logged in to create grocery lists.');
   }
 
   const listName = String(name || '').trim();
   const listEmoji = String(emoji || '').trim() || GROCERY_DEFAULT_LIST_EMOJI;
+  const dueDate = String(options?.dueDate || '').trim() || null;
+  const dueTime = String(options?.dueTime || '').trim() || null;
   if (!listName) {
     throw new Error('List name is required.');
   }
 
-  const { data, error } = await supabase
-    .from('grocery_lists')
-    .insert({
+  const listInsertAttempts = [
+    { includeDue: true, fields: 'id, name, emoji, due_date, due_time, created_at' },
+    { includeDue: false, fields: 'id, name, emoji, created_at' },
+  ];
+
+  let data = null;
+  let error = null;
+  for (const attempt of listInsertAttempts) {
+    const payload = {
       user_id: authUser.id,
       name: listName,
       emoji: listEmoji,
-    })
-    .select('id, name, emoji, created_at')
-    .single();
+    };
+    if (attempt.includeDue) {
+      payload.due_date = dueDate;
+      payload.due_time = dueTime;
+    }
+
+    const result = await supabase
+      .from('grocery_lists')
+      .insert(payload)
+      .select(attempt.fields)
+      .single();
+
+    data = result.data;
+    error = result.error;
+    if (!error) break;
+
+    if (
+      attempt.includeDue &&
+      (isMissingColumnError(error, 'due_date') || isMissingColumnError(error, 'due_time'))
+    ) {
+      continue;
+    }
+    break;
+  }
 
   if (error) {
     if (isMissingRelationError(error, 'grocery_lists')) {
@@ -6539,6 +6624,86 @@ const addGroceryList = async (name, emoji = GROCERY_DEFAULT_LIST_EMOJI) => {
   const newList = mapGroceryListRow(data);
   setGroceryLists((prev) => [...prev.filter((list) => list.id !== GROCERY_DEFAULT_LIST_ID), newList]);
   return newList;
+};
+
+const updateGroceryList = async (listId, updates = {}) => {
+  if (!authUser?.id) {
+    throw new Error('You must be logged in to edit grocery lists.');
+  }
+  if (!listId) {
+    throw new Error('List id is required.');
+  }
+  if (listId === GROCERY_DEFAULT_LIST_ID) {
+    throw new Error('Create a new list before editing this default list.');
+  }
+
+  const payload = {};
+  if (updates?.name !== undefined) {
+    const nextName = String(updates.name || '').trim();
+    if (!nextName) {
+      throw new Error('List name is required.');
+    }
+    payload.name = nextName;
+  }
+  if (updates?.emoji !== undefined) {
+    payload.emoji = String(updates.emoji || '').trim() || GROCERY_DEFAULT_LIST_EMOJI;
+  }
+  if (updates?.dueDate !== undefined) {
+    payload.due_date = String(updates.dueDate || '').trim() || null;
+  }
+  if (updates?.dueTime !== undefined) {
+    payload.due_time = String(updates.dueTime || '').trim() || null;
+  }
+
+  if (!Object.keys(payload).length) {
+    return groceryLists.find((list) => list.id === listId) || null;
+  }
+
+  const listUpdateAttempts = [
+    { includeDue: true, fields: 'id, name, emoji, due_date, due_time, created_at' },
+    { includeDue: false, fields: 'id, name, emoji, created_at' },
+  ];
+
+  let data = null;
+  let error = null;
+  for (const attempt of listUpdateAttempts) {
+    const attemptPayload = { ...payload };
+    if (!attempt.includeDue) {
+      delete attemptPayload.due_date;
+      delete attemptPayload.due_time;
+    }
+
+    const result = await supabase
+      .from('grocery_lists')
+      .update(attemptPayload)
+      .eq('id', listId)
+      .eq('user_id', authUser.id)
+      .select(attempt.fields)
+      .single();
+
+    data = result.data;
+    error = result.error;
+    if (!error) break;
+
+    if (
+      attempt.includeDue &&
+      (isMissingColumnError(error, 'due_date') || isMissingColumnError(error, 'due_time'))
+    ) {
+      continue;
+    }
+    break;
+  }
+
+  if (error) {
+    console.log('Error updating grocery list:', error);
+    throw error;
+  }
+
+  const updatedList = mapGroceryListRow(data);
+  setGroceryLists((prev) =>
+    prev.map((list) => (list.id === listId ? updatedList : list))
+  );
+  return updatedList;
 };
 
 const deleteGroceryList = async (listId) => {
@@ -6563,12 +6728,14 @@ const deleteGroceryList = async (listId) => {
   setGroceries((prev) => prev.filter((item) => item.listId !== listId));
 };
 
-const addGroceryItem = async (item, listIdParam) => {
+const addGroceryItem = async (item, listIdParam, options = {}) => {
   if (!authUser?.id) {
     throw new Error('You must be logged in to add groceries.');
   }
 
   const name = String(item || '').trim();
+  const dueDate = String(options?.dueDate || '').trim() || null;
+  const dueTime = String(options?.dueTime || '').trim() || null;
   if (!name) {
     throw new Error('Item name is required.');
   }
@@ -6580,46 +6747,80 @@ const addGroceryItem = async (item, listIdParam) => {
     groceryLists.find((list) => list.id !== GROCERY_DEFAULT_LIST_ID)?.id ||
     null;
 
-  let insertPayload = {
-    user_id: authUser.id,
-    name,
-    completed: false,
-  };
-  if (fallbackListId) {
-    insertPayload.list_id = fallbackListId;
-  }
+  const itemInsertAttempts = [
+    {
+      includeListId: true,
+      includeDue: true,
+      fields: 'id, name, completed, created_at, list_id, due_date, due_time',
+    },
+    {
+      includeListId: true,
+      includeDue: false,
+      fields: 'id, name, completed, created_at, list_id',
+    },
+    {
+      includeListId: false,
+      includeDue: true,
+      fields: 'id, name, completed, created_at, due_date, due_time',
+    },
+    {
+      includeListId: false,
+      includeDue: false,
+      fields: 'id, name, completed, created_at',
+    },
+  ];
 
-  let result = await supabase
-    .from('groceries')
-    .insert(insertPayload)
-    .select('id, name, completed, created_at, list_id')
-    .single();
-
-  if (result.error && isMissingColumnError(result.error, 'list_id')) {
-    insertPayload = {
+  let data = null;
+  let error = null;
+  let insertedWithDue = false;
+  for (const attempt of itemInsertAttempts) {
+    const payload = {
       user_id: authUser.id,
       name,
       completed: false,
     };
-    result = await supabase
+    if (attempt.includeListId && fallbackListId) {
+      payload.list_id = fallbackListId;
+    }
+    if (attempt.includeDue) {
+      payload.due_date = dueDate;
+      payload.due_time = dueTime;
+    }
+
+    const result = await supabase
       .from('groceries')
-      .insert(insertPayload)
-      .select('id, name, completed, created_at')
+      .insert(payload)
+      .select(attempt.fields)
       .single();
+
+    data = result.data;
+    error = result.error;
+    insertedWithDue = attempt.includeDue;
+    if (!error) break;
+
+    if (
+      isMissingColumnError(error, 'list_id') ||
+      isMissingColumnError(error, 'due_date') ||
+      isMissingColumnError(error, 'due_time')
+    ) {
+      continue;
+    }
+    break;
   }
 
-  if (result.error) {
-    console.log('Error adding grocery item:', result.error);
-    throw result.error;
+  if (error) {
+    console.log('Error adding grocery item:', error);
+    throw error;
   }
 
-  const data = result.data;
   const newItem = {
     id: data.id,
     name: data.name,
     completed: data.completed,
     createdAt: data.created_at,
     listId: data.list_id || fallbackListId || groceryLists[0]?.id || GROCERY_DEFAULT_LIST_ID,
+    dueDate: insertedWithDue ? data.due_date || null : null,
+    dueTime: insertedWithDue ? data.due_time || null : null,
   };
 
   setGroceries((prev) => [...prev, newItem]);
@@ -7784,6 +7985,8 @@ const mapProfileRow = (row) => {
     const isSameUser = authUser?.id && user?.id && String(authUser.id) === String(user.id);
     setProfileLoaded(false);
     dataLoadTimestampsRef.current = {};
+    friendDataPromiseRef.current = null;
+    healthDataPromiseRef.current = null;
     lastPresenceUpdateRef.current = 0;
 
     // Optional: keep a local copy (offline cache)
@@ -7898,6 +8101,8 @@ const mapProfileRow = (row) => {
     await clearCachedSession();
     await setRevenueCatUserId(null);
     dataLoadTimestampsRef.current = {};
+    friendDataPromiseRef.current = null;
+    healthDataPromiseRef.current = null;
     lastPresenceUpdateRef.current = 0;
     setAuthUser(null);
     pushRegistrationRef.current = {
@@ -8922,6 +9127,7 @@ const mapProfileRow = (row) => {
     groceryLists,
     groceries,
     addGroceryList,
+    updateGroceryList,
     deleteGroceryList,
     addGroceryItem,
     toggleGroceryItem,

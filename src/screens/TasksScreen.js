@@ -96,7 +96,6 @@ const TasksScreen = () => {
     ensureNotesLoaded,
   } = useApp();
   const isDark = themeName === 'dark';
-  const modalTopPadding = Math.max(spacing.lg, insets.top);
   const tasksTheme = useMemo(
     () => ({
       background: isDark ? themeColors.background : '#FBF5FF',
@@ -141,31 +140,6 @@ const TasksScreen = () => {
       addNewBg: isDark ? '#2C3E54' : '#EEF4FF',
       addNewBorder: isDark ? '#3B4F6C' : '#DDEBFF',
       addNewText: isDark ? '#7DD3FC' : themeColors.tasks,
-    }),
-    [isDark, themeColors]
-  );
-  const taskModal = useMemo(
-    () => ({
-      gradient: isDark ? ['#0F172A', '#4F46E5'] : ['#6366F1', '#38BDF8'],
-      surface: isDark ? '#0B1025' : '#FFFFFF',
-      border: isDark ? 'rgba(99, 102, 241, 0.35)' : '#DDE3FF',
-      fieldBg: isDark ? '#11162E' : '#F5F7FF',
-      fieldBorder: isDark ? 'rgba(99, 102, 241, 0.35)' : '#C9D4FF',
-      headerText: '#FFFFFF',
-      headerSubText: 'rgba(255, 255, 255, 0.85)',
-      iconBg: 'rgba(255, 255, 255, 0.2)',
-      closeBg: 'rgba(255, 255, 255, 0.22)',
-      chipBg: isDark ? 'rgba(59, 130, 246, 0.18)' : '#DFE7FF',
-      chipBorder: isDark ? 'rgba(59, 130, 246, 0.35)' : '#C8D7FF',
-      chipText: isDark ? '#BFDBFE' : '#1E3A8A',
-      chipActiveBg: isDark ? '#3B82F6' : '#60A5FA',
-      chipActiveBorder: isDark ? '#60A5FA' : '#3B82F6',
-      chipActiveText: '#FFFFFF',
-      actionGradient: isDark ? ['#4F46E5', '#38BDF8'] : ['#6366F1', '#38BDF8'],
-      secondaryBg: isDark ? '#111827' : '#F3F4F6',
-      secondaryBorder: isDark ? '#1F2937' : '#E5E7EB',
-      secondaryText: themeColors.text,
-      accent: themeColors.tasks,
     }),
     [isDark, themeColors]
   );
@@ -637,6 +611,15 @@ const TasksScreen = () => {
         alwaysBounceVertical
         bounces
       >
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={[styles.pageTitle, { color: themeColors.text }]}>Tasks</Text>
+            <Text style={[styles.pageSubtitle, { color: themeColors.textSecondary }]}>
+              Plan your day and capture quick notes
+            </Text>
+          </View>
+        </View>
+
         {/* Action Buttons */}
         <View style={styles.actionRow}>
           <TouchableOpacity
@@ -974,402 +957,346 @@ const TasksScreen = () => {
         <Modal
           visible={showTaskModal}
           onClose={closeTaskModal}
-          title={showPeopleModal ? 'People' : 'New Task'}
           fullScreen
           hideHeader
           showCloseButton={false}
+          contentStyle={{ paddingHorizontal: 0 }}
         >
-          <View style={[styles.taskModalScreen, { paddingTop: modalTopPadding }]}>
-            <View
-              style={[
-                styles.taskModalCard,
-                { backgroundColor: taskModal.surface, borderColor: taskModal.border },
-              ]}
+          <View
+            style={[
+              styles.taskFormScreen,
+              {
+                backgroundColor: tasksTheme.background,
+                paddingTop: insets.top + spacing.sm,
+              },
+            ]}
+          >
+            <View style={styles.taskFormTop}>
+              <TouchableOpacity
+                style={[
+                  styles.taskFormIconButton,
+                  {
+                    borderColor: tasksTheme.actionSecondaryBorder,
+                    backgroundColor: tasksTheme.actionSecondaryBg,
+                  },
+                ]}
+                onPress={closeTaskModal}
+              >
+                <Ionicons name="chevron-back" size={20} color={themeColors.text} />
+              </TouchableOpacity>
+              <Text style={[styles.taskFormTitle, { color: themeColors.text }]}>New Task</Text>
+              <View style={styles.taskFormSpacer} />
+            </View>
+
+            <PlatformScrollView
+              style={styles.taskFormScroll}
+              contentContainerStyle={styles.taskFormBody}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
             >
-              <LinearGradient colors={taskModal.gradient} style={styles.taskModalHeader}>
-                <View style={styles.taskModalHeaderContent}>
-                  <View style={[styles.taskModalIconBadge, { backgroundColor: taskModal.iconBg }]}>
-                    <Ionicons
-                      name={showPeopleModal ? 'people' : 'checkbox'}
-                      size={18}
-                      color={taskModal.headerText}
-                    />
+              <View
+                style={[
+                  styles.taskFormSectionCard,
+                  {
+                    borderColor: tasksTheme.tasksCardBorder,
+                    backgroundColor: tasksTheme.tasksCardBg,
+                  },
+                ]}
+              >
+                <TextInput
+                  style={[
+                    styles.taskFormInput,
+                    {
+                      borderColor: tasksTheme.taskItemBorder,
+                      color: themeColors.text,
+                      backgroundColor: tasksTheme.taskItemBg,
+                    },
+                  ]}
+                  placeholder="Task title"
+                  placeholderTextColor={themeColors.textLight}
+                  value={taskTitle}
+                  onChangeText={setTaskTitle}
+                />
+                <TextInput
+                  style={[
+                    styles.taskFormInput,
+                    styles.taskFormTextArea,
+                    {
+                      borderColor: tasksTheme.taskItemBorder,
+                      color: themeColors.text,
+                      backgroundColor: tasksTheme.taskItemBg,
+                      marginBottom: 0,
+                    },
+                  ]}
+                  placeholder="Description (optional)"
+                  placeholderTextColor={themeColors.textLight}
+                  value={taskDescription}
+                  onChangeText={setTaskDescription}
+                  multiline
+                />
+              </View>
+
+              <View
+                style={[
+                  styles.taskFormSectionCard,
+                  {
+                    borderColor: tasksTheme.tasksCardBorder,
+                    backgroundColor: tasksTheme.tasksCardBg,
+                  },
+                ]}
+              >
+                <Text style={[styles.taskFormSectionTitle, { color: themeColors.text }]}>Sharing</Text>
+                <TouchableOpacity
+                  style={styles.taskFormRowLine}
+                  onPress={() => setShowPeopleModal((prev) => !prev)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.taskFormRowLabel, { color: themeColors.text }]}>Invite friends</Text>
+                  <Text style={[styles.taskFormRowValue, { color: themeColors.textSecondary }]}>
+                    {invitedFriendIds.length ? `${invitedFriendIds.length} selected` : 'None'}
+                  </Text>
+                </TouchableOpacity>
+                {showPeopleModal ? (
+                  <View
+                    style={[
+                      styles.taskFormInlineSheet,
+                      {
+                        borderColor: tasksTheme.taskItemBorder,
+                        backgroundColor: tasksTheme.taskItemBg,
+                      },
+                    ]}
+                  >
+                    {!friends.length ? (
+                      <Text style={[styles.taskFormShareHint, { color: themeColors.textLight }]}>No friends to invite yet.</Text>
+                    ) : (
+                      (friends || []).map((friend) => {
+                        const invited = invitedFriendIds.includes(friend.id);
+                        return (
+                          <View key={friend.id} style={styles.taskFormFriendRow}>
+                            <View style={styles.taskFormFriendTextWrap}>
+                              <Text style={[styles.taskFormFriendName, { color: themeColors.text }]} numberOfLines={1}>
+                                {friend.name || friend.username || 'Friend'}
+                              </Text>
+                              <Text style={[styles.taskFormFriendUser, { color: themeColors.textSecondary }]} numberOfLines={1}>
+                                {friend.username ? `@${friend.username}` : ''}
+                              </Text>
+                            </View>
+                            <TouchableOpacity
+                              style={[
+                                styles.taskFormFriendAction,
+                                {
+                                  borderColor: invited ? themeColors.tasks : tasksTheme.taskItemBorder,
+                                  backgroundColor: invited ? themeColors.tasks : tasksTheme.tasksCardBg,
+                                },
+                              ]}
+                              onPress={() => toggleInvitedFriend(friend.id)}
+                              activeOpacity={0.85}
+                            >
+                              <Text
+                                style={[
+                                  styles.taskFormFriendActionText,
+                                  { color: invited ? '#FFFFFF' : themeColors.textSecondary },
+                                ]}
+                              >
+                                {invited ? 'Invited' : 'Invite'}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })
+                    )}
+                    <Text style={[styles.taskFormShareHint, { color: themeColors.textSecondary }]}>Invites are sent when you create the task.</Text>
                   </View>
-                  <View style={styles.taskModalHeaderText}>
-                    <Text style={[styles.taskModalTitle, { color: taskModal.headerText }]}>
-                      {showPeopleModal ? 'People' : 'New Task'}
-                    </Text>
-                    <Text
-                      style={[styles.taskModalSubtitle, { color: taskModal.headerSubText }]}
+                ) : null}
+              </View>
+
+              <View
+                style={[
+                  styles.taskFormSectionCard,
+                  {
+                    borderColor: tasksTheme.tasksCardBorder,
+                    backgroundColor: tasksTheme.tasksCardBg,
+                  },
+                ]}
+              >
+                <Text style={[styles.taskFormSectionTitle, { color: themeColors.text }]}>Priority</Text>
+                <View style={styles.taskFormPriorityRow}>
+                  {priorityLevels.map((level, index) => {
+                    const selected = taskPriority === level.value;
+                    return (
+                      <TouchableOpacity
+                        key={level.value}
+                        style={[
+                          styles.taskFormPriorityOption,
+                          index === priorityLevels.length - 1 && styles.taskFormPriorityOptionLast,
+                          {
+                            backgroundColor: selected ? level.color : tasksTheme.taskItemBg,
+                            borderColor: selected ? level.color : tasksTheme.taskItemBorder,
+                          },
+                        ]}
+                        onPress={() => setTaskPriority(level.value)}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={[styles.taskFormPriorityText, { color: selected ? '#FFFFFF' : themeColors.textSecondary }]}>
+                          {level.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <View style={styles.taskFormDateTimeRow}>
+                  <View style={[styles.taskFormDateField, styles.taskFormDateFieldGap]}>
+                    <Text style={[styles.taskFormDateLabel, { color: themeColors.textSecondary }]}>Date</Text>
+                    <TouchableOpacity
+                      style={[
+                        styles.taskFormDateButton,
+                        {
+                          borderColor: tasksTheme.taskItemBorder,
+                          backgroundColor: tasksTheme.taskItemBg,
+                        },
+                      ]}
+                      onPress={openDatePicker}
+                      activeOpacity={0.85}
                     >
-                      {showPeopleModal
-                        ? 'Invite friends to join this task'
-                        : 'Plan and share what matters today'}
-                    </Text>
+                      <Text style={[styles.taskFormDateButtonText, { color: themeColors.text }]}>{formatDate(taskDate)}</Text>
+                      <Ionicons name="calendar-outline" size={18} color={themeColors.textLight} />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.taskFormDateField}>
+                    <Text style={[styles.taskFormDateLabel, { color: themeColors.textSecondary }]}>Time</Text>
+                    <TouchableOpacity
+                      style={[
+                        styles.taskFormDateButton,
+                        {
+                          borderColor: tasksTheme.taskItemBorder,
+                          backgroundColor: tasksTheme.taskItemBg,
+                        },
+                      ]}
+                      onPress={() => openTimePicker('task')}
+                      activeOpacity={0.85}
+                    >
+                      <Text
+                        style={[
+                          styles.taskFormDateButtonText,
+                          !taskTime && styles.taskFormPlaceholderText,
+                        ]}
+                      >
+                        {taskTime || 'Select time'}
+                      </Text>
+                      <Ionicons name="time-outline" size={18} color={themeColors.textLight} />
+                    </TouchableOpacity>
                   </View>
                 </View>
-                <TouchableOpacity
-                  style={[styles.taskModalCloseButton, { backgroundColor: taskModal.closeBg }]}
-                  onPress={closeTaskModal}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="close" size={18} color={taskModal.headerText} />
-                </TouchableOpacity>
-              </LinearGradient>
-              <View style={styles.taskModalBody}>
-                {showPeopleModal ? (
-                  <>
-                    <Text style={styles.peopleModalHint}>
-                      Select friends to invite. Invites are sent when you create the task.
-                    </Text>
 
-                    {friends.length === 0 ? (
-                      <View style={styles.peopleEmpty}>
-                        <Ionicons name="people-outline" size={22} color={themeColors.textSecondary} />
-                        <Text style={styles.peopleEmptyText}>No friends yet.</Text>
-                      </View>
-                    ) : (
-                      <Card style={styles.peopleCard}>
-                        {friends.map((friend) => {
-                          const invited = invitedFriendIds.includes(friend.id);
-                          return (
-                            <View key={friend.id} style={styles.peopleRow}>
-                              <View style={styles.peopleRowText}>
-                                <Text style={styles.peopleName} numberOfLines={1}>
-                                  {friend.name || friend.username || 'Friend'}
-                                </Text>
-                                <Text style={styles.peopleUsername} numberOfLines={1}>
-                                  {friend.username ? `@${friend.username}` : ''}
-                                </Text>
-                              </View>
-                              <Button
-                                title={invited ? 'Invited' : 'Invite'}
-                                variant={invited ? 'outline' : 'primary'}
-                                size="small"
-                                fullWidth={false}
-                                disableTranslation
-                                onPress={() => toggleInvitedFriend(friend.id)}
-                              />
-                            </View>
-                          );
-                        })}
-                      </Card>
-                    )}
-
-                    <View style={styles.taskModalButtons}>
+                <Text style={[styles.quickLabel, { color: themeColors.textSecondary }]}>Quick dates</Text>
+                <View style={styles.quickGroup}>
+                  {TASK_QUICK_DATES.map((option) => {
+                    const quickDate = getISODateWithOffset(option.offset);
+                    const selected = taskDate === quickDate;
+                    return (
                       <TouchableOpacity
+                        key={option.label}
                         style={[
-                          styles.taskModalButton,
-                          styles.taskModalSecondaryButton,
+                          styles.quickChip,
                           {
-                            backgroundColor: taskModal.secondaryBg,
-                            borderColor: taskModal.secondaryBorder,
+                            backgroundColor: selected ? themeColors.tasks : tasksTheme.taskItemBg,
+                            borderColor: selected ? themeColors.tasks : tasksTheme.taskItemBorder,
                           },
                         ]}
-                        onPress={() => setShowPeopleModal(false)}
-                        activeOpacity={0.8}
+                        onPress={() => handleQuickTaskDate(option.offset)}
+                        activeOpacity={0.85}
                       >
                         <Text
                           style={[
-                            styles.taskModalSecondaryText,
-                            { color: taskModal.secondaryText },
+                            styles.quickChipText,
+                            { color: selected ? '#FFFFFF' : themeColors.textSecondary },
                           ]}
                         >
-                          Back
+                          {option.label}
                         </Text>
                       </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <Text style={[styles.quickLabel, { color: themeColors.textSecondary }]}>Quick times</Text>
+                <View style={[styles.quickGroup, { marginBottom: 0 }]}>
+                  {TASK_QUICK_TIMES.map((time) => {
+                    const selected = normalizedTaskTime === time;
+                    return (
                       <TouchableOpacity
-                        style={[styles.taskModalButton, styles.taskModalPrimaryButton]}
-                        onPress={() => setShowPeopleModal(false)}
-                        activeOpacity={0.85}
-                      >
-                        <LinearGradient
-                          colors={taskModal.actionGradient}
-                          style={styles.taskModalPrimaryInner}
-                        >
-                          <Text style={styles.taskModalPrimaryText}>Done</Text>
-                        </LinearGradient>
-                      </TouchableOpacity>
-                    </View>
-                  </>
-                ) : (
-                  <>
-                    <Input
-                      label="Task Title"
-                      value={taskTitle}
-                      onChangeText={setTaskTitle}
-                      placeholder="e.g., Complete project proposal"
-                      containerStyle={styles.taskModalInputContainer}
-                      style={[
-                        styles.taskModalInput,
-                        {
-                          backgroundColor: taskModal.fieldBg,
-                          borderColor: taskModal.fieldBorder,
-                        },
-                      ]}
-                      inputStyle={styles.taskModalInputText}
-                    />
-
-                    <Input
-                      label="Description (Optional)"
-                      value={taskDescription}
-                      onChangeText={setTaskDescription}
-                      placeholder="Add more details..."
-                      multiline
-                      numberOfLines={3}
-                      containerStyle={styles.taskModalInputContainer}
-                      style={[
-                        styles.taskModalInput,
-                        {
-                          backgroundColor: taskModal.fieldBg,
-                          borderColor: taskModal.fieldBorder,
-                        },
-                      ]}
-                      inputStyle={styles.taskModalInputText}
-                    />
-
-                    <View style={styles.peopleButtonRow}>
-                      <Button
-                        title={
-                          invitedFriendIds.length ? `People (${invitedFriendIds.length})` : 'People'
-                        }
-                        variant="secondary"
-                        icon="people-outline"
-                        fullWidth={false}
-                        disableTranslation
-                        onPress={() => setShowPeopleModal(true)}
-                      />
-                      <Text style={styles.peopleHintText}>
-                        Invites are sent when you create the task.
-                      </Text>
-                    </View>
-
-                    <Text style={styles.inputLabel}>Priority</Text>
-                    <View style={styles.priorityRow}>
-                      {priorityLevels.map((level) => (
-                        <TouchableOpacity
-                          key={level.value}
-                          style={[
-                            styles.priorityOption,
-                            taskPriority === level.value && styles.priorityOptionActive,
-                            taskPriority === level.value && {
-                              backgroundColor: level.color,
-                            },
-                          ]}
-                          onPress={() => setTaskPriority(level.value)}
-                        >
-                          <Text
-                            style={[
-                              styles.priorityOptionText,
-                              taskPriority === level.value && styles.priorityOptionTextActive,
-                            ]}
-                          >
-                            {level.label}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-
-                    <View style={styles.dateTimeRow}>
-                      <View style={styles.dateInput}>
-                        <Text style={styles.inputLabel}>Date</Text>
-                        <TouchableOpacity
-                          style={[
-                            styles.dateButton,
-                            {
-                              backgroundColor: taskModal.fieldBg,
-                              borderColor: taskModal.fieldBorder,
-                            },
-                          ]}
-                          onPress={openDatePicker}
-                          activeOpacity={0.8}
-                        >
-                          <Text style={styles.dateButtonText}>{formatDate(taskDate)}</Text>
-                          <Ionicons
-                            name="calendar-outline"
-                            size={18}
-                            color={themeColors.textLight}
-                          />
-                        </TouchableOpacity>
-                      </View>
-                      <View style={styles.timeInput}>
-                        <Text style={styles.inputLabel}>Time</Text>
-                        <TouchableOpacity
-                          style={[
-                            styles.dateButton,
-                            {
-                              backgroundColor: taskModal.fieldBg,
-                              borderColor: taskModal.fieldBorder,
-                            },
-                          ]}
-                          onPress={() => openTimePicker('task')}
-                          activeOpacity={0.8}
-                        >
-                          <Text
-                            style={[
-                              styles.dateButtonText,
-                              !taskTime && styles.placeholderText,
-                            ]}
-                          >
-                            {taskTime || 'Select time'}
-                          </Text>
-                          <Ionicons name="time-outline" size={18} color={themeColors.textLight} />
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-
-                    <Text style={styles.quickLabel}>Quick dates</Text>
-                    <View style={styles.quickGroup}>
-                      {TASK_QUICK_DATES.map((option) => {
-                        const quickDate = getISODateWithOffset(option.offset);
-                        const selected = taskDate === quickDate;
-                        return (
-                          <TouchableOpacity
-                            key={option.label}
-                            style={[
-                              styles.quickChip,
-                              {
-                                backgroundColor: selected
-                                  ? taskModal.chipActiveBg
-                                  : taskModal.chipBg,
-                                borderColor: selected
-                                  ? taskModal.chipActiveBorder
-                                  : taskModal.chipBorder,
-                              },
-                            ]}
-                            onPress={() => handleQuickTaskDate(option.offset)}
-                            activeOpacity={0.8}
-                          >
-                            <Text
-                              style={[
-                                styles.quickChipText,
-                                {
-                                  color: selected
-                                    ? taskModal.chipActiveText
-                                    : taskModal.chipText,
-                                },
-                              ]}
-                            >
-                              {option.label}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-
-                    <Text style={styles.quickLabel}>Quick times</Text>
-                    <View style={styles.quickGroup}>
-                      {TASK_QUICK_TIMES.map((time) => {
-                        const selected = normalizedTaskTime === time;
-                        return (
-                          <TouchableOpacity
-                            key={time}
-                            style={[
-                              styles.quickChip,
-                              {
-                                backgroundColor: selected
-                                  ? taskModal.chipActiveBg
-                                  : taskModal.chipBg,
-                                borderColor: selected
-                                  ? taskModal.chipActiveBorder
-                                  : taskModal.chipBorder,
-                              },
-                            ]}
-                            onPress={() => handleQuickTaskTime(time)}
-                            activeOpacity={0.8}
-                          >
-                            <Text
-                              style={[
-                                styles.quickChipText,
-                                {
-                                  color: selected
-                                    ? taskModal.chipActiveText
-                                    : taskModal.chipText,
-                                },
-                              ]}
-                            >
-                              {time}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-
-                    <PlatformDatePicker
-                      visible={showDatePicker}
-                      value={taskDate}
-                      onChange={handleSelectDate}
-                      onClose={() => setShowDatePicker(false)}
-                      accentColor={taskModal.accent}
-                    />
-
-                    <PlatformTimePicker
-                      visible={showTimePicker}
-                      value={
-                        timePickerTarget === 'task'
-                          ? taskTime
-                          : timePickerTarget === 'sleep'
-                          ? todayHealth?.sleepTime
-                          : timePickerTarget === 'wake'
-                          ? todayHealth?.wakeTime
-                          : ''
-                      }
-                      onChange={handleSelectTime}
-                      onClose={() => {
-                        setShowTimePicker(false);
-                        setTimePickerTarget(null);
-                      }}
-                      options={timeOptions}
-                      accentColor={taskModal.accent}
-                    />
-
-                    <View style={styles.taskModalButtons}>
-                      <TouchableOpacity
+                        key={time}
                         style={[
-                          styles.taskModalButton,
-                          styles.taskModalSecondaryButton,
+                          styles.quickChip,
                           {
-                            backgroundColor: taskModal.secondaryBg,
-                            borderColor: taskModal.secondaryBorder,
+                            backgroundColor: selected ? themeColors.tasks : tasksTheme.taskItemBg,
+                            borderColor: selected ? themeColors.tasks : tasksTheme.taskItemBorder,
                           },
                         ]}
-                        onPress={closeTaskModal}
-                        activeOpacity={0.8}
+                        onPress={() => handleQuickTaskTime(time)}
+                        activeOpacity={0.85}
                       >
                         <Text
                           style={[
-                            styles.taskModalSecondaryText,
-                            { color: taskModal.secondaryText },
+                            styles.quickChipText,
+                            { color: selected ? '#FFFFFF' : themeColors.textSecondary },
                           ]}
                         >
-                          Cancel
+                          {time}
                         </Text>
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[
-                          styles.taskModalButton,
-                          styles.taskModalPrimaryButton,
-                          (!taskTitle.trim() || !taskTime || invitingFriends) &&
-                            styles.taskModalPrimaryDisabled,
-                        ]}
-                        onPress={handleCreateTask}
-                        disabled={!taskTitle.trim() || !taskTime || invitingFriends}
-                        activeOpacity={0.85}
-                      >
-                        <LinearGradient
-                          colors={taskModal.actionGradient}
-                          style={styles.taskModalPrimaryInner}
-                        >
-                          <Text style={styles.taskModalPrimaryText}>
-                            {invitingFriends ? 'Creating...' : 'Create Task'}
-                          </Text>
-                        </LinearGradient>
-                      </TouchableOpacity>
-                    </View>
-                  </>
-                )}
+                    );
+                  })}
+                </View>
               </View>
-            </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.taskFormSaveButton,
+                  {
+                    backgroundColor:
+                      taskTitle.trim() && taskTime && !invitingFriends
+                        ? themeColors.tasks
+                        : tasksTheme.actionSecondaryBorder,
+                  },
+                ]}
+                onPress={handleCreateTask}
+                disabled={!taskTitle.trim() || !taskTime || invitingFriends}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.taskFormSaveButtonText}>{invitingFriends ? 'Creating...' : 'Create task'}</Text>
+              </TouchableOpacity>
+            </PlatformScrollView>
+
+            <PlatformDatePicker
+              visible={showDatePicker}
+              value={taskDate}
+              onChange={handleSelectDate}
+              onClose={() => setShowDatePicker(false)}
+              accentColor={themeColors.tasks}
+            />
+
+            <PlatformTimePicker
+              visible={showTimePicker}
+              value={
+                timePickerTarget === 'task'
+                  ? taskTime
+                  : timePickerTarget === 'sleep'
+                  ? todayHealth?.sleepTime
+                  : timePickerTarget === 'wake'
+                  ? todayHealth?.wakeTime
+                  : ''
+              }
+              onChange={handleSelectTime}
+              onClose={() => {
+                setShowTimePicker(false);
+                setTimePickerTarget(null);
+              }}
+              options={timeOptions}
+              accentColor={themeColors.tasks}
+            />
           </View>
         </Modal>
 
@@ -1723,10 +1650,23 @@ const createStyles = (themeColors) => {
     paddingBottom: 100,
     flexGrow: 1,
   },
+  headerRow: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  pageTitle: {
+    ...typography.h1,
+    fontSize: 34,
+    fontWeight: '700',
+  },
+  pageSubtitle: {
+    ...typography.bodySmall,
+    marginTop: 2,
+  },
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: spacing.lg,
+    marginTop: 0,
     marginBottom: spacing.lg,
     flexWrap: 'wrap',
   },
@@ -2005,6 +1945,180 @@ const createStyles = (themeColors) => {
     color: themeColors.text,
     marginBottom: spacing.sm,
   },
+  taskFormScreen: {
+    flex: 1,
+  },
+  taskFormTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  taskFormIconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  taskFormTitle: {
+    ...typography.h3,
+    fontWeight: '700',
+  },
+  taskFormSpacer: {
+    width: 38,
+    height: 38,
+  },
+  taskFormScroll: {
+    flex: 1,
+  },
+  taskFormBody: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xxxl,
+  },
+  taskFormSectionCard: {
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  taskFormSectionTitle: {
+    ...typography.body,
+    fontWeight: '700',
+    marginBottom: spacing.sm,
+  },
+  taskFormInput: {
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    ...typography.body,
+    marginBottom: spacing.sm,
+  },
+  taskFormTextArea: {
+    minHeight: 84,
+    textAlignVertical: 'top',
+  },
+  taskFormRowLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(120,120,120,0.25)',
+  },
+  taskFormRowLabel: {
+    ...typography.body,
+    fontWeight: '600',
+    flex: 1,
+    marginRight: spacing.sm,
+  },
+  taskFormRowValue: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+  },
+  taskFormInlineSheet: {
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  taskFormFriendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  taskFormFriendTextWrap: {
+    flex: 1,
+    marginRight: spacing.sm,
+  },
+  taskFormFriendName: {
+    ...typography.body,
+    fontWeight: '600',
+  },
+  taskFormFriendUser: {
+    ...typography.caption,
+    marginTop: 2,
+  },
+  taskFormFriendAction: {
+    borderWidth: 1,
+    borderRadius: borderRadius.full,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+  },
+  taskFormFriendActionText: {
+    ...typography.bodySmall,
+    fontWeight: '700',
+  },
+  taskFormShareHint: {
+    ...typography.caption,
+    marginTop: spacing.xs,
+  },
+  taskFormPriorityRow: {
+    flexDirection: 'row',
+    marginBottom: spacing.md,
+  },
+  taskFormPriorityOption: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    marginRight: spacing.sm,
+  },
+  taskFormPriorityOptionLast: {
+    marginRight: 0,
+  },
+  taskFormPriorityText: {
+    ...typography.bodySmall,
+    fontWeight: '700',
+  },
+  taskFormDateTimeRow: {
+    flexDirection: 'row',
+    marginBottom: spacing.md,
+  },
+  taskFormDateField: {
+    flex: 1,
+  },
+  taskFormDateFieldGap: {
+    marginRight: spacing.sm,
+  },
+  taskFormDateLabel: {
+    ...typography.bodySmall,
+    fontWeight: '700',
+    marginBottom: spacing.xs,
+  },
+  taskFormDateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+  },
+  taskFormDateButtonText: {
+    ...typography.body,
+    color: themeColors.text,
+  },
+  taskFormPlaceholderText: {
+    color: themeColors.placeholder,
+  },
+  taskFormSaveButton: {
+    borderRadius: borderRadius.full,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    marginBottom: spacing.xl,
+  },
+  taskFormSaveButtonText: {
+    ...typography.body,
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
   priorityRow: {
     flexDirection: 'row',
     marginBottom: spacing.lg,
@@ -2129,11 +2243,10 @@ const createStyles = (themeColors) => {
     color: themeColors.text,
   },
   quickLabel: {
-    ...typography.caption,
+    ...typography.bodySmall,
     color: themeColors.textSecondary,
     marginBottom: spacing.sm,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    fontWeight: '700',
   },
   quickGroup: {
     flexDirection: 'row',

@@ -45,6 +45,7 @@ const HomeScreen = () => {
     tasks,
     todayHealth,
     reminders,
+    groceryLists,
     groceries,
     notes,
     friends,
@@ -124,23 +125,29 @@ const HomeScreen = () => {
         chipBg: isDark ? 'rgba(8, 32, 22, 0.35)' : 'rgba(255,255,255,0.2)',
       },
       habits: {
+        gradient: isDark ? ['#5B35C9', '#3D2398'] : ['#8B5CF6', '#6D28D9'],
+        border: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.24)',
         card: isDark ? '#12131C' : '#FFFFFF',
-        border: isDark ? '#2B2D40' : '#EEE6FF',
+        flatBorder: isDark ? '#2B2D40' : '#EEE6FF',
         iconBg: isDark ? '#7C3AED' : '#8B5CF6',
         iconColor: '#FFFFFF',
+        chipBg: 'rgba(255,255,255,0.2)',
         bullet: isDark ? '#C084FC' : '#8B5CF6',
-        text: themeColors.text,
-        meta: isDark ? '#C7C9D9' : themeColors.textSecondary,
+        text: '#FFFFFF',
+        meta: 'rgba(255,255,255,0.85)',
       },
       lists: {
+        gradient: isDark ? ['#0F8B62', '#13654B'] : ['#22C55E', '#16A34A'],
+        border: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.24)',
         card: isDark ? '#111A14' : '#FFFFFF',
-        border: isDark ? '#213528' : '#DFF4E7',
+        flatBorder: isDark ? '#213528' : '#DFF4E7',
         iconBg: isDark ? '#1B2B21' : '#E3F7EA',
-        iconColor: isDark ? '#6EE7B7' : '#22C55E',
-        bulletBg: isDark ? '#1F3327' : '#E9FBF1',
-        bulletColor: isDark ? '#6EE7B7' : '#16A34A',
-        text: themeColors.text,
-        meta: isDark ? '#C7D7CE' : themeColors.textSecondary,
+        iconColor: '#FFFFFF',
+        bulletBg: 'rgba(255,255,255,0.2)',
+        bulletColor: '#FFFFFF',
+        chipBg: 'rgba(255,255,255,0.2)',
+        text: '#FFFFFF',
+        meta: 'rgba(255,255,255,0.85)',
       },
     }),
     [isDark, themeColors]
@@ -168,6 +175,10 @@ const HomeScreen = () => {
     .sort((a, b) => getReminderDate(a) - getReminderDate(b))
     .slice(0, 3);
   const groceryPreview = groceries.filter((g) => !g.completed).slice(0, 3);
+  const rawListCount = (groceryLists || []).filter((list) => list?.id !== 'default-list').length;
+  const totalListCount = rawListCount || (groceries.length > 0 ? 1 : 0);
+  const totalOpenListItems = groceries.filter((item) => !item.completed).length;
+  const totalCompletedListItems = groceries.filter((item) => item.completed).length;
 
   const normalizeMoodIndex = React.useCallback((value) => {
     if (!Number.isFinite(value)) return null;
@@ -680,6 +691,68 @@ const HomeScreen = () => {
           </TouchableOpacity>
         )}
 
+        {/* Habits Overview */}
+        <Card
+          style={[styles.sectionCard, styles.sectionCardGradient]}
+          onPress={() => navigation.navigate('Habits')}
+        >
+          <LinearGradient
+            colors={sectionListTheme.habits.gradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.sectionGradient, { borderColor: sectionListTheme.habits.border }]}
+          >
+            <View style={styles.sectionContent}>
+              <View style={styles.sectionListHeader}>
+                <View style={styles.sectionListTitleRow}>
+                  <View
+                    style={[
+                      styles.sectionListIcon,
+                      { backgroundColor: sectionListTheme.habits.chipBg },
+                    ]}
+                  >
+                    <Feather name="target" size={16} color={sectionListTheme.habits.iconColor} />
+                  </View>
+                  <Text style={[styles.sectionListTitle, { color: sectionListTheme.habits.text }]}>
+                    Habits Overview
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={sectionListTheme.habits.text} />
+              </View>
+              {recentHabits.length > 0 ? (
+                <View style={styles.habitsOverviewList}>
+                  {recentHabits.slice(0, 4).map((habit) => (
+                    <View
+                      key={habit.id}
+                      style={[
+                        styles.habitsOverviewItem,
+                        { backgroundColor: sectionListTheme.habits.chipBg },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.habitsOverviewDot,
+                          { backgroundColor: sectionListTheme.habits.bullet },
+                        ]}
+                      />
+                      <Text
+                        style={[styles.habitsOverviewText, { color: sectionListTheme.habits.text }]}
+                        numberOfLines={1}
+                      >
+                        {habit.title}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={[styles.emptyText, { color: sectionListTheme.habits.meta }]}>
+                  No habits yet
+                </Text>
+              )}
+            </View>
+          </LinearGradient>
+        </Card>
+
         {/* Upcoming Reminders */}
         <Card
           style={[styles.sectionCard, styles.sectionCardGradient]}
@@ -819,6 +892,90 @@ const HomeScreen = () => {
               No tasks scheduled for today
             </Text>
           )}
+            </View>
+          </LinearGradient>
+        </Card>
+
+        {/* Lists Overview */}
+        <Card
+          style={[styles.sectionCard, styles.sectionCardGradient]}
+          onPress={() => navigation.navigate('Routine')}
+        >
+          <LinearGradient
+            colors={sectionListTheme.lists.gradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.sectionGradient, { borderColor: sectionListTheme.lists.border }]}
+          >
+            <View style={styles.sectionContent}>
+              <View style={styles.sectionListHeader}>
+                <View style={styles.sectionListTitleRow}>
+                  <View
+                    style={[
+                      styles.sectionListIcon,
+                      { backgroundColor: sectionListTheme.lists.chipBg },
+                    ]}
+                  >
+                    <Ionicons name="list" size={16} color={sectionListTheme.lists.iconColor} />
+                  </View>
+                  <Text style={[styles.sectionListTitle, { color: sectionListTheme.lists.text }]}>
+                    Lists Overview
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={sectionListTheme.lists.text} />
+              </View>
+
+              <View style={styles.listOverviewStatsRow}>
+                <View style={[styles.listOverviewStatPill, { backgroundColor: sectionListTheme.lists.chipBg }]}>
+                  <Text style={[styles.listOverviewStatValue, { color: sectionListTheme.lists.text }]}>
+                    {totalListCount}
+                  </Text>
+                  <Text style={[styles.listOverviewStatLabel, { color: sectionListTheme.lists.meta }]}>Lists</Text>
+                </View>
+                <View style={[styles.listOverviewStatPill, { backgroundColor: sectionListTheme.lists.chipBg }]}>
+                  <Text style={[styles.listOverviewStatValue, { color: sectionListTheme.lists.text }]}>
+                    {totalOpenListItems}
+                  </Text>
+                  <Text style={[styles.listOverviewStatLabel, { color: sectionListTheme.lists.meta }]}>Open</Text>
+                </View>
+                <View style={[styles.listOverviewStatPill, { backgroundColor: sectionListTheme.lists.chipBg }]}>
+                  <Text style={[styles.listOverviewStatValue, { color: sectionListTheme.lists.text }]}>
+                    {totalCompletedListItems}
+                  </Text>
+                  <Text style={[styles.listOverviewStatLabel, { color: sectionListTheme.lists.meta }]}>Done</Text>
+                </View>
+              </View>
+
+              {groceryPreview.length > 0 ? (
+                <View style={styles.habitsOverviewList}>
+                  {groceryPreview.map((item) => (
+                    <View
+                      key={item.id}
+                      style={[
+                        styles.habitsOverviewItem,
+                        { backgroundColor: sectionListTheme.lists.chipBg },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.habitsOverviewDot,
+                          { backgroundColor: sectionListTheme.lists.bulletColor },
+                        ]}
+                      />
+                      <Text
+                        style={[styles.habitsOverviewText, { color: sectionListTheme.lists.text }]}
+                        numberOfLines={1}
+                      >
+                        {item.name}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={[styles.emptyText, { color: sectionListTheme.lists.meta }]}>
+                  No open list items
+                </Text>
+              )}
             </View>
           </LinearGradient>
         </Card>
@@ -1242,101 +1399,6 @@ const HomeScreen = () => {
             </LinearGradient>
           </Card>
 
-        {/* Your Habits */}
-        <Card
-          style={[
-            styles.sectionCard,
-            styles.habitsPreviewCard,
-            { backgroundColor: sectionListTheme.habits.card, borderColor: sectionListTheme.habits.border },
-          ]}
-          onPress={() => navigation.navigate('Habits')}
-        >
-          <View style={styles.habitsHeader}>
-            <View style={styles.habitsTitleRow}>
-              <View
-                style={[
-                  styles.habitsIcon,
-                  { backgroundColor: sectionListTheme.habits.iconBg },
-                ]}
-              >
-                <Feather name="target" size={16} color={sectionListTheme.habits.iconColor} />
-              </View>
-              <Text style={[styles.habitsTitle, { color: sectionListTheme.habits.text }]}>
-                Your Habits
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={sectionListTheme.habits.meta} />
-          </View>
-          {recentHabits.length > 0 ? (
-            <View style={styles.habitsList}>
-              {recentHabits.map((habit) => (
-                <View key={habit.id} style={styles.habitItem}>
-                  <View style={[styles.habitDot, { backgroundColor: sectionListTheme.habits.bullet }]} />
-                  <Text style={[styles.habitText, { color: sectionListTheme.habits.text }]} numberOfLines={1}>
-                    {habit.title}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ) : (
-            <Text style={[styles.emptyText, { color: sectionListTheme.habits.meta }]}>No habits yet</Text>
-          )}
-        </Card>
-
-        {/* Home & Lists */}
-        <Card
-          style={[
-            styles.sectionCard,
-            styles.lastCard,
-            styles.sectionCardFlat,
-            { backgroundColor: sectionListTheme.lists.card, borderColor: sectionListTheme.lists.border },
-          ]}
-          onPress={() => navigation.navigate('Routine')}
-        >
-          <View style={styles.sectionListHeader}>
-            <View style={styles.sectionListTitleRow}>
-              <View
-                style={[
-                  styles.sectionListIcon,
-                  { backgroundColor: sectionListTheme.lists.iconBg },
-                ]}
-              >
-                <Ionicons name="list" size={16} color={sectionListTheme.lists.iconColor} />
-              </View>
-              <Text style={[styles.sectionListTitle, { color: sectionListTheme.lists.text }]}>
-                Home & Lists
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={sectionListTheme.lists.meta} />
-          </View>
-          {groceryPreview.length > 0 ? (
-            <View>
-              {groceryPreview.map((item) => (
-                <View key={item.id} style={styles.choreItem}>
-                  <View style={[styles.choreBullet, { backgroundColor: sectionListTheme.lists.bulletBg }]}>
-                    <Ionicons name="ellipse" size={10} color={sectionListTheme.lists.bulletColor} />
-                  </View>
-                  <Text style={[styles.choreText, { color: sectionListTheme.lists.text }]} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                </View>
-              ))}
-              <View style={styles.groceryPreview}>
-                <View style={[styles.choreBullet, { backgroundColor: sectionListTheme.lists.bulletBg }]}>
-                  <Ionicons name="list" size={14} color={sectionListTheme.lists.bulletColor} />
-                </View>
-                <Text style={[styles.groceryText, { color: sectionListTheme.lists.meta }]}>
-                  {groceryPreview.length} open item{groceryPreview.length !== 1 ? 's' : ''} across lists
-                </Text>
-              </View>
-            </View>
-          ) : (
-            <Text style={[styles.emptyText, { color: sectionListTheme.lists.meta }]}>
-              No open list items
-            </Text>
-          )}
-        </Card>
-
       </ScrollView>
     </View>
   );
@@ -1516,6 +1578,49 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
     },
     sectionContent: {
       gap: spacing.sm,
+    },
+    habitsOverviewList: {
+      gap: spacing.sm,
+    },
+    habitsOverviewItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderRadius: borderRadius.lg,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+    },
+    habitsOverviewDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      marginRight: spacing.sm,
+    },
+    habitsOverviewText: {
+      ...typography.bodySmall,
+      fontWeight: '600',
+      flex: 1,
+    },
+    listOverviewStatsRow: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+      marginBottom: spacing.xs,
+    },
+    listOverviewStatPill: {
+      flex: 1,
+      borderRadius: borderRadius.lg,
+      paddingVertical: spacing.sm,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    listOverviewStatValue: {
+      ...typography.h3,
+      fontWeight: '800',
+      lineHeight: 24,
+    },
+    listOverviewStatLabel: {
+      ...typography.caption,
+      fontWeight: '600',
+      marginTop: 2,
     },
     sectionListHeader: {
       flexDirection: 'row',
