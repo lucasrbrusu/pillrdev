@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,12 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
+  ScrollView,
+  Animated,
+  Easing,
+  LayoutAnimation,
+  UIManager,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -37,12 +43,6 @@ const REMINDER_TIME_OPTIONS = Array.from({ length: 48 }).map((_, idx) => {
   return `${hour12}:${m} ${suffix}`;
 });
 
-const CHORE_QUICK_OPTIONS = [
-  { label: 'Today', offset: 0 },
-  { label: 'Tomorrow', offset: 1 },
-  { label: 'Next Week', offset: 7 },
-];
-
 const REMINDER_QUICK_TIMES = ['09:00', '12:00', '15:00', '18:00', '20:00'];
 
 const ROUTINE_SUGGESTIONS = [
@@ -56,11 +56,24 @@ const ROUTINE_CREATE_TYPES = [
   { label: 'Group', value: 'group' },
 ];
 
-const getISODateWithOffset = (offset) => {
-  const date = new Date();
-  date.setDate(date.getDate() + offset);
-  return date.toISOString().split('T')[0];
-};
+const DEFAULT_GROCERY_EMOJI = '\uD83D\uDED2';
+const GROCERY_EMOJI_OPTIONS = [
+  DEFAULT_GROCERY_EMOJI,
+  '\uD83C\uDF4E',
+  '\uD83E\uDD57',
+  '\uD83C\uDF73',
+  '\uD83C\uDFCB\uFE0F',
+  '\uD83C\uDF92',
+  '\uD83C\uDFD6\uFE0F',
+  '\uD83C\uDF89',
+];
+
+const QUICK_LIST_TEMPLATES = [
+  { id: 'quick-grocery', name: 'Grocery List', emoji: DEFAULT_GROCERY_EMOJI },
+  { id: 'quick-chores', name: 'Chores List', emoji: '\uD83C\uDFE0' },
+  { id: 'quick-meal', name: 'Meal Prep', emoji: '\uD83C\uDF7D\uFE0F' },
+  { id: 'quick-travel', name: 'Travel List', emoji: '\u2708\uFE0F' },
+];
 
 const normalizeTimeValue = (value) => {
   if (!value || typeof value !== 'string') return '';
@@ -165,16 +178,15 @@ const RoutineScreen = () => {
     const {
       routines,
       groupRoutines,
-      chores,
       reminders,
+    groceryLists,
     groceries,
     addRoutine,
     addGroupRoutine,
-    addChore,
-    updateChore,
-      deleteChore,
       addReminder,
       deleteReminder,
+      addGroceryList,
+      deleteGroceryList,
       addGroceryItem,
       toggleGroceryItem,
       deleteGroceryItem,
@@ -183,7 +195,6 @@ const RoutineScreen = () => {
       themeName,
       themeColors,
       ensureRoutinesLoaded,
-      ensureChoresLoaded,
       ensureRemindersLoaded,
       ensureGroceriesLoaded,
     } = useApp();
@@ -236,18 +247,6 @@ const RoutineScreen = () => {
           itemBorder: palette.cardBorder,
           muted: palette.textMuted,
         },
-        chores: {
-          card: palette.card,
-          header: palette.mutedSurface,
-          border: palette.cardBorder,
-          accent: palette.info,
-          iconBg: palette.info,
-          iconColor: '#FFFFFF',
-          actionBg: palette.mutedSurface,
-          actionText: palette.text,
-          itemBg: palette.mutedSurface,
-          itemBorder: palette.cardBorder,
-        },
         reminders: {
           card: palette.card,
           header: palette.mutedSurface,
@@ -277,28 +276,6 @@ const RoutineScreen = () => {
       () => {
         const routineTheme = sectionThemes.routine;
         return {
-        chore: {
-          gradient: isDark ? ['#0F172A', '#1D4ED8'] : ['#38BDF8', '#2563EB'],
-          surface: isDark ? '#0B1220' : '#FFFFFF',
-          border: isDark ? 'rgba(59, 130, 246, 0.4)' : '#CFE7FF',
-          fieldBg: isDark ? '#0F172A' : '#EFF6FF',
-          fieldBorder: isDark ? 'rgba(59, 130, 246, 0.4)' : '#BBDDFE',
-          headerText: '#FFFFFF',
-          headerSubText: 'rgba(255, 255, 255, 0.85)',
-          iconBg: 'rgba(255, 255, 255, 0.2)',
-          closeBg: 'rgba(255, 255, 255, 0.22)',
-          chipBg: isDark ? 'rgba(59, 130, 246, 0.16)' : '#DBEDFF',
-          chipBorder: isDark ? 'rgba(59, 130, 246, 0.35)' : '#C1DDFF',
-          chipText: isDark ? '#BFDBFE' : '#1E3A8A',
-          chipActiveBg: isDark ? '#2563EB' : '#60A5FA',
-          chipActiveBorder: isDark ? '#3B82F6' : '#3B82F6',
-          chipActiveText: '#FFFFFF',
-          actionGradient: isDark ? ['#2563EB', '#38BDF8'] : ['#60A5FA', '#38BDF8'],
-          secondaryBg: isDark ? '#0F172A' : '#F3F4F6',
-          secondaryBorder: isDark ? '#1F2937' : '#E5E7EB',
-          secondaryText: themeColors.text,
-          accent: themeColors.info,
-        },
         reminder: {
           gradient: isDark ? ['#7C2D12', '#BE185D'] : ['#FB923C', '#F43F5E'],
           surface: isDark ? '#1B0B12' : '#FFFFFF',
@@ -348,21 +325,18 @@ const RoutineScreen = () => {
       [isDark, themeColors, sectionThemes]
     );
     const routineModal = modalThemes.routine;
-    const choreModal = modalThemes.chore;
     const reminderModal = modalThemes.reminder;
     const styles = useMemo(() => createStyles(themeColors, palette), [themeColors, palette]);
 
     useEffect(() => {
       ensureRoutinesLoaded();
-      ensureChoresLoaded();
       ensureRemindersLoaded();
       ensureGroceriesLoaded();
-    }, [ensureChoresLoaded, ensureGroceriesLoaded, ensureRemindersLoaded, ensureRoutinesLoaded]);
+    }, [ensureGroceriesLoaded, ensureRemindersLoaded, ensureRoutinesLoaded]);
 
   const [showRoutineModal, setShowRoutineModal] = useState(false);
   const [showRoutineTimePicker, setShowRoutineTimePicker] = useState(false);
   const [routineTimePickerTarget, setRoutineTimePickerTarget] = useState(null);
-  const [showChoreModal, setShowChoreModal] = useState(false);
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [showGroceryModal, setShowGroceryModal] = useState(false);
 
@@ -371,20 +345,27 @@ const RoutineScreen = () => {
   const [routineGroupId, setRoutineGroupId] = useState(null);
   const [routineStartTime, setRoutineStartTime] = useState('');
   const [routineEndTime, setRoutineEndTime] = useState('');
-  const [choreName, setChoreName] = useState('');
-  const [choreDate, setChoreDate] = useState(new Date().toISOString().split('T')[0]);
-  const [showChoreDatePicker, setShowChoreDatePicker] = useState(false);
   const [reminderName, setReminderName] = useState('');
   const [reminderDescription, setReminderDescription] = useState('');
   const [reminderDate, setReminderDate] = useState(new Date().toISOString().split('T')[0]);
   const [reminderTime, setReminderTime] = useState('');
   const [showReminderDatePicker, setShowReminderDatePicker] = useState(false);
   const [showReminderTimePicker, setShowReminderTimePicker] = useState(false);
-  const [groceryInput, setGroceryInput] = useState('');
+  const [groceryItemInput, setGroceryItemInput] = useState('');
+  const [groceryListNameInput, setGroceryListNameInput] = useState('');
+  const [groceryListEmojiInput, setGroceryListEmojiInput] = useState(DEFAULT_GROCERY_EMOJI);
+  const [activeGroceryListId, setActiveGroceryListId] = useState(null);
+  const grocerySceneAnim = useRef(new Animated.Value(1)).current;
   const normalizedReminderTime = useMemo(
     () => normalizeTimeValue(reminderTime),
     [reminderTime]
   );
+
+  useEffect(() => {
+    if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
 
   const groupNameMap = useMemo(() => {
     const map = new Map();
@@ -423,17 +404,6 @@ const RoutineScreen = () => {
     } catch (error) {
       Alert.alert('Unable to create routine', error?.message || 'Please try again.');
     }
-  };
-
-  const handleCreateChore = async () => {
-    if (!choreName.trim()) return;
-    await addChore({
-      title: choreName.trim(),
-      date: choreDate,
-    });
-    setChoreName('');
-    setChoreDate(new Date().toISOString().split('T')[0]);
-    setShowChoreModal(false);
   };
 
   const handleCreateReminder = async () => {
@@ -480,23 +450,12 @@ const RoutineScreen = () => {
     }
   };
 
-  const closeChoreModal = () => {
-    setShowChoreModal(false);
-    setChoreName('');
-    setShowChoreDatePicker(false);
-  };
-
   const closeReminderModal = () => {
     setShowReminderModal(false);
     setReminderName('');
     setReminderDescription('');
     setShowReminderDatePicker(false);
     setShowReminderTimePicker(false);
-  };
-
-  const handleQuickChoreDate = (offset) => {
-    setChoreDate(getISODateWithOffset(offset));
-    setShowChoreDatePicker(false);
   };
 
   const handleQuickReminderTime = (value) => {
@@ -538,10 +497,129 @@ const RoutineScreen = () => {
     }
   };
 
+  const animateGroceryScene = useCallback(() => {
+    grocerySceneAnim.setValue(0);
+    Animated.timing(grocerySceneAnim, {
+      toValue: 1,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [grocerySceneAnim]);
+
+  const openGroceryListDetail = useCallback(
+    (listId) => {
+      if (!listId || listId === activeGroceryListId) return;
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setActiveGroceryListId(listId);
+      animateGroceryScene();
+    },
+    [activeGroceryListId, animateGroceryScene]
+  );
+
+  const closeGroceryListDetail = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setActiveGroceryListId(null);
+    animateGroceryScene();
+  }, [animateGroceryScene]);
+
+  const openGroceryModal = (listId = null) => {
+    setShowGroceryModal(true);
+    if (listId) {
+      setActiveGroceryListId(listId);
+    } else {
+      setActiveGroceryListId(null);
+    }
+    animateGroceryScene();
+  };
+
+  const closeGroceryModal = () => {
+    setShowGroceryModal(false);
+    setActiveGroceryListId(null);
+    setGroceryItemInput('');
+  };
+
+  const handleCreateGroceryList = async () => {
+    const listName = groceryListNameInput.trim();
+    if (!listName) return;
+
+    try {
+      const created = await addGroceryList(
+        listName,
+        groceryListEmojiInput.trim() || DEFAULT_GROCERY_EMOJI
+      );
+      setGroceryListNameInput('');
+      setGroceryListEmojiInput(DEFAULT_GROCERY_EMOJI);
+      if (created?.id) {
+        openGroceryListDetail(created.id);
+      }
+    } catch (error) {
+      Alert.alert('Unable to create list', error?.message || 'Please try again.');
+    }
+  };
+
+  const handleCreateQuickList = async (template) => {
+    const normalizedName = template?.name?.trim()?.toLowerCase();
+    if (!normalizedName) return;
+
+    const existing = (groceryListSummaries || []).find(
+      (list) => String(list?.name || '').trim().toLowerCase() === normalizedName
+    );
+    if (existing?.id) {
+      openGroceryListDetail(existing.id);
+      return;
+    }
+
+    try {
+      const created = await addGroceryList(template.name, template.emoji || DEFAULT_GROCERY_EMOJI);
+      if (created?.id) {
+        openGroceryListDetail(created.id);
+      }
+    } catch (error) {
+      Alert.alert('Unable to create list', error?.message || 'Please try again.');
+    }
+  };
+
   const handleAddGroceryItem = async () => {
-    if (!groceryInput.trim()) return;
-    await addGroceryItem(groceryInput.trim());
-    setGroceryInput('');
+    const itemName = groceryItemInput.trim();
+    if (!itemName) return;
+
+    const targetListId = activeGroceryListId || groceryLists[0]?.id;
+    if (!targetListId) {
+      Alert.alert('Create a list first', 'Add a list before adding items.');
+      return;
+    }
+
+    try {
+      await addGroceryItem(itemName, targetListId);
+      setGroceryItemInput('');
+    } catch (error) {
+      Alert.alert('Unable to add item', error?.message || 'Please try again.');
+    }
+  };
+
+  const handleDeleteActiveGroceryList = async () => {
+    if (!activeGroceryListId) return;
+    if ((groceryLists || []).length <= 1) {
+      Alert.alert('Cannot delete', 'Create another list before deleting this one.');
+      return;
+    }
+
+    Alert.alert('Delete list?', 'This removes the list and all of its items.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteGroceryList(activeGroceryListId);
+            closeGroceryListDetail();
+          } catch (error) {
+            Alert.alert('Unable to delete list', error?.message || 'Please try again.');
+          }
+        },
+      },
+    ]);
   };
 
   const openRoutineDetail = (routineId, isGroup) => {
@@ -582,18 +660,56 @@ const RoutineScreen = () => {
     setReminderTime(normalized);
   };
 
-  const openChoreDatePicker = () => {
-    setShowChoreDatePicker(true);
-  };
+  useEffect(() => {
+    if (!activeGroceryListId) return;
+    const exists = (groceryLists || []).some((list) => list.id === activeGroceryListId);
+    if (!exists) {
+      closeGroceryListDetail();
+    }
+  }, [activeGroceryListId, groceryLists, closeGroceryListDetail]);
 
-  const handleSelectChoreDate = (date) => {
-    setChoreDate(formatISODate(date));
-  };
+  const groceryListSummaries = useMemo(() => {
+    const fallbackListId = groceryLists[0]?.id || null;
+    return (groceryLists || []).map((list) => {
+      const items = (groceries || []).filter(
+        (item) => (item.listId || fallbackListId) === list.id
+      );
+      const completedCount = items.filter((item) => item.completed).length;
+      return {
+        ...list,
+        itemCount: items.length,
+        completedCount,
+        activeCount: items.length - completedCount,
+      };
+    });
+  }, [groceryLists, groceries]);
 
-  const completedGroceries = groceries.filter((g) => g.completed);
-  const activeGroceries = groceries.filter((g) => !g.completed);
+  const selectedGroceryList = useMemo(
+    () =>
+      groceryListSummaries.find((list) => list.id === activeGroceryListId) || null,
+    [activeGroceryListId, groceryListSummaries]
+  );
+
+  const selectedGroceryItems = useMemo(() => {
+    if (!selectedGroceryList?.id) return [];
+    const fallbackListId = groceryLists[0]?.id || selectedGroceryList.id;
+    return (groceries || []).filter(
+      (item) => (item.listId || fallbackListId) === selectedGroceryList.id
+    );
+  }, [groceries, groceryLists, selectedGroceryList]);
+
+  const activeGroceries = useMemo(
+    () => selectedGroceryItems.filter((item) => !item.completed),
+    [selectedGroceryItems]
+  );
+  const completedGroceries = useMemo(
+    () => selectedGroceryItems.filter((item) => item.completed),
+    [selectedGroceryItems]
+  );
+  const totalGroceryLists = groceryListSummaries.length;
+  const totalGroceryItems = groceries.length;
+  const totalOpenGroceryItems = groceries.filter((item) => !item.completed).length;
   const totalRoutineCount = routines.length + groupRoutines.length;
-  const pendingChoreCount = chores.filter((chore) => !chore.completed).length;
   const reminderCount = reminders.length;
   const isGroupRoutineCreate = routineCreateType === 'group';
   const routineCreateDisabled =
@@ -601,36 +717,16 @@ const RoutineScreen = () => {
     !routineStartTime ||
     !routineEndTime ||
     (isGroupRoutineCreate && !routineGroupId);
-  const choreGroups = useMemo(() => {
-    const map = new Map();
-    chores.forEach((chore) => {
-      const key = chore.date
-        ? new Date(chore.date).toISOString().slice(0, 10)
-        : 'no-date';
-      const list = map.get(key) || [];
-      list.push(chore);
-      map.set(key, list);
-    });
 
-    const sortedKeys = Array.from(map.keys()).sort((a, b) => {
-      if (a === 'no-date') return 1;
-      if (b === 'no-date') return -1;
-      return new Date(a) - new Date(b);
-    });
-
-    return sortedKeys.map((key) => ({
-      key,
-      label: key === 'no-date' ? 'No date' : formatDate(key),
-      items: (map.get(key) || []).sort(
-        (a, b) => new Date(a.date || 0) - new Date(b.date || 0)
-      ),
-    }));
-  }, [chores]);
-
-  const renderGroceryList = () => (
+  const renderActiveGroceryList = () => (
     <>
-      {groceries.length === 0 ? (
-        <Text style={styles.emptyText}>Your grocery list is empty</Text>
+      {selectedGroceryItems.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.groceryEmptyEmoji}>
+            {selectedGroceryList?.emoji || DEFAULT_GROCERY_EMOJI}
+          </Text>
+          <Text style={styles.emptyText}>No items in this list yet</Text>
+        </View>
       ) : (
         <>
           {activeGroceries.map((item) => (
@@ -662,7 +758,7 @@ const RoutineScreen = () => {
             <>
               <View style={styles.completedHeader}>
                 <Text style={styles.completedLabel}>Completed</Text>
-                <TouchableOpacity onPress={clearCompletedGroceries}>
+                <TouchableOpacity onPress={() => clearCompletedGroceries(selectedGroceryList?.id)}>
                   <Text style={styles.clearText}>Clear</Text>
                 </TouchableOpacity>
               </View>
@@ -701,7 +797,6 @@ const RoutineScreen = () => {
 
   const routineTheme = sectionThemes.routine;
   const groupTheme = sectionThemes.group;
-  const choresTheme = sectionThemes.chores;
   const remindersTheme = sectionThemes.reminders;
   const groceriesTheme = sectionThemes.groceries;
 
@@ -719,7 +814,7 @@ const RoutineScreen = () => {
           <View>
             <Text style={[styles.pageTitle, { color: palette.text }]}>Routine Hub</Text>
             <Text style={[styles.pageSubtitle, { color: palette.textMuted }]}>
-              Manage routines, chores, reminders, and groceries
+              Manage routines, lists, and reminders
             </Text>
           </View>
           <View style={styles.headerAddWrap}>
@@ -740,9 +835,9 @@ const RoutineScreen = () => {
             <Text style={styles.statValue}>{totalRoutineCount}</Text>
           </Card>
           <Card style={[styles.statCard, styles.statTasks]}>
-            <Ionicons name="checkbox" size={16} color={palette.info} />
-            <Text style={styles.statLabel}>Open chores</Text>
-            <Text style={styles.statValue}>{pendingChoreCount}</Text>
+            <Ionicons name="list" size={16} color={palette.info} />
+            <Text style={styles.statLabel}>Open list items</Text>
+            <Text style={styles.statValue}>{totalOpenGroceryItems}</Text>
           </Card>
           <Card style={[styles.statCard, styles.statReminders]}>
             <Ionicons name="notifications" size={16} color={palette.health} />
@@ -919,7 +1014,7 @@ const RoutineScreen = () => {
           </Card>
         ) : null}
 
-        {/* Chores Section */}
+        {/* Lists Section */}
         <Card
           style={[
             styles.sectionCard,
@@ -928,70 +1023,62 @@ const RoutineScreen = () => {
         >
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
-              <View style={[styles.sectionIcon, { backgroundColor: choresTheme.iconBg }]}>
-                <Ionicons name="home" size={18} color={choresTheme.iconColor} />
+              <View style={[styles.sectionIcon, { backgroundColor: groceriesTheme.iconBg }]}>
+                <Ionicons name="list" size={18} color={groceriesTheme.iconColor} />
               </View>
-              <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Chores</Text>
+              <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Lists</Text>
             </View>
             <TouchableOpacity
-              style={[styles.sectionAction, { backgroundColor: choresTheme.actionBg }]}
-              onPress={() => setShowChoreModal(true)}
+              style={[styles.sectionAction, { backgroundColor: groceriesTheme.itemBg }]}
+              onPress={() => openGroceryModal()}
             >
-              <Ionicons name="add" size={16} color={choresTheme.actionText} />
-              <Text style={[styles.sectionActionText, { color: choresTheme.actionText }]}>
-                Add
+              <Ionicons name="open-outline" size={16} color={groceriesTheme.accent} />
+              <Text style={[styles.sectionActionText, { color: groceriesTheme.accent }]}>
+                Open
               </Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.sectionBody}>
-            {chores.length === 0 ? (
-              <Text style={styles.emptyText}>No chores scheduled</Text>
+            <Text style={styles.groceryOverviewMeta}>
+              {totalGroceryLists} list{totalGroceryLists === 1 ? '' : 's'} | {totalOpenGroceryItems} open |{' '}
+              {totalGroceryItems} total item{totalGroceryItems === 1 ? '' : 's'}
+            </Text>
+            {groceryListSummaries.length === 0 ? (
+              <Text style={styles.emptyText}>Create your first list</Text>
             ) : (
-              choreGroups.map((group) => (
-                <View key={group.key} style={styles.choreGroup}>
-                  <Text style={styles.choreGroupLabel}>{group.label}</Text>
-                  {group.items.map((chore) => (
-                    <TouchableOpacity
-                      key={chore.id}
-                      style={[
-                        styles.choreItem,
-                        {
-                          backgroundColor: choresTheme.itemBg,
-                          borderColor: choresTheme.itemBorder,
-                        },
-                      ]}
-                      onPress={() => updateChore(chore.id, { completed: !chore.completed })}
-                    >
-                      <View
-                        style={[
-                          styles.checkbox,
-                          { borderColor: choresTheme.itemBorder },
-                          chore.completed && styles.checkboxChecked,
-                        ]}
-                      >
-                        {chore.completed && (
-                          <Ionicons name="checkmark" size={14} color="#FFFFFF" />
-                        )}
-                      </View>
-                      <View style={styles.choreContent}>
-                        <Text
-                          style={[
-                            styles.choreTitle,
-                            chore.completed && styles.choreTitleCompleted,
-                          ]}
-                        >
-                          {chore.title}
-                        </Text>
-                        <Text style={styles.choreDate}>{formatDate(chore.date)}</Text>
-                      </View>
-                      <TouchableOpacity onPress={() => deleteChore(chore.id)}>
-                        <Ionicons name="close" size={18} color={themeColors.textLight} />
-                      </TouchableOpacity>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              ))
+              <View style={styles.groceryListPreviewStack}>
+                {groceryListSummaries.slice(0, 3).map((list) => (
+                  <TouchableOpacity
+                    key={list.id}
+                    style={[
+                      styles.groceryListPreviewCard,
+                      {
+                        backgroundColor: groceriesTheme.itemBg,
+                        borderColor: groceriesTheme.itemBorder,
+                      },
+                    ]}
+                    onPress={() => openGroceryModal(list.id)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.groceryListPreviewEmoji}>
+                      {list.emoji || DEFAULT_GROCERY_EMOJI}
+                    </Text>
+                    <View style={styles.groceryListPreviewContent}>
+                      <Text style={styles.groceryListPreviewTitle}>{list.name}</Text>
+                      <Text style={styles.groceryListPreviewMeta}>
+                        {list.activeCount} open | {list.completedCount} done
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={themeColors.textLight} />
+                  </TouchableOpacity>
+                ))}
+                {groceryListSummaries.length > 3 && (
+                  <Text style={styles.groceryMoreListsText}>
+                    +{groceryListSummaries.length - 3} more list{groceryListSummaries.length - 3 === 1 ? '' : 's'}
+                  </Text>
+                )}
+              </View>
             )}
           </View>
         </Card>
@@ -1000,6 +1087,7 @@ const RoutineScreen = () => {
         <Card
           style={[
             styles.sectionCard,
+            styles.lastCard,
             { backgroundColor: palette.card, borderColor: palette.cardBorder },
           ]}
         >
@@ -1069,55 +1157,6 @@ const RoutineScreen = () => {
           </View>
         </Card>
 
-        {/* Grocery List Section */}
-        <Card
-          style={[
-            styles.sectionCard,
-            styles.lastCard,
-            { backgroundColor: palette.card, borderColor: palette.cardBorder },
-          ]}
-          onPress={() => setShowGroceryModal(true)}
-        >
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionTitleRow}>
-              <View style={[styles.sectionIcon, { backgroundColor: groceriesTheme.iconBg }]}>
-                <Ionicons name="cart" size={18} color={groceriesTheme.iconColor} />
-              </View>
-              <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Grocery List</Text>
-            </View>
-          </View>
-
-          <View style={styles.sectionBody}>
-            <View style={styles.groceryInputContainer}>
-              <TextInput
-                style={[
-                  styles.groceryInput,
-                  {
-                    backgroundColor: groceriesTheme.itemBg,
-                    borderColor: groceriesTheme.itemBorder,
-                    color: themeColors.text,
-                  },
-                ]}
-                value={groceryInput}
-                placeholder="Tap to add item..."
-                placeholderTextColor={themeColors.placeholder}
-                editable={false}
-                onPressIn={() => setShowGroceryModal(true)}
-              />
-              <TouchableOpacity
-                style={[
-                  styles.groceryAddButton,
-                  { backgroundColor: groceriesTheme.itemBg, borderColor: groceriesTheme.itemBorder },
-                ]}
-                onPress={() => setShowGroceryModal(true)}
-              >
-                <Ionicons name="add" size={20} color={groceriesTheme.accent} />
-              </TouchableOpacity>
-            </View>
-
-            {renderGroceryList()}
-          </View>
-        </Card>
         </PlatformScrollView>
 
         {/* Create Routine Modal */}
@@ -1394,207 +1433,337 @@ const RoutineScreen = () => {
           />
         </Modal>
 
-        {/* Add Chore Modal */}
-        <Modal
-          visible={showChoreModal}
-          onClose={closeChoreModal}
-          title="Add Chore"
-          fullScreen
-          hideHeader
-          showCloseButton={false}
-          contentStyle={{ paddingHorizontal: 0 }}
+      {/* Grocery Fullscreen Modal */}
+      <Modal
+        visible={showGroceryModal}
+        onClose={closeGroceryModal}
+        title="Lists"
+        fullScreen
+        hideHeader
+        showCloseButton={false}
+        contentStyle={{ paddingHorizontal: 0 }}
+      >
+        <View
+          style={[
+            styles.createRoutineScreen,
+            { backgroundColor: palette.background, paddingTop: insets.top + spacing.sm },
+          ]}
         >
-          <View
-            style={[
-              styles.createRoutineScreen,
-              { backgroundColor: palette.background, paddingTop: insets.top + spacing.sm },
-            ]}
-          >
-            <View style={styles.createRoutineTop}>
+          <View style={styles.createRoutineTop}>
+            <TouchableOpacity
+              style={[
+                styles.createRoutineTopButton,
+                { borderColor: palette.cardBorder, backgroundColor: palette.card },
+              ]}
+              onPress={
+                selectedGroceryList
+                  ? closeGroceryListDetail
+                  : closeGroceryModal
+              }
+            >
+              <Ionicons
+                name={selectedGroceryList ? 'chevron-back' : 'close'}
+                size={20}
+                color={palette.text}
+              />
+            </TouchableOpacity>
+            <Text style={[styles.createRoutineTitle, { color: palette.text }]}>
+              {selectedGroceryList ? selectedGroceryList.name : 'Lists'}
+            </Text>
+            {selectedGroceryList ? (
               <TouchableOpacity
                 style={[
                   styles.createRoutineTopButton,
-                  { borderColor: choreModal.border, backgroundColor: choreModal.surface },
+                  { borderColor: palette.cardBorder, backgroundColor: palette.card },
                 ]}
-                onPress={closeChoreModal}
+                onPress={handleDeleteActiveGroceryList}
               >
-                <Ionicons name="chevron-back" size={20} color={choreModal.accent} />
+                <Ionicons name="trash-outline" size={18} color={themeColors.danger} />
               </TouchableOpacity>
-              <Text style={[styles.createRoutineTitle, { color: choreModal.accent }]}>Add Chore</Text>
+            ) : (
               <View style={styles.createRoutineTopSpacer} />
-            </View>
+            )}
+          </View>
+
+          <Animated.View
+            style={[
+              styles.grocerySceneContainer,
+              {
+                opacity: grocerySceneAnim,
+                transform: [
+                  {
+                    translateY: grocerySceneAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [12, 0],
+                    }),
+                  },
+                  {
+                    scale: grocerySceneAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.985, 1],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+          {!selectedGroceryList ? (
             <View style={styles.createRoutineBody}>
               <View
                 style={[
-                  styles.createRoutineSectionCard,
-                  { backgroundColor: choreModal.surface, borderColor: choreModal.border },
+                  styles.groceryHeroCard,
+                  { backgroundColor: groceriesTheme.itemBg, borderColor: groceriesTheme.itemBorder },
                 ]}
               >
-                <Input
-                  label="Chore Name"
-                  value={choreName}
-                  onChangeText={setChoreName}
-                  placeholder="e.g., Clean bathroom"
-                  containerStyle={styles.modalInputContainer}
-                  style={[
-                    styles.modalInput,
-                    {
-                      backgroundColor: choreModal.fieldBg,
-                      borderColor: choreModal.fieldBorder,
-                    },
-                  ]}
-                  inputStyle={styles.modalInputText}
-                />
-                <Text style={styles.inputLabel}>Due Date</Text>
-                <TouchableOpacity
-                  style={[
-                    styles.dateButton,
-                    {
-                      backgroundColor: choreModal.fieldBg,
-                      borderColor: choreModal.fieldBorder,
-                    },
-                  ]}
-                  onPress={openChoreDatePicker}
+                <Text style={styles.groceryHeroTitle}>Plan lists and stay organized.</Text>
+                <Text style={styles.groceryHeroSubtitle}>
+                  Create as many lists as you need, set an emoji, and manage items inside each list.
+                </Text>
+              </View>
+
+              <View
+                style={[
+                  styles.createRoutineSectionCard,
+                  { borderColor: groceriesTheme.itemBorder, backgroundColor: palette.card },
+                ]}
+              >
+                <Text style={styles.inputLabel}>Quick Lists</Text>
+                <Text style={styles.quickListsHint}>
+                  One tap to create a starter list with name and emoji.
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.quickListsRow}
                 >
-                  <Text style={styles.dateButtonText}>{formatDate(choreDate)}</Text>
-                  <Ionicons name="calendar-outline" size={18} color={themeColors.textLight} />
-                </TouchableOpacity>
-                <Text style={styles.quickLabel}>Quick select</Text>
-                <View style={styles.quickGroup}>
-                  {CHORE_QUICK_OPTIONS.map((option) => {
-                    const quickDate = getISODateWithOffset(option.offset);
-                    const selected = choreDate === quickDate;
+                  {QUICK_LIST_TEMPLATES.map((template) => (
+                    <TouchableOpacity
+                      key={template.id}
+                      style={[
+                        styles.quickListChip,
+                        {
+                          backgroundColor: groceriesTheme.itemBg,
+                          borderColor: groceriesTheme.itemBorder,
+                        },
+                      ]}
+                      onPress={() => handleCreateQuickList(template)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.quickListChipEmoji}>{template.emoji}</Text>
+                      <Text style={styles.quickListChipText}>{template.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+
+              <View
+                style={[
+                  styles.createRoutineSectionCard,
+                  { borderColor: groceriesTheme.itemBorder, backgroundColor: palette.card },
+                ]}
+              >
+                <Text style={styles.inputLabel}>Create a new list</Text>
+                <View style={styles.groceryListCreateRow}>
+                  <TextInput
+                    style={[
+                      styles.groceryEmojiInput,
+                      {
+                        backgroundColor: groceriesTheme.itemBg,
+                        borderColor: groceriesTheme.itemBorder,
+                        color: themeColors.text,
+                      },
+                    ]}
+                    value={groceryListEmojiInput}
+                    onChangeText={setGroceryListEmojiInput}
+                    placeholder={DEFAULT_GROCERY_EMOJI}
+                    placeholderTextColor={themeColors.placeholder}
+                    maxLength={2}
+                  />
+                  <TextInput
+                    style={[
+                      styles.groceryInput,
+                      {
+                        backgroundColor: groceriesTheme.itemBg,
+                        borderColor: groceriesTheme.itemBorder,
+                        color: themeColors.text,
+                      },
+                    ]}
+                    value={groceryListNameInput}
+                    onChangeText={setGroceryListNameInput}
+                    placeholder="List name"
+                    placeholderTextColor={themeColors.placeholder}
+                    onSubmitEditing={handleCreateGroceryList}
+                    returnKeyType="done"
+                  />
+                  <TouchableOpacity
+                    style={[
+                      styles.groceryAddButton,
+                      { backgroundColor: groceriesTheme.itemBg, borderColor: groceriesTheme.itemBorder },
+                    ]}
+                    onPress={handleCreateGroceryList}
+                    disabled={!groceryListNameInput.trim()}
+                  >
+                    <Ionicons
+                      name="add"
+                      size={20}
+                      color={
+                        groceryListNameInput.trim() ? groceriesTheme.accent : themeColors.textLight
+                      }
+                    />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.groceryEmojiScroll}
+                >
+                  {GROCERY_EMOJI_OPTIONS.map((emoji) => {
+                    const selected = groceryListEmojiInput === emoji;
                     return (
                       <TouchableOpacity
-                        key={option.label}
+                        key={emoji}
                         style={[
-                          styles.quickChip,
-                          {
-                            backgroundColor: selected
-                              ? choreModal.chipActiveBg
-                              : choreModal.chipBg,
-                            borderColor: selected
-                              ? choreModal.chipActiveBorder
-                              : choreModal.chipBorder,
+                          styles.groceryEmojiChip,
+                          selected && {
+                            borderColor: groceriesTheme.accent,
+                            backgroundColor: groceriesTheme.itemBg,
                           },
                         ]}
-                        onPress={() => handleQuickChoreDate(option.offset)}
+                        onPress={() => setGroceryListEmojiInput(emoji)}
                         activeOpacity={0.8}
                       >
-                        <Text
-                          style={[
-                            styles.quickChipText,
+                        <Text style={styles.groceryEmojiChipText}>{emoji}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              <View
+                style={[
+                  styles.createRoutineSectionCard,
+                  { borderColor: groceriesTheme.itemBorder, backgroundColor: palette.card },
+                ]}
+              >
+                {groceryListSummaries.length === 0 ? (
+                  <Text style={styles.emptyText}>No lists yet</Text>
+                ) : (
+                  groceryListSummaries.map((list) => (
+                    <TouchableOpacity
+                      key={list.id}
+                      style={[
+                        styles.groceryListCard,
+                        { backgroundColor: groceriesTheme.itemBg, borderColor: groceriesTheme.itemBorder },
+                      ]}
+                      onPress={() => openGroceryListDetail(list.id)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.groceryListCardEmoji}>
+                        {list.emoji || DEFAULT_GROCERY_EMOJI}
+                      </Text>
+                      <View style={styles.groceryListCardContent}>
+                        <Text style={styles.groceryListCardTitle}>{list.name}</Text>
+                        <Text style={styles.groceryListCardMeta}>
+                          {list.activeCount} open | {list.completedCount} done
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={18} color={themeColors.textLight} />
+                    </TouchableOpacity>
+                  ))
+                )}
+              </View>
+            </View>
+          ) : (
+            <View style={styles.createRoutineBody}>
+              {groceryListSummaries.length > 1 && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.grocerySwitchRow}
+                  contentContainerStyle={styles.grocerySwitchContent}
+                >
+                  {groceryListSummaries.map((list) => {
+                    const isActive = list.id === selectedGroceryList.id;
+                    return (
+                      <TouchableOpacity
+                        key={list.id}
+                        style={[
+                          styles.grocerySwitchChip,
+                          isActive && [
+                            styles.grocerySwitchChipActive,
                             {
-                              color: selected
-                                ? choreModal.chipActiveText
-                                : choreModal.chipText,
+                              borderColor: groceriesTheme.accent,
+                              backgroundColor: groceriesTheme.itemBg,
                             },
-                          ]}
-                        >
-                          {option.label}
+                          ],
+                        ]}
+                        onPress={() => openGroceryListDetail(list.id)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.grocerySwitchChipText}>
+                          {list.emoji || DEFAULT_GROCERY_EMOJI} {list.name}
                         </Text>
                       </TouchableOpacity>
                     );
                   })}
-                </View>
-              </View>
+                </ScrollView>
+              )}
+
               <View
                 style={[
-                  styles.createRoutineSectionCard,
-                  { backgroundColor: choreModal.surface, borderColor: choreModal.border },
+                  styles.grocerySelectedListCard,
+                  { backgroundColor: groceriesTheme.itemBg, borderColor: groceriesTheme.itemBorder },
                 ]}
               >
-                <View style={styles.modalButtons}>
-                  <TouchableOpacity
-                    style={[
-                      styles.modalButton,
-                      styles.secondaryButton,
-                      {
-                        backgroundColor: choreModal.secondaryBg,
-                        borderColor: choreModal.secondaryBorder,
-                      },
-                    ]}
-                    onPress={closeChoreModal}
-                    activeOpacity={0.8}
-                  >
-                    <Text
-                      style={[
-                        styles.secondaryButtonText,
-                        { color: choreModal.secondaryText },
-                      ]}
-                    >
-                      Cancel
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.modalButton,
-                      styles.primaryButton,
-                      !choreName.trim() && styles.primaryButtonDisabled,
-                    ]}
-                    onPress={handleCreateChore}
-                    disabled={!choreName.trim()}
-                    activeOpacity={0.85}
-                  >
-                    <LinearGradient
-                      colors={choreModal.actionGradient}
-                      style={styles.primaryButtonInner}
-                    >
-                      <Text style={styles.primaryButtonText}>Add Chore</Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
+                <Text style={styles.grocerySelectedListEmoji}>
+                  {selectedGroceryList.emoji || DEFAULT_GROCERY_EMOJI}
+                </Text>
+                <View style={styles.grocerySelectedListMeta}>
+                  <Text style={styles.grocerySelectedListTitle}>{selectedGroceryList.name}</Text>
+                  <Text style={styles.grocerySelectedListSubtitle}>
+                    {activeGroceries.length} open | {completedGroceries.length} completed
+                  </Text>
                 </View>
               </View>
+
+              <View style={styles.groceryInputContainer}>
+                <TextInput
+                  style={[
+                    styles.groceryInput,
+                    {
+                      backgroundColor: groceriesTheme.itemBg,
+                      borderColor: groceriesTheme.itemBorder,
+                      color: themeColors.text,
+                    },
+                  ]}
+                  value={groceryItemInput}
+                  onChangeText={setGroceryItemInput}
+                  placeholder={`Add item to ${selectedGroceryList.name}...`}
+                  placeholderTextColor={themeColors.placeholder}
+                  onSubmitEditing={handleAddGroceryItem}
+                  returnKeyType="done"
+                  autoFocus
+                />
+                <TouchableOpacity
+                  style={[
+                    styles.groceryAddButton,
+                    { backgroundColor: groceriesTheme.itemBg, borderColor: groceriesTheme.itemBorder },
+                  ]}
+                  onPress={handleAddGroceryItem}
+                  disabled={!groceryItemInput.trim()}
+                >
+                  <Ionicons
+                    name="add"
+                    size={20}
+                    color={groceryItemInput.trim() ? groceriesTheme.accent : themeColors.textLight}
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {renderActiveGroceryList()}
             </View>
-          </View>
-
-          <PlatformDatePicker
-            visible={showChoreDatePicker}
-            value={choreDate}
-            onChange={handleSelectChoreDate}
-            onClose={() => setShowChoreDatePicker(false)}
-            accentColor={choreModal.accent}
-          />
-        </Modal>
-
-      {/* Grocery Fullscreen Modal */}
-      <Modal
-        visible={showGroceryModal}
-        onClose={() => setShowGroceryModal(false)}
-        title="Grocery List"
-        fullScreen
-      >
-        <View style={{ marginTop: spacing.md }}>
-          <View style={styles.groceryInputContainer}>
-            <TextInput
-              style={[
-                styles.groceryInput,
-                {
-                  backgroundColor: groceriesTheme.itemBg,
-                  borderColor: groceriesTheme.itemBorder,
-                  color: themeColors.text,
-                },
-              ]}
-              value={groceryInput}
-              onChangeText={setGroceryInput}
-              placeholder="Add item..."
-              placeholderTextColor={themeColors.placeholder}
-              onSubmitEditing={handleAddGroceryItem}
-              returnKeyType="done"
-              autoFocus
-            />
-            <TouchableOpacity
-              style={[
-                styles.groceryAddButton,
-                { backgroundColor: groceriesTheme.itemBg, borderColor: groceriesTheme.itemBorder },
-              ]}
-              onPress={handleAddGroceryItem}
-            >
-              <Ionicons name="add" size={20} color={groceriesTheme.accent} />
-            </TouchableOpacity>
-          </View>
-
-          {renderGroceryList()}
+          )}
+          </Animated.View>
         </View>
       </Modal>
 
@@ -2031,52 +2200,6 @@ const createStyles = (themeColors, palette) => StyleSheet.create({
     fontStyle: 'italic',
     paddingLeft: spacing.xl,
   },
-  choreItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-    borderWidth: 1,
-    borderRadius: borderRadius.md,
-    marginBottom: spacing.sm,
-  },
-  choreGroup: {
-    marginTop: spacing.sm,
-    paddingVertical: spacing.xs,
-  },
-  choreGroupLabel: {
-    ...typography.caption,
-    color: themeColors.textSecondary,
-    marginBottom: spacing.xs,
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.md,
-  },
-  checkboxChecked: {
-    backgroundColor: themeColors.success,
-    borderColor: themeColors.success,
-  },
-  choreContent: {
-    flex: 1,
-  },
-  choreTitle: {
-    ...typography.body,
-    color: themeColors.text,
-  },
-  choreTitleCompleted: {
-    textDecorationLine: 'line-through',
-    color: themeColors.textLight,
-  },
-  choreDate: {
-    ...typography.caption,
-    color: themeColors.textLight,
-  },
   reminderItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2111,6 +2234,200 @@ const createStyles = (themeColors, palette) => StyleSheet.create({
     ...typography.caption,
     color: themeColors.textLight,
     marginTop: spacing.xs,
+  },
+  groceryOverviewMeta: {
+    ...typography.caption,
+    color: themeColors.textSecondary,
+    marginBottom: spacing.sm,
+  },
+  groceryListPreviewStack: {
+    marginTop: spacing.xs,
+  },
+  groceryListPreviewCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.sm,
+  },
+  groceryListPreviewEmoji: {
+    fontSize: 24,
+    marginRight: spacing.sm,
+  },
+  groceryListPreviewContent: {
+    flex: 1,
+  },
+  groceryListPreviewTitle: {
+    ...typography.body,
+    color: themeColors.text,
+    fontWeight: '600',
+  },
+  groceryListPreviewMeta: {
+    ...typography.caption,
+    color: themeColors.textSecondary,
+    marginTop: 2,
+  },
+  groceryMoreListsText: {
+    ...typography.caption,
+    color: themeColors.textLight,
+    textAlign: 'center',
+    paddingTop: spacing.xs,
+  },
+  groceryHeroCard: {
+    borderWidth: 1,
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  groceryHeroTitle: {
+    ...typography.h2,
+    color: themeColors.text,
+    fontWeight: '700',
+  },
+  groceryHeroSubtitle: {
+    ...typography.bodySmall,
+    color: themeColors.textSecondary,
+    marginTop: spacing.sm,
+    lineHeight: 20,
+  },
+  quickListsHint: {
+    ...typography.bodySmall,
+    color: themeColors.textSecondary,
+    marginBottom: spacing.sm,
+  },
+  quickListsRow: {
+    paddingRight: spacing.sm,
+  },
+  quickListChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: borderRadius.full,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginRight: spacing.sm,
+  },
+  quickListChipEmoji: {
+    fontSize: 18,
+    marginRight: spacing.xs,
+  },
+  quickListChipText: {
+    ...typography.bodySmall,
+    color: themeColors.text,
+    fontWeight: '600',
+  },
+  groceryListCreateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  groceryEmojiInput: {
+    width: 52,
+    height: 44,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    textAlign: 'center',
+    fontSize: 24,
+    marginRight: spacing.sm,
+  },
+  groceryEmojiScroll: {
+    paddingTop: spacing.sm,
+  },
+  groceryEmojiChip: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 1,
+    borderColor: themeColors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+    backgroundColor: themeColors.card,
+  },
+  groceryEmojiChipText: {
+    fontSize: 20,
+  },
+  groceryListCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.sm,
+  },
+  groceryListCardEmoji: {
+    fontSize: 24,
+    marginRight: spacing.md,
+  },
+  groceryListCardContent: {
+    flex: 1,
+  },
+  groceryListCardTitle: {
+    ...typography.body,
+    color: themeColors.text,
+    fontWeight: '600',
+  },
+  groceryListCardMeta: {
+    ...typography.caption,
+    color: themeColors.textSecondary,
+    marginTop: 2,
+  },
+  grocerySelectedListCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: borderRadius.xl,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  grocerySelectedListEmoji: {
+    fontSize: 34,
+    marginRight: spacing.md,
+  },
+  grocerySelectedListMeta: {
+    flex: 1,
+  },
+  grocerySelectedListTitle: {
+    ...typography.h3,
+    color: themeColors.text,
+    fontWeight: '700',
+  },
+  grocerySelectedListSubtitle: {
+    ...typography.bodySmall,
+    color: themeColors.textSecondary,
+    marginTop: 2,
+  },
+  groceryEmptyEmoji: {
+    fontSize: 36,
+    marginBottom: spacing.xs,
+  },
+  grocerySceneContainer: {
+    flex: 1,
+  },
+  grocerySwitchRow: {
+    marginBottom: spacing.sm,
+  },
+  grocerySwitchContent: {
+    paddingRight: spacing.sm,
+  },
+  grocerySwitchChip: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: themeColors.border,
+    backgroundColor: themeColors.card,
+    marginRight: spacing.sm,
+  },
+  grocerySwitchChipActive: {
+    ...shadows.small,
+  },
+  grocerySwitchChipText: {
+    ...typography.bodySmall,
+    color: themeColors.text,
+    fontWeight: '600',
   },
   groceryInputContainer: {
     flexDirection: 'row',

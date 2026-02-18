@@ -188,6 +188,7 @@ const normalizeRevenueCatExpiration = (entitlement, explicitExpiration) => {
 const getLastActiveKey = (userId) => `${STORAGE_KEYS.LAST_ACTIVE_PREFIX}${userId}`;
 const getStreakFrozenKey = (userId) => `${STORAGE_KEYS.STREAK_FROZEN_PREFIX}${userId}`;
 const getFoodLogsKey = (userId) => `${STORAGE_KEYS.HEALTH_FOOD_LOGS}_${userId || 'anon'}`;
+const getProfileStorageKey = (userId) => `${STORAGE_KEYS.PROFILE}_${userId || 'anon'}`;
 
 const readLastActive = async (userId) => {
   if (!userId) return null;
@@ -553,6 +554,7 @@ export const AppProvider = ({ children }) => {
   const [routines, setRoutines] = useState([]);
   const [chores, setChores] = useState([]);
   const [reminders, setReminders] = useState([]);
+  const [groceryLists, setGroceryLists] = useState([]);
   const [groceries, setGroceries] = useState([]);
 
   // Finance State
@@ -851,6 +853,7 @@ const loadUserDataFromSupabase = async (userId) => {
       setRoutines([]);
       setChores([]);
       setReminders([]);
+      setGroceryLists([]);
       setGroceries([]);
       setFinances([]);
       setBudgetGroups([]);
@@ -1111,6 +1114,54 @@ const markDataLoaded = useCallback((key) => {
       console.error('Error saving data:', error);
     }
   };
+
+  const persistProfileLocally = useCallback(async (userId, profileData, onboardedValue) => {
+    if (!userId || !profileData) return;
+    const payload = pruneUndefined({
+      profile: { ...defaultProfile, ...profileData },
+      hasOnboarded: typeof onboardedValue === 'boolean' ? onboardedValue : undefined,
+      cachedAt: new Date().toISOString(),
+    });
+    try {
+      await AsyncStorage.setItem(getProfileStorageKey(userId), JSON.stringify(payload));
+    } catch (err) {
+      console.log('Error caching profile:', err);
+    }
+  }, []);
+
+  const hydrateCachedProfile = useCallback(
+    async (userId) => {
+      if (!userId) return null;
+      try {
+        const storedProfile = await AsyncStorage.getItem(getProfileStorageKey(userId));
+        if (!storedProfile) return null;
+
+        const parsed = JSON.parse(storedProfile);
+        const cachedProfile =
+          parsed &&
+          typeof parsed === 'object' &&
+          parsed.profile &&
+          typeof parsed.profile === 'object'
+            ? parsed.profile
+            : parsed;
+
+        if (!cachedProfile || typeof cachedProfile !== 'object') return null;
+
+        const mergedProfile = { ...defaultProfile, ...cachedProfile };
+        setProfile(mergedProfile);
+        setCachedProfile(userId, mergedProfile);
+        if (typeof parsed?.hasOnboarded === 'boolean') {
+          setHasOnboarded(parsed.hasOnboarded);
+        }
+        setProfileLoaded(true);
+        return mergedProfile;
+      } catch (err) {
+        console.log('Error hydrating cached profile:', err);
+        return null;
+      }
+    },
+    [setCachedProfile]
+  );
 
   const cacheThemeLocally = async (name) => {
     try {
@@ -6374,54 +6425,201 @@ const deleteReminder = async (reminderId) => {
 
 
 
+const GROCERY_DEFAULT_LIST_ID = 'default-list';
+const GROCERY_DEFAULT_LIST_NAME = 'Grocery List';
+const GROCERY_DEFAULT_LIST_EMOJI = '\uD83D\uDED2';
+
+const mapGroceryListRow = (row) => ({
+  id: row?.id || GROCERY_DEFAULT_LIST_ID,
+  name: row?.name || GROCERY_DEFAULT_LIST_NAME,
+  emoji: row?.emoji || GROCERY_DEFAULT_LIST_EMOJI,
+  createdAt: row?.created_at || null,
+});
+
 const fetchGroceriesFromSupabase = async (userId) => {
-  const { data, error } = await supabase
-    .from('groceries')
-    .select('id, name, completed, created_at')
+  let listData = [];
+  const { data: rawLists, error: listError } = await supabase
+    .from('grocery_lists')
+    .select('id, name, emoji, created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: true });
 
-  if (error) {
-    console.log('Error fetching groceries:', error);
+  if (listError) {
+    if (!isMissingRelationError(listError, 'grocery_lists')) {
+      console.log('Error fetching grocery lists:', listError);
+    }
+  } else {
+    listData = rawLists || [];
+  }
+
+  let groceryRows = [];
+  let selectWithListId = true;
+  let result = await supabase
+    .from('groceries')
+    .select('id, name, completed, created_at, list_id')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true });
+
+  if (result.error && isMissingColumnError(result.error, 'list_id')) {
+    selectWithListId = false;
+    result = await supabase
+      .from('groceries')
+      .select('id, name, completed, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true });
+  }
+
+  if (result.error) {
+    console.log('Error fetching groceries:', result.error);
     return;
   }
 
-  const mapped = (data || []).map((g) => ({
-    id: g.id,
-    name: g.name,
-    completed: g.completed,
-    createdAt: g.created_at,
-  }));
+  groceryRows = result.data || [];
 
-  setGroceries(mapped);
+  let mappedLists = (listData || []).map(mapGroceryListRow);
+  if (mappedLists.length === 0) {
+    mappedLists = [
+      {
+        id: GROCERY_DEFAULT_LIST_ID,
+        name: GROCERY_DEFAULT_LIST_NAME,
+        emoji: GROCERY_DEFAULT_LIST_EMOJI,
+        createdAt: null,
+      },
+    ];
+  }
+
+  const validListIds = new Set(mappedLists.map((list) => list.id));
+  const fallbackListId = mappedLists[0].id;
+  const mappedItems = groceryRows.map((g) => {
+    const rawListId = selectWithListId ? g.list_id : null;
+    const resolvedListId =
+      rawListId && validListIds.has(rawListId) ? rawListId : fallbackListId;
+    return {
+      id: g.id,
+      name: g.name,
+      completed: g.completed,
+      createdAt: g.created_at,
+      listId: resolvedListId,
+    };
+  });
+
+  setGroceryLists(mappedLists);
+  setGroceries(mappedItems);
 };
 
+const addGroceryList = async (name, emoji = GROCERY_DEFAULT_LIST_EMOJI) => {
+  if (!authUser?.id) {
+    throw new Error('You must be logged in to create grocery lists.');
+  }
 
-  const addGroceryItem = async (item) => {
+  const listName = String(name || '').trim();
+  const listEmoji = String(emoji || '').trim() || GROCERY_DEFAULT_LIST_EMOJI;
+  if (!listName) {
+    throw new Error('List name is required.');
+  }
+
+  const { data, error } = await supabase
+    .from('grocery_lists')
+    .insert({
+      user_id: authUser.id,
+      name: listName,
+      emoji: listEmoji,
+    })
+    .select('id, name, emoji, created_at')
+    .single();
+
+  if (error) {
+    if (isMissingRelationError(error, 'grocery_lists')) {
+      throw new Error('Missing grocery lists table. Run the new grocery list SQL migration first.');
+    }
+    console.log('Error adding grocery list:', error);
+    throw error;
+  }
+
+  const newList = mapGroceryListRow(data);
+  setGroceryLists((prev) => [...prev.filter((list) => list.id !== GROCERY_DEFAULT_LIST_ID), newList]);
+  return newList;
+};
+
+const deleteGroceryList = async (listId) => {
+  if (!authUser?.id || !listId) return;
+
+  if (groceryLists.length <= 1) {
+    throw new Error('Keep at least one list before deleting.');
+  }
+
+  const { error } = await supabase
+    .from('grocery_lists')
+    .delete()
+    .eq('id', listId)
+    .eq('user_id', authUser.id);
+
+  if (error) {
+    console.log('Error deleting grocery list:', error);
+    throw error;
+  }
+
+  setGroceryLists((prev) => prev.filter((list) => list.id !== listId));
+  setGroceries((prev) => prev.filter((item) => item.listId !== listId));
+};
+
+const addGroceryItem = async (item, listIdParam) => {
   if (!authUser?.id) {
     throw new Error('You must be logged in to add groceries.');
   }
 
-  const { data, error } = await supabase
-    .from('groceries')
-    .insert({
-      user_id: authUser.id,
-      name: item,
-      completed: false,
-    })
-    .select()
-    .single();
-
-  if (error) {
-    console.log('Error adding grocery item:', error);
-    throw error;
+  const name = String(item || '').trim();
+  if (!name) {
+    throw new Error('Item name is required.');
   }
 
+  const normalizedListId =
+    listIdParam && listIdParam !== GROCERY_DEFAULT_LIST_ID ? listIdParam : null;
+  const fallbackListId =
+    normalizedListId ||
+    groceryLists.find((list) => list.id !== GROCERY_DEFAULT_LIST_ID)?.id ||
+    null;
+
+  let insertPayload = {
+    user_id: authUser.id,
+    name,
+    completed: false,
+  };
+  if (fallbackListId) {
+    insertPayload.list_id = fallbackListId;
+  }
+
+  let result = await supabase
+    .from('groceries')
+    .insert(insertPayload)
+    .select('id, name, completed, created_at, list_id')
+    .single();
+
+  if (result.error && isMissingColumnError(result.error, 'list_id')) {
+    insertPayload = {
+      user_id: authUser.id,
+      name,
+      completed: false,
+    };
+    result = await supabase
+      .from('groceries')
+      .insert(insertPayload)
+      .select('id, name, completed, created_at')
+      .single();
+  }
+
+  if (result.error) {
+    console.log('Error adding grocery item:', result.error);
+    throw result.error;
+  }
+
+  const data = result.data;
   const newItem = {
     id: data.id,
     name: data.name,
     completed: data.completed,
     createdAt: data.created_at,
+    listId: data.list_id || fallbackListId || groceryLists[0]?.id || GROCERY_DEFAULT_LIST_ID,
   };
 
   setGroceries((prev) => [...prev, newItem]);
@@ -6470,10 +6668,12 @@ const deleteGroceryItem = async (itemId) => {
   setGroceries((prev) => prev.filter((g) => g.id !== itemId));
 };
 
-const clearCompletedGroceries = async () => {
+const clearCompletedGroceries = async (listId = null) => {
   if (!authUser?.id) return;
 
-  const completedIds = groceries.filter((g) => g.completed).map((g) => g.id);
+  const completedIds = groceries
+    .filter((g) => g.completed && (!listId || g.listId === listId))
+    .map((g) => g.id);
 
   if (completedIds.length > 0) {
     const { error } = await supabase
@@ -6487,7 +6687,9 @@ const clearCompletedGroceries = async () => {
     }
   }
 
-  setGroceries((prev) => prev.filter((g) => !g.completed));
+  setGroceries((prev) =>
+    prev.filter((g) => !g.completed || (listId && g.listId !== listId))
+  );
 };
 
 
@@ -7206,12 +7408,16 @@ const mapProfileRow = (row) => {
     let row = null;
     let lastError = null;
 
-    const { row: byIdRow, error: byIdError } = await fetchByColumn('id');
+    const [byIdResult, byUserIdResult] = await Promise.all([
+      fetchByColumn('id'),
+      fetchByColumn('user_id'),
+    ]);
+    const { row: byIdRow, error: byIdError } = byIdResult;
     if (byIdError && !isMissingColumnError(byIdError, 'id')) {
       lastError = byIdError;
     }
 
-    const { row: byUserIdRow, error: byUserIdError } = await fetchByColumn('user_id');
+    const { row: byUserIdRow, error: byUserIdError } = byUserIdResult;
     if (byUserIdError && !isMissingColumnError(byUserIdError, 'user_id')) {
       lastError = byUserIdError;
     }
@@ -7239,6 +7445,8 @@ const mapProfileRow = (row) => {
       setProfile(mapped);
       setHasOnboarded(!!row.has_onboarded);
       setProfileLoaded(true);
+      setCachedProfile(userId, mapped);
+      persistProfileLocally(userId, mapped, !!row.has_onboarded);
     }
 
     return row;
@@ -7374,6 +7582,8 @@ const mapProfileRow = (row) => {
     setProfile(mapped);
     setHasOnboarded(!!data.has_onboarded);
     setProfileLoaded(true);
+    setCachedProfile(userId, mapped);
+    persistProfileLocally(userId, mapped, !!data.has_onboarded);
     return data;
   };
 
@@ -7419,6 +7629,10 @@ const mapProfileRow = (row) => {
         : nextPreferredDailyCalorieGoal ?? merged.dailyCalorieGoal,
     };
     setProfile(newLocalProfile);
+    if (authUser?.id) {
+      setCachedProfile(authUser.id, newLocalProfile);
+      persistProfileLocally(authUser.id, newLocalProfile, hasOnboarded);
+    }
 
     const dailyGoalForProfile = hasExplicitDailyGoal
       ? nextPreferredDailyCalorieGoal
@@ -7567,7 +7781,8 @@ const mapProfileRow = (row) => {
 
   const setActiveUser = async (user) => {
     // `user` is a Supabase auth user object
-    setAuthUser(user);
+    const isSameUser = authUser?.id && user?.id && String(authUser.id) === String(user.id);
+    setProfileLoaded(false);
     dataLoadTimestampsRef.current = {};
     lastPresenceUpdateRef.current = 0;
 
@@ -7575,16 +7790,21 @@ const mapProfileRow = (row) => {
     await saveToStorage(STORAGE_KEYS.AUTH_USER, user);
 
     setProfile((prev) => ({
-      ...prev,
+      ...(isSameUser ? prev : defaultProfile),
       name:
         user.user_metadata?.full_name ||
         user.user_metadata?.name ||
         user.user_metadata?.username ||
         user.email ||
-        prev.name,
-      username: user.user_metadata?.username || prev.username,
-      email: user.email || prev.email,
+        (isSameUser ? prev.name : defaultProfile.name),
+      username:
+        user.user_metadata?.username ||
+        (isSameUser ? prev.username : defaultProfile.username),
+      email: user.email || (isSameUser ? prev.email : defaultProfile.email),
     }));
+
+    await hydrateCachedProfile(user.id);
+    setAuthUser(user);
   };
 
   const validatePasswordRequirements = (password) => {
@@ -8699,7 +8919,10 @@ const mapProfileRow = (row) => {
     deleteReminder,
 
     // Groceries
+    groceryLists,
     groceries,
+    addGroceryList,
+    deleteGroceryList,
     addGroceryItem,
     toggleGroceryItem,
     deleteGroceryItem,

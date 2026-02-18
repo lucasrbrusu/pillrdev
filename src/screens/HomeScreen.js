@@ -44,7 +44,6 @@ const HomeScreen = () => {
     habits,
     tasks,
     todayHealth,
-    chores,
     reminders,
     groceries,
     notes,
@@ -133,7 +132,7 @@ const HomeScreen = () => {
         text: themeColors.text,
         meta: isDark ? '#C7C9D9' : themeColors.textSecondary,
       },
-      chores: {
+      lists: {
         card: isDark ? '#111A14' : '#FFFFFF',
         border: isDark ? '#213528' : '#DFF4E7',
         iconBg: isDark ? '#1B2B21' : '#E3F7EA',
@@ -156,7 +155,6 @@ const HomeScreen = () => {
 
   const todayTasks = getTodayTasks();
   const recentHabits = habits.slice(-5).reverse();
-  const upcomingChores = chores.filter((c) => !c.completed).slice(0, 3);
   const getReminderDate = (reminder) => {
     if (!reminder?.date) return new Date(reminder?.createdAt || Date.now());
     const dateString = reminder.time
@@ -1285,13 +1283,13 @@ const HomeScreen = () => {
           )}
         </Card>
 
-        {/* Home & Chores */}
+        {/* Home & Lists */}
         <Card
           style={[
             styles.sectionCard,
             styles.lastCard,
             styles.sectionCardFlat,
-            { backgroundColor: sectionListTheme.chores.card, borderColor: sectionListTheme.chores.border },
+            { backgroundColor: sectionListTheme.lists.card, borderColor: sectionListTheme.lists.border },
           ]}
           onPress={() => navigation.navigate('Routine')}
         >
@@ -1300,43 +1298,41 @@ const HomeScreen = () => {
               <View
                 style={[
                   styles.sectionListIcon,
-                  { backgroundColor: sectionListTheme.chores.iconBg },
+                  { backgroundColor: sectionListTheme.lists.iconBg },
                 ]}
               >
-                <Ionicons name="checkmark" size={16} color={sectionListTheme.chores.iconColor} />
+                <Ionicons name="list" size={16} color={sectionListTheme.lists.iconColor} />
               </View>
-              <Text style={[styles.sectionListTitle, { color: sectionListTheme.chores.text }]}>
-                Home & Chores
+              <Text style={[styles.sectionListTitle, { color: sectionListTheme.lists.text }]}>
+                Home & Lists
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={sectionListTheme.chores.meta} />
+            <Ionicons name="chevron-forward" size={20} color={sectionListTheme.lists.meta} />
           </View>
-          {upcomingChores.length > 0 || groceryPreview.length > 0 ? (
+          {groceryPreview.length > 0 ? (
             <View>
-              {upcomingChores.map((chore) => (
-                <View key={chore.id} style={styles.choreItem}>
-                  <View style={[styles.choreBullet, { backgroundColor: sectionListTheme.chores.bulletBg }]}>
-                    <Ionicons name="checkmark" size={14} color={sectionListTheme.chores.bulletColor} />
+              {groceryPreview.map((item) => (
+                <View key={item.id} style={styles.choreItem}>
+                  <View style={[styles.choreBullet, { backgroundColor: sectionListTheme.lists.bulletBg }]}>
+                    <Ionicons name="ellipse" size={10} color={sectionListTheme.lists.bulletColor} />
                   </View>
-                  <Text style={[styles.choreText, { color: sectionListTheme.chores.text }]} numberOfLines={1}>
-                    {chore.title}
+                  <Text style={[styles.choreText, { color: sectionListTheme.lists.text }]} numberOfLines={1}>
+                    {item.name}
                   </Text>
                 </View>
               ))}
-              {groceryPreview.length > 0 && (
-                <View style={styles.groceryPreview}>
-                  <View style={[styles.choreBullet, { backgroundColor: sectionListTheme.chores.bulletBg }]}>
-                    <Ionicons name="cart" size={14} color={sectionListTheme.chores.bulletColor} />
-                  </View>
-                  <Text style={[styles.groceryText, { color: sectionListTheme.chores.meta }]}>
-                    {groceryPreview.length} item{groceryPreview.length !== 1 ? 's' : ''} on grocery list
-                  </Text>
+              <View style={styles.groceryPreview}>
+                <View style={[styles.choreBullet, { backgroundColor: sectionListTheme.lists.bulletBg }]}>
+                  <Ionicons name="list" size={14} color={sectionListTheme.lists.bulletColor} />
                 </View>
-              )}
+                <Text style={[styles.groceryText, { color: sectionListTheme.lists.meta }]}>
+                  {groceryPreview.length} open item{groceryPreview.length !== 1 ? 's' : ''} across lists
+                </Text>
+              </View>
             </View>
           ) : (
-            <Text style={[styles.emptyText, { color: sectionListTheme.chores.meta }]}>
-              No upcoming chores or grocery items
+            <Text style={[styles.emptyText, { color: sectionListTheme.lists.meta }]}>
+              No open list items
             </Text>
           )}
         </Card>

@@ -27,6 +27,7 @@ begin
   delete from public.chores where user_id = auth.uid();
   delete from public.reminders where user_id = auth.uid();
   delete from public.groceries where user_id = auth.uid();
+  delete from public.grocery_lists where user_id = auth.uid();
   delete from public.finance_transactions where user_id = auth.uid();
   delete from public.user_settings where user_id = auth.uid();
   delete from public.profiles where id = auth.uid();
