@@ -1548,6 +1548,21 @@ const mapExternalProfile = (row) => ({
     );
   };
 
+  const isMissingFunctionError = (error, functionName) => {
+    if (!error) return false;
+    const message = (error.message || '').toLowerCase();
+    const details = (error.details || '').toLowerCase();
+    const hint = (error.hint || '').toLowerCase();
+    const combined = `${message} ${details} ${hint}`;
+    const fn = (functionName || '').toLowerCase();
+    return (
+      error.code === '42883' ||
+      error.code === 'PGRST202' ||
+      (combined.includes('could not find the function') && (!fn || combined.includes(fn))) ||
+      (combined.includes('function') && combined.includes('does not exist') && (!fn || combined.includes(fn)))
+    );
+  };
+
   const fetchBlockedUsers = useCallback(
     async (userIdParam) => {
       const userId = userIdParam || authUser?.id;
@@ -1989,9 +2004,14 @@ const mapExternalProfile = (row) => ({
 
       const groupId = data.id;
 
-      await supabase
+      const { error: ownerMembershipError } = await supabase
         .from('group_members')
         .upsert({ group_id: groupId, user_id: authUser.id, role: 'owner' }, { onConflict: 'group_id,user_id' });
+
+      if (ownerMembershipError) {
+        console.log('Error adding owner to group_members:', ownerMembershipError);
+        throw new Error(ownerMembershipError.message || 'Unable to create the group membership.');
+      }
 
       if (inviteUserIds.length) {
         await supabase.from('group_invites').insert(
@@ -2067,12 +2087,17 @@ const mapExternalProfile = (row) => ({
       const respondedAt = new Date().toISOString();
 
       if (normalizedStatus === 'accepted') {
-        await supabase
+        const { error: memberUpsertError } = await supabase
           .from('group_members')
           .upsert(
             { group_id: invite.group_id, user_id: authUser.id, role: 'member' },
             { onConflict: 'group_id,user_id' }
           );
+
+        if (memberUpsertError) {
+          console.log('Error adding accepted invite user to group_members:', memberUpsertError);
+          throw new Error(memberUpsertError.message || 'Unable to join this group.');
+        }
       }
 
       const { error: updateError } = await supabase
@@ -2276,21 +2301,48 @@ const mapExternalProfile = (row) => ({
         throw new Error('You cannot remove the group admin.');
       }
 
-      const { error } = await supabase
-        .from('group_members')
-        .delete()
-        .eq('group_id', groupId)
-        .eq('user_id', memberId);
+      const { error: kickRpcError } = await supabase.rpc('kick_group_member', {
+        p_group_id: groupId,
+        p_member_id: memberId,
+      });
 
-      if (error) {
-        console.log('Error removing group member:', error);
-        throw new Error(error.message || 'Unable to remove member.');
+      if (kickRpcError && !isMissingFunctionError(kickRpcError, 'kick_group_member')) {
+        console.log('Error kicking group member via RPC:', kickRpcError);
+        throw new Error(kickRpcError.message || 'Unable to remove member.');
+      }
+
+      if (kickRpcError && isMissingFunctionError(kickRpcError, 'kick_group_member')) {
+        // Backward-compatible fallback until the SQL function is applied.
+        const { error } = await supabase
+          .from('group_members')
+          .delete()
+          .eq('group_id', groupId)
+          .eq('user_id', memberId);
+
+        if (error) {
+          console.log('Error removing group member (fallback):', error);
+          throw new Error(error.message || 'Unable to remove member.');
+        }
+
+        const { error: inviteCleanupError } = await supabase
+          .from('group_invites')
+          .delete()
+          .eq('group_id', groupId)
+          .or(`to_user_id.eq.${memberId},from_user_id.eq.${memberId}`);
+
+        if (
+          inviteCleanupError &&
+          !isMissingRelationError(inviteCleanupError, 'group_invites')
+        ) {
+          console.log('Error removing kicked member invites (fallback):', inviteCleanupError);
+          throw new Error(inviteCleanupError.message || 'Unable to fully remove member access.');
+        }
       }
 
       await refreshGroupData(authUser.id);
       return true;
     },
-    [authUser?.id, refreshGroupData]
+    [authUser?.id, refreshGroupData, isMissingRelationError, isMissingFunctionError]
   );
 
   const leaveGroup = useCallback(
@@ -2324,10 +2376,23 @@ const mapExternalProfile = (row) => ({
         throw new Error(error.message || 'Unable to leave this group.');
       }
 
+      const { error: inviteCleanupError } = await supabase
+        .from('group_invites')
+        .delete()
+        .eq('group_id', groupId)
+        .or(`to_user_id.eq.${authUser.id},from_user_id.eq.${authUser.id}`);
+
+      if (
+        inviteCleanupError &&
+        !isMissingRelationError(inviteCleanupError, 'group_invites')
+      ) {
+        console.log('Error removing group invites on leave:', inviteCleanupError);
+      }
+
       await refreshGroupData(authUser.id);
       return true;
     },
-    [authUser?.id, refreshGroupData]
+    [authUser?.id, refreshGroupData, isMissingRelationError]
   );
 
   const fetchGroupHabits = useCallback(
@@ -7365,24 +7430,46 @@ const addRecurringPaymentToGroup = async (groupId, payment = {}) => {
 
 
 const fetchFinancesFromSupabase = async (userId) => {
-  const { data, error } = await supabase
-    .from('finance_transactions')
-    .select('id, type, amount, category, currency, date, note, created_at')
-    .eq('user_id', userId)
-    .order('date', { ascending: true });
+  const fetchAttempts = [
+    {
+      select: 'id, type, amount, category, currency, date, reference, note, created_at',
+      hasReference: true,
+    },
+    {
+      select: 'id, type, amount, category, currency, date, note, created_at',
+      hasReference: false,
+    },
+  ];
 
-  if (error) {
-    console.log('Error fetching finances:', error);
-    return;
+  let rows = [];
+  for (const attempt of fetchAttempts) {
+    const { data, error } = await supabase
+      .from('finance_transactions')
+      .select(attempt.select)
+      .eq('user_id', userId)
+      .order('date', { ascending: true });
+
+    if (error && attempt.hasReference && isMissingColumnError(error, 'reference')) {
+      continue;
+    }
+
+    if (error) {
+      console.log('Error fetching finances:', error);
+      return;
+    }
+
+    rows = data || [];
+    break;
   }
 
-  const mapped = (data || []).map((t) => ({
+  const mapped = rows.map((t) => ({
     id: t.id,
     type: t.type,
     amount: Number(t.amount),
     category: t.category,
     currency: t.currency,
     date: t.date,
+    reference: t.reference || t.note || null,
     note: t.note,
     createdAt: t.created_at,
   }));
@@ -7398,23 +7485,54 @@ const addTransaction = async (transaction) => {
     throw new Error('You must be logged in to add a transaction.');
   }
 
-  const { data, error } = await supabase
-    .from('finance_transactions')
-    .insert({
-      user_id: authUser.id,
-      type: transaction.type, // 'income' or 'expense'
-      amount: transaction.amount,
-      category: transaction.category || null,
-      currency: transaction.currency || 'GBP',
-      date: transaction.date,
-      note: transaction.note || null,
-    })
-    .select()
-    .single();
+  const basePayload = {
+    user_id: authUser.id,
+    type: transaction.type, // 'income' or 'expense'
+    amount: transaction.amount,
+    category: transaction.category || null,
+    currency: transaction.currency || 'GBP',
+    date: transaction.date,
+    reference: transaction.reference || null,
+    note: transaction.note || null,
+  };
 
-  if (error) {
-    console.log('Error adding transaction:', error);
-    throw error;
+  const insertAttempts = [
+    { payload: basePayload, hasReference: true },
+    {
+      payload: {
+        user_id: authUser.id,
+        type: transaction.type,
+        amount: transaction.amount,
+        category: transaction.category || null,
+        currency: transaction.currency || 'GBP',
+        date: transaction.date,
+        note: transaction.note || null,
+      },
+      hasReference: false,
+    },
+  ];
+
+  let data = null;
+  let finalError = null;
+  for (const attempt of insertAttempts) {
+    const result = await supabase
+      .from('finance_transactions')
+      .insert(attempt.payload)
+      .select()
+      .single();
+
+    if (result.error && attempt.hasReference && isMissingColumnError(result.error, 'reference')) {
+      continue;
+    }
+
+    data = result.data;
+    finalError = result.error;
+    break;
+  }
+
+  if (finalError) {
+    console.log('Error adding transaction:', finalError);
+    throw finalError;
   }
 
   const newTransaction = {
@@ -7424,6 +7542,7 @@ const addTransaction = async (transaction) => {
     category: data.category,
     currency: data.currency,
     date: data.date,
+    reference: data.reference || transaction.reference || data.note || null,
     note: data.note,
     createdAt: data.created_at,
   };

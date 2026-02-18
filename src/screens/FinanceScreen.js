@@ -193,7 +193,7 @@ const FinanceScreen = () => {
   const [transactionDate, setTransactionDate] = useState(
     new Date().toISOString().split('T')[0]
   );
-  const [note, setNote] = useState('');
+  const [reference, setReference] = useState('');
 
   // Budget form state
   const [budgetName, setBudgetName] = useState('');
@@ -311,7 +311,7 @@ const FinanceScreen = () => {
     setAmount('');
     setCategory('');
     setCustomCategory('');
-    setNote('');
+    setReference('');
     setTransactionDate(formatDateForInput(selectedDate));
     setAssignToBudget(false);
     setSelectedBudgetGroupId(null);
@@ -342,7 +342,7 @@ const FinanceScreen = () => {
       category: category === 'custom' ? customCategory : category,
       currency: selectedCurrency.code,
       date: transactionDate,
-      note,
+      reference: reference.trim() || null,
     });
 
     resetForm();
@@ -358,7 +358,7 @@ const FinanceScreen = () => {
       category: category === 'custom' ? customCategory : category,
       currency: selectedCurrency.code,
       date: transactionDate,
-      note,
+      reference: reference.trim() || null,
       budgetGroupIds:
         assignToBudget && selectedBudgetGroupId
           ? [selectedBudgetGroupId]
@@ -930,55 +930,66 @@ const FinanceScreen = () => {
           ) : (
             dayTransactions
               .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-              .map((transaction) => (
-                <TouchableOpacity
-                  key={transaction.id}
-                  style={styles.transactionItem}
-                  onPress={() => deleteTransaction(transaction.id)}
-                >
-                  <View
-                    style={[
-                      styles.transactionIcon,
-                      {
-                        backgroundColor:
+              .map((transaction) => {
+                const referenceLabel = String(transaction.reference || '').trim();
+                const transactionTitle = referenceLabel || transaction.category || 'Transaction';
+                const transactionSubtitle = [
+                  referenceLabel ? transaction.category : null,
+                  formatDate(transaction.date),
+                ]
+                  .filter(Boolean)
+                  .join(' • ');
+
+                return (
+                  <TouchableOpacity
+                    key={transaction.id}
+                    style={styles.transactionItem}
+                    onPress={() => deleteTransaction(transaction.id)}
+                  >
+                    <View
+                      style={[
+                        styles.transactionIcon,
+                        {
+                          backgroundColor:
+                            transaction.type === 'income'
+                              ? `${palette.income}15`
+                              : `${palette.expense}15`,
+                        },
+                      ]}
+                    >
+                      <Feather
+                        name={getCategoryIcon(transaction.category, transaction.type)}
+                        size={18}
+                        color={
                           transaction.type === 'income'
-                            ? `${palette.income}15`
-                            : `${palette.expense}15`,
-                      },
-                    ]}
-                  >
-                    <Feather
-                      name={getCategoryIcon(transaction.category, transaction.type)}
-                      size={18}
-                      color={
+                            ? palette.income
+                            : palette.expense
+                        }
+                      />
+                    </View>
+                    <View style={styles.transactionContent}>
+                      <Text style={styles.transactionCategory}>
+                        {transactionTitle}
+                      </Text>
+                      <Text style={styles.transactionDate}>
+                        {transactionSubtitle}
+                      </Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.transactionAmount,
                         transaction.type === 'income'
-                          ? palette.income
-                          : palette.expense
-                      }
-                    />
-                  </View>
-                  <View style={styles.transactionContent}>
-                    <Text style={styles.transactionCategory}>
-                      {transaction.category}
+                          ? styles.incomeAmount
+                          : styles.expenseAmount,
+                      ]}
+                    >
+                      {transaction.type === 'income' ? '+' : '-'}
+                      {currencyForCode(transaction.currency).symbol}
+                      {transaction.amount.toLocaleString()}
                     </Text>
-                    <Text style={styles.transactionDate}>
-                      {formatDate(transaction.date)}
-                    </Text>
-                  </View>
-                  <Text
-                    style={[
-                      styles.transactionAmount,
-                      transaction.type === 'income'
-                        ? styles.incomeAmount
-                        : styles.expenseAmount,
-                    ]}
-                  >
-                    {transaction.type === 'income' ? '+' : '-'}
-                    {currencyForCode(transaction.currency).symbol}
-                    {transaction.amount.toLocaleString()}
-                  </Text>
-                </TouchableOpacity>
-              ))
+                  </TouchableOpacity>
+                );
+              })
           )}
         </Card>
       </PlatformScrollView>
@@ -1032,6 +1043,13 @@ const FinanceScreen = () => {
             </TouchableOpacity>
           ))}
         </View>
+
+        <Input
+          label="Reference (optional)"
+          value={reference}
+          onChangeText={setReference}
+          placeholder="e.g. Salary bonus, Freelance invoice"
+        />
 
         <View style={styles.modalButtons}>
           <Button
@@ -1112,6 +1130,13 @@ const FinanceScreen = () => {
             ))}
           </View>
         )}
+
+        <Input
+          label="Reference (optional)"
+          value={reference}
+          onChangeText={setReference}
+          placeholder="e.g. Costco run, Uber to airport"
+        />
 
         <TouchableOpacity
           style={styles.budgetToggle}

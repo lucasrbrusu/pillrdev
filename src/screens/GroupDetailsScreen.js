@@ -114,15 +114,15 @@ const GroupDetailsScreen = () => {
     ]);
   };
 
-  const handleRemoveMember = (member) => {
+  const handleKickMember = (member) => {
     if (!groupId || !member?.id) return;
     Alert.alert(
-      'Remove member?',
-      `Remove ${member.name || member.username || 'this member'} from the group?`,
+      'Kick member?',
+      `Kick ${member.name || member.username || 'this member'} out of this group?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Remove',
+          text: 'Kick',
           style: 'destructive',
           onPress: async () => {
             setRemovingMemberId(member.id);
@@ -131,7 +131,7 @@ const GroupDetailsScreen = () => {
               const refreshed = await fetchGroupMembers(groupId);
               setMembers(refreshed || []);
             } catch (err) {
-              Alert.alert('Unable to remove member', err?.message || 'Please try again.');
+              Alert.alert('Unable to kick member', err?.message || 'Please try again.');
             } finally {
               setRemovingMemberId(null);
             }
@@ -264,7 +264,7 @@ const GroupDetailsScreen = () => {
           ) : (
             memberList.map((member) => {
               const isOwner = member.id === group?.ownerId;
-              const canRemove = isAdmin && isEditing && !isOwner;
+              const canKick = isAdmin && !isOwner;
               return (
                 <View key={member.id} style={themedStyles.memberRow}>
                   <View style={themedStyles.memberInfo}>
@@ -280,16 +280,16 @@ const GroupDetailsScreen = () => {
                       {member.username ? `@${member.username}` : 'No username'}
                     </Text>
                   </View>
-                  {canRemove ? (
+                  {canKick ? (
                     <TouchableOpacity
                       style={themedStyles.removeButton}
-                      onPress={() => handleRemoveMember(member)}
+                      onPress={() => handleKickMember(member)}
                       disabled={removingMemberId === member.id}
                     >
                       {removingMemberId === member.id ? (
                         <ActivityIndicator size="small" color={colors.danger || '#d9534f'} />
                       ) : (
-                        <Text style={themedStyles.removeButtonText}>Remove</Text>
+                        <Text style={themedStyles.removeButtonText}>Kick</Text>
                       )}
                     </TouchableOpacity>
                   ) : null}
