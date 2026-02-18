@@ -8,6 +8,7 @@ import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 
 import { colors, shadows, borderRadius } from '../utils/theme';
 import { useApp } from '../context/AppContext';
+import AppTutorialOverlay from '../components/AppTutorialOverlay';
 
 // Screens
 import HomeScreen from '../screens/HomeScreen';
@@ -57,6 +58,9 @@ const CHAT_BUTTON_LIFT = 14;
 const CHAT_BUTTON_SPACER = CHAT_BUTTON_SIZE;
 const TAB_FADE_DURATION_MS = 90;
 const TAB_FADE_START_OPACITY = 0.96;
+const TAB_BAR_CONTAINER_PADDING_HORIZONTAL = 20;
+const TAB_BAR_PADDING_HORIZONTAL = 16;
+const TAB_ICON_CENTER_OFFSET_FROM_BOTTOM = 34;
 
 const QuickTabFade = ({ children }) => {
   const isFocused = useIsFocused();
@@ -107,7 +111,7 @@ const TabBarIcon = ({ name, type, focused, color, size }) => {
   return <Ionicons name={name} size={size} color={color} />;
 };
 
-const CustomTabBar = ({ state, descriptors, navigation, styles }) => {
+const CustomTabBar = ({ state, descriptors, navigation, styles, onTabBarLayout }) => {
   const insets = useSafeAreaInsets();
   const gapIndex = Math.floor((state.routes.length - 1) / 2);
 
@@ -118,7 +122,7 @@ const CustomTabBar = ({ state, descriptors, navigation, styles }) => {
         { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 },
       ]}
     >
-      <View style={styles.tabBar}>
+      <View style={styles.tabBar} onLayout={onTabBarLayout}>
         {state.routes.map((route, index) => {
           const { options } = descriptors[route.key];
           const isFocused = state.index === index;
@@ -207,10 +211,12 @@ const CustomTabBar = ({ state, descriptors, navigation, styles }) => {
   );
 };
 
-const TabNavigator = ({ styles }) => {
+const TabNavigator = ({ styles, onTabBarLayout }) => {
   return (
     <Tab.Navigator
-      tabBar={(props) => <CustomTabBar {...props} styles={styles} />}
+      tabBar={(props) => (
+        <CustomTabBar {...props} styles={styles} onTabBarLayout={onTabBarLayout} />
+      )}
       screenOptions={{
         headerShown: false,
       }}
@@ -225,9 +231,18 @@ const TabNavigator = ({ styles }) => {
   );
 };
 
-const MainWithChatButton = ({ styles, isPremium }) => {
+const MainWithChatButton = ({
+  styles,
+  isPremium,
+  showTutorial,
+  onDismissTutorial,
+  tabBarLayout,
+  onTabBarLayout,
+  themeColors,
+}) => {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const tabBottomPadding = (insets.bottom || 0) + 12;
 
   const handleChatPress = () => {
     if (isPremium) {
@@ -239,20 +254,50 @@ const MainWithChatButton = ({ styles, isPremium }) => {
 
   return (
     <View style={{ flex: 1 }}>
-      <TabNavigator styles={styles} />
+      <TabNavigator styles={styles} onTabBarLayout={onTabBarLayout} />
       <TouchableOpacity
         activeOpacity={0.9}
         onPress={handleChatPress}
-        style={[styles.chatButton, { bottom: (insets.bottom || 0) + 12 }]}
+        style={[styles.chatButton, { bottom: tabBottomPadding }]}
       >
         <Ionicons name="sparkles" size={24} color="#FFFFFF" />
       </TouchableOpacity>
+      <AppTutorialOverlay
+        visible={showTutorial}
+        onDismiss={onDismissTutorial}
+        bottomPadding={tabBottomPadding}
+        chatButtonBottom={tabBottomPadding}
+        chatButtonSize={CHAT_BUTTON_SIZE}
+        chatButtonLift={CHAT_BUTTON_LIFT}
+        layoutConfig={{
+          containerPaddingHorizontal: TAB_BAR_CONTAINER_PADDING_HORIZONTAL,
+          tabBarPaddingHorizontal: TAB_BAR_PADDING_HORIZONTAL,
+          chatSpacerWidth: CHAT_BUTTON_SPACER,
+          tabCount: 6,
+          chatGapAfterIndex: 2,
+          tabBarLayout,
+          iconCenterOffsetFromBottom: TAB_ICON_CENTER_OFFSET_FROM_BOTTOM,
+        }}
+        themeColors={themeColors}
+      />
     </View>
   );
 };
 
 const Navigation = () => {
-  const { isLoading, authUser, hasOnboarded, themeColors, profile, isPremiumUser, isPremium } = useApp();
+  const {
+    isLoading,
+    authUser,
+    hasOnboarded,
+    themeColors,
+    profile,
+    profileLoaded,
+    isPremiumUser,
+    isPremium,
+    completeAppTutorial,
+  } = useApp();
+  const [showAppTutorial, setShowAppTutorial] = React.useState(false);
+  const [tabBarLayout, setTabBarLayout] = React.useState(null);
   const styles = React.useMemo(() => createStyles(), [themeColors]);
   const isPremiumActive = Boolean(
     isPremiumUser ||
@@ -262,6 +307,20 @@ const Navigation = () => {
       profile?.plan === 'pro' ||
       profile?.plan === 'paid'
   );
+  const hasCompletedAppTutorial = !!profile?.hasCompletedAppTutorial;
+
+  React.useEffect(() => {
+    if (!authUser?.id || !profileLoaded) {
+      setShowAppTutorial(false);
+      return;
+    }
+    setShowAppTutorial(!hasCompletedAppTutorial);
+  }, [authUser?.id, profileLoaded, hasCompletedAppTutorial]);
+
+  const handleDismissTutorial = React.useCallback(() => {
+    setShowAppTutorial(false);
+    completeAppTutorial();
+  }, [completeAppTutorial]);
 
   const navTheme = React.useMemo(
     () => ({
@@ -294,7 +353,17 @@ const Navigation = () => {
           }}
         >
           <Stack.Screen name="Main">
-            {() => <MainWithChatButton styles={styles} isPremium={isPremiumActive} />}
+            {() => (
+              <MainWithChatButton
+                styles={styles}
+                isPremium={isPremiumActive}
+                showTutorial={showAppTutorial}
+                onDismissTutorial={handleDismissTutorial}
+                tabBarLayout={tabBarLayout}
+                onTabBarLayout={(event) => setTabBarLayout(event?.nativeEvent?.layout || null)}
+                themeColors={themeColors}
+              />
+            )}
           </Stack.Screen>
           <Stack.Screen name="Profile" component={ProfileScreen} />
           <Stack.Screen name="Paywall" component={PaywallScreen} />
@@ -371,7 +440,7 @@ const createStyles = () =>
       left: 0,
       right: 0,
       alignItems: 'center',
-      paddingHorizontal: 20,
+      paddingHorizontal: TAB_BAR_CONTAINER_PADDING_HORIZONTAL,
       paddingTop: 12,
       backgroundColor: 'transparent',
     },
@@ -380,7 +449,7 @@ const createStyles = () =>
       backgroundColor: colors.navBackground,
       borderRadius: borderRadius.xxl,
       paddingVertical: 10,
-      paddingHorizontal: 16,
+      paddingHorizontal: TAB_BAR_PADDING_HORIZONTAL,
       ...shadows.medium,
       borderWidth: 1,
       borderColor: 'rgba(0,0,0,0.04)',

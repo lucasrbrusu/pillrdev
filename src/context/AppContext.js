@@ -86,6 +86,8 @@ const defaultProfile = {
   plan: 'free',
   premiumExpiresAt: null,
   isPremium: false,
+  hasCompletedAppTutorial: false,
+  appTutorialCompletedAt: null,
 };
 
 const defaultHealthDay = () => ({
@@ -3990,7 +3992,7 @@ const mapExternalProfile = (row) => ({
       const { data, error } = await supabase
         .from('profiles')
         .select(
-          'id, user_id, username, full_name, email, avatar_url, photo, daily_calorie_goal, daily_water_goal, daily_sleep_goal, weight_manager_unit, weight_manager_current_weight, weight_manager_target_weight, weight_manager_current_body_type, weight_manager_target_body_type, weight_manager_target_calories, weight_manager_protein_grams, weight_manager_carbs_grams, weight_manager_fat_grams, plan, premium_expires_at, is_premium, has_onboarded, created_at, updated_at'
+          'id, user_id, username, full_name, email, avatar_url, photo, daily_calorie_goal, daily_water_goal, daily_sleep_goal, weight_manager_unit, weight_manager_current_weight, weight_manager_target_weight, weight_manager_current_body_type, weight_manager_target_body_type, weight_manager_target_calories, weight_manager_protein_grams, weight_manager_carbs_grams, weight_manager_fat_grams, plan, premium_expires_at, is_premium, has_onboarded, has_completed_app_tutorial, app_tutorial_completed_at, created_at, updated_at'
         )
         .or(`id.eq.${userId},user_id.eq.${userId}`)
         .limit(1);
@@ -7546,6 +7548,19 @@ const mapProfileRow = (row) => {
   const dailyCalorieGoal = hasWeightManagerGoal
     ? weightManagerTargetCalories
     : preferredDailyCalorieGoal;
+  const hasCompletedFromTimestamp =
+    row?.app_tutorial_completed_at || row?.appTutorialCompletedAt ? true : undefined;
+  const hasCompletedAppTutorial =
+    row?.has_completed_app_tutorial ??
+    row?.hasCompletedAppTutorial ??
+    hasCompletedFromTimestamp ??
+    profile.hasCompletedAppTutorial ??
+    defaultProfile.hasCompletedAppTutorial;
+  const appTutorialCompletedAt =
+    row?.app_tutorial_completed_at ??
+    row?.appTutorialCompletedAt ??
+    profile.appTutorialCompletedAt ??
+    defaultProfile.appTutorialCompletedAt;
 
   return {
     profileId: row?.id || null,
@@ -7596,6 +7611,9 @@ const mapProfileRow = (row) => {
       row?.premium_expires_at || row?.premiumExpiresAt,
       row?.is_premium ?? row?.isPremium
     ),
+    hasCompletedAppTutorial: !!hasCompletedAppTutorial,
+    appTutorialCompletedAt,
+    app_tutorial_completed_at: appTutorialCompletedAt,
   };
 };
 
@@ -7820,6 +7838,34 @@ const mapProfileRow = (row) => {
         : fields.premiumExpiresAt;
       if (nextPremiumExpiresAt !== undefined) {
         basePayload.premium_expires_at = nextPremiumExpiresAt;
+      }
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(fields, 'has_completed_app_tutorial') ||
+      Object.prototype.hasOwnProperty.call(fields, 'hasCompletedAppTutorial')
+    ) {
+      const hasCompletedAppTutorial = Object.prototype.hasOwnProperty.call(
+        fields,
+        'has_completed_app_tutorial'
+      )
+        ? fields.has_completed_app_tutorial
+        : fields.hasCompletedAppTutorial;
+      if (hasCompletedAppTutorial !== undefined) {
+        basePayload.has_completed_app_tutorial = !!hasCompletedAppTutorial;
+      }
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(fields, 'app_tutorial_completed_at') ||
+      Object.prototype.hasOwnProperty.call(fields, 'appTutorialCompletedAt')
+    ) {
+      const appTutorialCompletedAt = Object.prototype.hasOwnProperty.call(
+        fields,
+        'app_tutorial_completed_at'
+      )
+        ? fields.app_tutorial_completed_at
+        : fields.appTutorialCompletedAt;
+      if (appTutorialCompletedAt !== undefined) {
+        basePayload.app_tutorial_completed_at = appTutorialCompletedAt;
       }
     }
 
@@ -8049,6 +8095,33 @@ const mapProfileRow = (row) => {
     await upsertProfileRow({ has_onboarded: value });
   };
 
+  const completeAppTutorial = useCallback(async () => {
+    if (!authUser?.id) return;
+    const completedAt = new Date().toISOString();
+    const nextProfile = {
+      ...profile,
+      hasCompletedAppTutorial: true,
+      appTutorialCompletedAt: completedAt,
+      app_tutorial_completed_at: completedAt,
+    };
+
+    setProfile(nextProfile);
+    setCachedProfile(authUser.id, nextProfile);
+    persistProfileLocally(authUser.id, nextProfile, hasOnboarded);
+
+    await upsertProfileRow({
+      has_completed_app_tutorial: true,
+      app_tutorial_completed_at: completedAt,
+    });
+  }, [
+    authUser?.id,
+    hasOnboarded,
+    profile,
+    setCachedProfile,
+    upsertProfileRow,
+    persistProfileLocally,
+  ]);
+
   const setActiveUser = async (user) => {
     // `user` is a Supabase auth user object
     const isSameUser = authUser?.id && user?.id && String(authUser.id) === String(user.id);
@@ -8149,8 +8222,9 @@ const mapProfileRow = (row) => {
       activeSession = sessionData?.session || activeSession;
     }
 
-    // Depending on email confirmation settings, user may be null until they confirm
-    if (user) {
+    // If email confirmation is required, user can exist while session is still null.
+    // Only activate app-side user state once we have an authenticated session.
+    if (user && activeSession?.access_token && activeSession?.refresh_token) {
       await setActiveUser(user);
     }
 
@@ -9107,6 +9181,7 @@ const mapProfileRow = (row) => {
     isLoading,
     themeReady,
     hasNotificationPermission,
+    profileLoaded,
 
     // Data loaders
     ensureHomeDataLoaded,
@@ -9275,6 +9350,7 @@ const mapProfileRow = (row) => {
     revenueCatPremium,
     refreshRevenueCatPremium,
     updateProfile,
+    completeAppTutorial,
     userSettings,
     updateUserSettings,
     t,
