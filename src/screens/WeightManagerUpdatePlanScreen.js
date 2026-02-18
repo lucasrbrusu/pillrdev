@@ -295,6 +295,7 @@ const WeightManagerUpdatePlanScreen = () => {
 
     try {
       const updatedProfile = await updateProfile({
+        dailyCalorieGoal: calorieGoal,
         weightManagerUnit: weightUnit,
         weightManagerCurrentWeight: Number.isFinite(currentWeightValue) ? currentWeightValue : null,
         weightManagerTargetWeight: Number.isFinite(targetWeightValue) ? targetWeightValue : null,

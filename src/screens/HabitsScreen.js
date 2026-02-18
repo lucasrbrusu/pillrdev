@@ -76,6 +76,7 @@ const HABIT_EMOJI_OPTIONS = [
   '\u2705',
   '\u{1F4C8}',
 ];
+const DAY_INDEX_TO_LABEL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 const toISODate = (date) => (date instanceof Date ? date : new Date(date || Date.now())).toISOString().slice(0, 10);
@@ -89,6 +90,103 @@ const isSameDay = (a, b) => toDateKey(a) === toDateKey(b);
 const parseNumber = (value, fallback = 0) => {
   const next = Number(value);
   return Number.isFinite(next) ? next : fallback;
+};
+const toStartOfDay = (value) => {
+  const date = value instanceof Date ? value : new Date(value || Date.now());
+  if (Number.isNaN(date.getTime())) return new Date(new Date().toDateString());
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+};
+const toUtcDayNumber = (value) => {
+  const date = toStartOfDay(value);
+  return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
+};
+const parseDateOnly = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      const year = Number(isoMatch[1]);
+      const month = Number(isoMatch[2]) - 1;
+      const day = Number(isoMatch[3]);
+      const parsed = new Date(year, month, day);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return toStartOfDay(parsed);
+};
+const normalizeWeekdayToken = (value) => {
+  const token = String(value || '').trim().slice(0, 3).toLowerCase();
+  const map = {
+    sun: 'Sun',
+    mon: 'Mon',
+    tue: 'Tue',
+    wed: 'Wed',
+    thu: 'Thu',
+    fri: 'Fri',
+    sat: 'Sat',
+  };
+  return map[token] || null;
+};
+const extractWeekdaySet = (values = []) => {
+  const set = new Set();
+  (values || []).forEach((value) => {
+    const token = normalizeWeekdayToken(value);
+    if (token) set.add(token);
+  });
+  return set;
+};
+const extractMonthDaySet = (habit = {}) => {
+  const values = [
+    ...(Array.isArray(habit?.monthDays) ? habit.monthDays : []),
+    ...(Array.isArray(habit?.days) ? habit.days : []),
+  ];
+  const set = new Set();
+  values.forEach((value) => {
+    const next = Number(value);
+    const day = Math.trunc(next);
+    if (Number.isFinite(day) && day >= 1 && day <= 31) set.add(day);
+  });
+  return set;
+};
+const isHabitScheduledForDate = (habit, dateValue) => {
+  if (!habit) return false;
+  const targetDate = toStartOfDay(dateValue);
+  const targetDayNumber = toUtcDayNumber(targetDate);
+  const startDate = parseDateOnly(habit.startDate) || parseDateOnly(habit.createdAt);
+  const endDate = parseDateOnly(habit.endDate);
+
+  if (startDate && targetDayNumber < toUtcDayNumber(startDate)) return false;
+  if (endDate && targetDayNumber > toUtcDayNumber(endDate)) return false;
+
+  const taskDaysMode = habit.taskDaysMode || 'every_day';
+  if (taskDaysMode === 'specific_weekdays') {
+    const weekdaySet = extractWeekdaySet(habit.days || []);
+    if (!weekdaySet.size) return true;
+    return weekdaySet.has(DAY_INDEX_TO_LABEL[targetDate.getDay()]);
+  }
+
+  if (taskDaysMode === 'specific_month_days') {
+    const monthDaySet = extractMonthDaySet(habit);
+    if (!monthDaySet.size) return true;
+    return monthDaySet.has(targetDate.getDate());
+  }
+
+  const repeat = String(habit.repeat || '').toLowerCase();
+  if (repeat === 'weekly') {
+    const weekdaySet = extractWeekdaySet(habit.days || []);
+    if (weekdaySet.size) return weekdaySet.has(DAY_INDEX_TO_LABEL[targetDate.getDay()]);
+    if (startDate) return startDate.getDay() === targetDate.getDay();
+  }
+  if (repeat === 'monthly') {
+    const monthDaySet = extractMonthDaySet(habit);
+    if (monthDaySet.size) return monthDaySet.has(targetDate.getDate());
+    if (startDate) return startDate.getDate() === targetDate.getDate();
+  }
+
+  return true;
 };
 const parseTimeStringToDate = (value) => {
   const result = new Date();
@@ -622,7 +720,6 @@ const SwipeHabitCard = ({
               {
                 borderColor: habitColor,
                 backgroundColor: tintedSurfaceColor,
-                opacity: isInteractive ? 1 : 0.78,
               },
             ]}
             onPress={() => {
@@ -753,12 +850,12 @@ const HabitsScreen = () => {
     ensureHabitsLoaded();
   }, [ensureHabitsLoaded]);
 
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(() => toStartOfDay(new Date()));
+  const [showSelectedDatePicker, setShowSelectedDatePicker] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedTimeRange, setSelectedTimeRange] = useState('all_day');
   const [localProgressMap, setLocalProgressMap] = useState({});
   const [isHabitSwipeActive, setIsHabitSwipeActive] = useState(false);
-  const [isDateStripInteracting, setIsDateStripInteracting] = useState(false);
 
   const [activeHabitId, setActiveHabitId] = useState(null);
   const [activeGroupHabitId, setActiveGroupHabitId] = useState(null);
@@ -820,7 +917,6 @@ const HabitsScreen = () => {
   const selectedDateKey = toDateKey(selectedDate);
   const selectedDateISO = toISODate(selectedDate);
   const isSelectedDateToday = isSameDay(selectedDate, new Date());
-  const dateStrip = useMemo(() => Array.from({ length: 14 }, (_, index) => addDays(new Date(), index - 6)), []);
 
   const habitsWithDefaults = useMemo(() => (habits || []).map(withDefaults), [habits]);
   const sourceHabitsById = useMemo(
@@ -1008,7 +1104,7 @@ const HabitsScreen = () => {
     return ['All', ...Array.from(values)];
   }, [visibleHabits]);
 
-  const filteredHabits = useMemo(
+  const baseFilteredHabits = useMemo(
     () =>
       visibleHabits
         .filter((habit) => (selectedCategory === 'All' ? true : (habit.category || 'Personal') === selectedCategory))
@@ -1016,15 +1112,41 @@ const HabitsScreen = () => {
         .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)),
     [visibleHabits, selectedCategory, selectedTimeRange]
   );
+  const dueHabits = useMemo(
+    () => baseFilteredHabits.filter((habit) => isHabitScheduledForDate(habit, selectedDate)),
+    [baseFilteredHabits, selectedDate]
+  );
+  const filteredHabits = useMemo(
+    () =>
+      baseFilteredHabits.filter((habit) => {
+        if (isHabitScheduledForDate(habit, selectedDate)) return true;
+        const amount = getDateProgressAmount(habit, selectedDateKey, localProgressMap);
+        if (amount > 0) return true;
+        return (habit.completedDates || []).includes(selectedDateKey);
+      }),
+    [baseFilteredHabits, localProgressMap, selectedDate, selectedDateKey]
+  );
 
   const completedCount = useMemo(
     () =>
-      filteredHabits.filter((habit) => {
+      dueHabits.filter((habit) => {
         const amount = getDateProgressAmount(habit, selectedDateKey, localProgressMap);
         return isCompletedForDate(habit, selectedDateKey, amount);
       }).length,
-    [filteredHabits, selectedDateKey, localProgressMap]
+    [dueHabits, selectedDateKey, localProgressMap]
   );
+  const selectedDateLabel = useMemo(() => {
+    const date = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+    });
+  }, [selectedDate]);
+  const shiftSelectedDate = useCallback((days) => {
+    setSelectedDate((prev) => toStartOfDay(addDays(prev, days)));
+  }, []);
+
   const statIconColors = useMemo(
     () => ({
       streak: palette.isDark ? '#FDBA74' : '#F97316',
@@ -1292,7 +1414,7 @@ const HabitsScreen = () => {
     setActiveHabitId(null);
     setShowAddTypePicker(false);
     setShowFormModal(false);
-    setSelectedDate(new Date());
+    setSelectedDate(toStartOfDay(new Date()));
     setShowDetailModal(true);
   }, [
     pendingGroupHabitDetailKey,
@@ -1585,7 +1707,7 @@ const HabitsScreen = () => {
         style={styles.scrollView}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 120 }]}
         showsVerticalScrollIndicator={false}
-        scrollEnabled={!isHabitSwipeActive && !isDateStripInteracting}
+        scrollEnabled={!isHabitSwipeActive}
       >
         <View style={styles.headerRow}>
           <View>
@@ -1604,43 +1726,31 @@ const HabitsScreen = () => {
           </View>
         </View>
 
-        <PlatformScrollView
-          horizontal
-          style={styles.dateStrip}
-          showsHorizontalScrollIndicator={false}
-          showsVerticalScrollIndicator={false}
-          directionalLockEnabled
-          alwaysBounceVertical={false}
-          bounces={false}
-          onTouchStart={() => setIsDateStripInteracting(true)}
-          onTouchEnd={() => setIsDateStripInteracting(false)}
-          onTouchCancel={() => setIsDateStripInteracting(false)}
-          onScrollBeginDrag={() => setIsDateStripInteracting(true)}
-          onScrollEndDrag={() => setIsDateStripInteracting(false)}
-          onMomentumScrollEnd={() => setIsDateStripInteracting(false)}
-        >
-          {dateStrip.map((date) => {
-            const selected = isSameDay(date, selectedDate);
-            return (
-              <TouchableOpacity
-                key={toISODate(date)}
-                style={[
-                  styles.datePill,
-                  {
-                    backgroundColor: selected ? palette.habits : palette.card,
-                    borderColor: selected ? palette.habits : palette.cardBorder,
-                  },
-                ]}
-                onPress={() => setSelectedDate(date)}
-              >
-                <Text style={[styles.datePillDay, { color: selected ? '#FFFFFF' : palette.textMuted }]}>
-                  {date.toLocaleDateString(undefined, { weekday: 'short' })}
-                </Text>
-                <Text style={[styles.datePillNum, { color: selected ? '#FFFFFF' : palette.text }]}>{date.getDate()}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </PlatformScrollView>
+        <View style={styles.dateRow}>
+          <TouchableOpacity
+            style={[styles.dateArrow, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}
+            onPress={() => shiftSelectedDate(-1)}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="chevron-back" size={20} color={palette.text} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.datePicker, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}
+            activeOpacity={0.85}
+            onPress={() => setShowSelectedDatePicker(true)}
+          >
+            <Ionicons name="calendar-outline" size={18} color={palette.textMuted} />
+            <Text style={[styles.dateText, { color: palette.text }]}>{selectedDateLabel}</Text>
+            <Ionicons name="chevron-down" size={18} color={palette.textMuted} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.dateArrow, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}
+            onPress={() => shiftSelectedDate(1)}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="chevron-forward" size={20} color={palette.text} />
+          </TouchableOpacity>
+        </View>
 
         <View style={styles.statsRow}>
           <Card style={[styles.statCard, styles.statStreak]}>
@@ -1650,8 +1760,8 @@ const HabitsScreen = () => {
           </Card>
           <Card style={[styles.statCard, styles.statToday]}>
             <Feather name="target" size={16} color={statIconColors.today} />
-            <Text style={styles.statLabel}>Due today</Text>
-            <Text style={styles.statValue}>{completedCount}/{filteredHabits.length}</Text>
+            <Text style={styles.statLabel}>{isSelectedDateToday ? 'Due today' : 'Due this day'}</Text>
+            <Text style={styles.statValue}>{completedCount}/{dueHabits.length}</Text>
           </Card>
           <Card style={[styles.statCard, styles.statTotal]}>
             <Ionicons name="stats-chart" size={16} color={statIconColors.total} />
@@ -2378,7 +2488,7 @@ const HabitsScreen = () => {
                   <View style={styles.progressDateHeader}>
                     <TouchableOpacity
                       style={[styles.progressDateNav, { backgroundColor: palette.mutedSurface }]}
-                      onPress={() => setSelectedDate((prev) => addDays(prev, -1))}
+                      onPress={() => setSelectedDate((prev) => toStartOfDay(addDays(prev, -1)))}
                     >
                       <Ionicons name="chevron-back" size={17} color={palette.textMuted} />
                     </TouchableOpacity>
@@ -2388,7 +2498,7 @@ const HabitsScreen = () => {
                     </View>
                     <TouchableOpacity
                       style={[styles.progressDateNav, { backgroundColor: palette.mutedSurface }]}
-                      onPress={() => setSelectedDate((prev) => addDays(prev, 1))}
+                      onPress={() => setSelectedDate((prev) => toStartOfDay(addDays(prev, 1)))}
                     >
                       <Ionicons name="chevron-forward" size={17} color={palette.textMuted} />
                     </TouchableOpacity>
@@ -2524,6 +2634,13 @@ const HabitsScreen = () => {
         ) : null}
       </Modal>
 
+      <PlatformDatePicker
+        visible={showSelectedDatePicker}
+        value={selectedDate}
+        onClose={() => setShowSelectedDatePicker(false)}
+        onChange={(date) => setSelectedDate(toStartOfDay(date))}
+        accentColor={palette.habits}
+      />
       <PlatformDatePicker visible={showStartDatePicker} value={startDate} onClose={() => setShowStartDatePicker(false)} onChange={(date) => setStartDate(toISODate(date))} />
       <PlatformDatePicker visible={showEndDatePicker} value={endDate || new Date()} onClose={() => setShowEndDatePicker(false)} onChange={(date) => setEndDate(toISODate(date))} />
     </View>
@@ -2589,10 +2706,27 @@ const createStyles = (palette) =>
       top: 36,
     },
     addTypeInlinePillText: { ...typography.body, fontWeight: '700' },
-    dateStrip: { marginBottom: spacing.md },
-    datePill: { width: 66, borderRadius: borderRadius.lg, paddingVertical: spacing.sm, borderWidth: 1, alignItems: 'center', marginRight: spacing.sm },
-    datePillDay: { ...typography.caption, textTransform: 'capitalize' },
-    datePillNum: { ...typography.h3, fontWeight: '700', marginTop: 2 },
+    dateRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
+    dateArrow: {
+      width: 42,
+      height: 42,
+      borderRadius: borderRadius.full,
+      borderWidth: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    datePicker: {
+      flex: 1,
+      marginHorizontal: spacing.sm,
+      borderRadius: borderRadius.full,
+      borderWidth: 1,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    dateText: { ...typography.bodySmall, fontWeight: '700' },
     statsRow: { flexDirection: 'row', marginBottom: spacing.md },
     statCard: { flex: 1, marginHorizontal: 4, borderRadius: borderRadius.lg, borderWidth: 1, padding: spacing.md },
     statStreak: {

@@ -313,13 +313,13 @@ const HealthScreen = () => {
       : defaultCalorieGoal;
     const proteinGoal = Number.isFinite(selectedHealth.proteinGoal)
       ? selectedHealth.proteinGoal
-      : null;
+      : defaultProteinGoal;
     const carbsGoal = Number.isFinite(selectedHealth.carbsGoal)
       ? selectedHealth.carbsGoal
-      : null;
+      : defaultCarbsGoal;
     const fatGoal = Number.isFinite(selectedHealth.fatGoal)
       ? selectedHealth.fatGoal
-      : null;
+      : defaultFatGoal;
     setCalorieGoalInput(goal ? String(goal) : '');
     setProteinGoalInput(proteinGoal !== null ? String(proteinGoal) : '');
     setCarbsGoalInput(carbsGoal !== null ? String(carbsGoal) : '');
@@ -536,7 +536,18 @@ const HealthScreen = () => {
     ...selectedHealthRaw,
     foods: Array.isArray(selectedHealthRaw.foods) ? selectedHealthRaw.foods : [],
   };
-  const defaultCalorieGoal = Math.max(0, Number(profile.dailyCalorieGoal) || 0);
+  const toPositiveGoalOrNull = (value) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
+  const defaultWeightManagerCalorieGoal = toPositiveGoalOrNull(profile?.weightManagerTargetCalories);
+  const defaultCalorieGoal = Math.max(
+    0,
+    defaultWeightManagerCalorieGoal ?? (Number(profile?.dailyCalorieGoal) || 0)
+  );
+  const defaultProteinGoal = toPositiveGoalOrNull(profile?.weightManagerProteinGrams);
+  const defaultCarbsGoal = toPositiveGoalOrNull(profile?.weightManagerCarbsGrams);
+  const defaultFatGoal = toPositiveGoalOrNull(profile?.weightManagerFatGrams);
   const dailyCalorieGoal = Number.isFinite(selectedHealth.calorieGoal)
     ? selectedHealth.calorieGoal
     : defaultCalorieGoal;
@@ -548,13 +559,13 @@ const HealthScreen = () => {
     setCalorieGoalInput(goal ? String(goal) : '');
     const proteinGoal = Number.isFinite(selectedHealth.proteinGoal)
       ? selectedHealth.proteinGoal
-      : null;
+      : defaultProteinGoal;
     const carbsGoal = Number.isFinite(selectedHealth.carbsGoal)
       ? selectedHealth.carbsGoal
-      : null;
+      : defaultCarbsGoal;
     const fatGoal = Number.isFinite(selectedHealth.fatGoal)
       ? selectedHealth.fatGoal
-      : null;
+      : defaultFatGoal;
     setProteinGoalInput(proteinGoal !== null ? String(proteinGoal) : '');
     setCarbsGoalInput(carbsGoal !== null ? String(carbsGoal) : '');
     setFatGoalInput(fatGoal !== null ? String(fatGoal) : '');
@@ -565,6 +576,9 @@ const HealthScreen = () => {
     selectedHealth.carbsGoal,
     selectedHealth.fatGoal,
     defaultCalorieGoal,
+    defaultProteinGoal,
+    defaultCarbsGoal,
+    defaultFatGoal,
   ]);
 
   useEffect(() => {
@@ -656,9 +670,15 @@ const HealthScreen = () => {
     { protein: 0, carbs: 0, fat: 0 }
   );
   const macroGoals = {
-    protein: Number.isFinite(selectedHealth.proteinGoal) ? selectedHealth.proteinGoal : null,
-    carbs: Number.isFinite(selectedHealth.carbsGoal) ? selectedHealth.carbsGoal : null,
-    fat: Number.isFinite(selectedHealth.fatGoal) ? selectedHealth.fatGoal : null,
+    protein: Number.isFinite(selectedHealth.proteinGoal)
+      ? selectedHealth.proteinGoal
+      : defaultProteinGoal,
+    carbs: Number.isFinite(selectedHealth.carbsGoal)
+      ? selectedHealth.carbsGoal
+      : defaultCarbsGoal,
+    fat: Number.isFinite(selectedHealth.fatGoal)
+      ? selectedHealth.fatGoal
+      : defaultFatGoal,
   };
   const macroRemaining = {
     protein:
@@ -1002,9 +1022,9 @@ const HealthScreen = () => {
   };
 
   const formatMacroGoals = (health) => {
-    const proteinGoal = Number.isFinite(health.proteinGoal) ? health.proteinGoal : null;
-    const carbsGoal = Number.isFinite(health.carbsGoal) ? health.carbsGoal : null;
-    const fatGoal = Number.isFinite(health.fatGoal) ? health.fatGoal : null;
+    const proteinGoal = Number.isFinite(health.proteinGoal) ? health.proteinGoal : defaultProteinGoal;
+    const carbsGoal = Number.isFinite(health.carbsGoal) ? health.carbsGoal : defaultCarbsGoal;
+    const fatGoal = Number.isFinite(health.fatGoal) ? health.fatGoal : defaultFatGoal;
     const hasAnyGoal = [proteinGoal, carbsGoal, fatGoal].some((g) => g !== null);
     if (!hasAnyGoal) return 'Not set';
 
