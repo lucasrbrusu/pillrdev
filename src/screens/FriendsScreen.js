@@ -16,7 +16,7 @@ import { Ionicons, Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { colors, spacing, borderRadius, typography, shadows } from '../utils/theme';
-import { Card, Modal, Button, Input } from '../components';
+import { Card } from '../components';
 import { useApp } from '../context/AppContext';
 
 const dedupeById = (list = []) => {
@@ -72,7 +72,6 @@ const FriendsScreen = () => {
     getFriendRelationship,
     isUserOnline,
     refreshFriendData,
-    createGroup,
     isPremiumUser,
     themeName,
   } = useApp();
@@ -82,10 +81,6 @@ const FriendsScreen = () => {
   const [actionState, setActionState] = useState({});
   const [activeTab, setActiveTab] = useState('friends');
   const [tabDirection, setTabDirection] = useState(1);
-  const [showCreate, setShowCreate] = useState(false);
-  const [groupName, setGroupName] = useState('');
-  const [selectedFriendIds, setSelectedFriendIds] = useState([]);
-  const [submitting, setSubmitting] = useState(false);
   const [inviteResponding, setInviteResponding] = useState({});
   const tabTranslate = React.useRef(new Animated.Value(0)).current;
   const tabOpacity = React.useRef(new Animated.Value(1)).current;
@@ -213,27 +208,6 @@ const FriendsScreen = () => {
       Alert.alert('Unable to update request', err?.message || 'Please try again.');
     } finally {
       setLoading(key, null);
-    }
-  };
-
-  const toggleFriendSelection = (id) => {
-    setSelectedFriendIds((prev) =>
-      prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id]
-    );
-  };
-
-  const handleCreateGroup = async () => {
-    if (!groupName.trim()) return;
-    setSubmitting(true);
-    try {
-      await createGroup({ name: groupName.trim(), inviteUserIds: selectedFriendIds });
-      setGroupName('');
-      setSelectedFriendIds([]);
-      setShowCreate(false);
-    } catch (err) {
-      Alert.alert('Unable to create group', err?.message || 'Please try again.');
-    } finally {
-      setSubmitting(false);
     }
   };
 
@@ -568,7 +542,7 @@ const FriendsScreen = () => {
                           navigation.navigate('Paywall', { source: 'groups' });
                           return;
                         }
-                        setShowCreate(true);
+                        navigation.navigate('CreateGroup');
                       }}
                       activeOpacity={0.8}
                     >
@@ -605,65 +579,6 @@ const FriendsScreen = () => {
           )}
         </Animated.View>
       </ScrollView>
-
-      <Modal
-        visible={showCreate}
-        onClose={() => {
-          setShowCreate(false);
-          setGroupName('');
-          setSelectedFriendIds([]);
-        }}
-        title="Create group"
-        fullScreen={false}
-      >
-        <Input
-          label="Group name"
-          value={groupName}
-          onChangeText={setGroupName}
-          placeholder="e.g., Morning crew"
-        />
-        <Text style={themedStyles.subheading}>Invite friends (optional)</Text>
-        {dedupedFriends.length === 0 ? (
-          <Text style={themedStyles.emptyText}>Add friends to invite them here.</Text>
-        ) : (
-          dedupedFriends.map((friend) => {
-            const selected = selectedFriendIds.includes(friend.id);
-            return (
-              <TouchableOpacity
-                key={friend.id}
-                style={[
-                  themedStyles.inviteFriendRow,
-                  selected && { borderColor: themeColors?.primary || colors.primary },
-                ]}
-                onPress={() => toggleFriendSelection(friend.id)}
-              >
-                <Text style={themedStyles.inviteFriendName}>
-                  {friend.name || friend.username || 'Friend'}
-                </Text>
-                {selected ? (
-                  <Ionicons name="checkmark-circle" size={18} color={colors.success} />
-                ) : (
-                  <Ionicons name="ellipse-outline" size={18} color={themedStyles.subduedText} />
-                )}
-              </TouchableOpacity>
-            );
-          })
-        )}
-        <View style={themedStyles.modalActions}>
-          <Button
-            title="Cancel"
-            variant="secondary"
-            onPress={() => setShowCreate(false)}
-            style={themedStyles.modalButton}
-          />
-          <Button
-            title="Create"
-            onPress={handleCreateGroup}
-            disabled={!groupName.trim() || submitting}
-            style={themedStyles.modalButton}
-          />
-        </View>
-      </Modal>
     </View>
   );
 };
@@ -1088,33 +1003,6 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
     inviteEmptyText: {
       ...typography.bodySmall,
       color: subdued,
-    },
-    subheading: {
-      ...typography.caption,
-      color: subdued,
-      marginTop: spacing.md,
-      marginBottom: spacing.xs,
-    },
-    inviteFriendRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingVertical: spacing.sm,
-      borderBottomWidth: 1,
-      borderColor: border,
-    },
-    inviteFriendName: {
-      ...typography.body,
-      color: baseText,
-    },
-    modalActions: {
-      flexDirection: 'row',
-      justifyContent: 'flex-end',
-      gap: spacing.sm,
-      marginTop: spacing.lg,
-    },
-    modalButton: {
-      flex: 1,
     },
     avatarFallback: {
       backgroundColor: `${colors.primary}15`,

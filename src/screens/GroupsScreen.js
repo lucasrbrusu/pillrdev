@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { colors, spacing, borderRadius, typography, shadows } from '../utils/theme';
-import { Card, Modal, Button, Input } from '../components';
+import { Card } from '../components';
 import { useApp } from '../context/AppContext';
 
 const GroupsScreen = () => {
@@ -12,49 +12,20 @@ const GroupsScreen = () => {
   const navigation = useNavigation();
   const {
     groups,
-    friends,
     groupInvites,
     ensureGroupDataLoaded,
-    ensureFriendDataLoaded,
-    createGroup,
     respondToGroupInvite,
     themeColors,
     isPremiumUser,
   } = useApp();
 
-  const [showCreate, setShowCreate] = useState(false);
-  const [groupName, setGroupName] = useState('');
-  const [selectedFriendIds, setSelectedFriendIds] = useState([]);
-  const [submitting, setSubmitting] = useState(false);
   const [responding, setResponding] = useState({});
 
   useEffect(() => {
     ensureGroupDataLoaded();
-    ensureFriendDataLoaded();
-  }, [ensureFriendDataLoaded, ensureGroupDataLoaded]);
+  }, [ensureGroupDataLoaded]);
 
   const themedStyles = useMemo(() => createStyles(themeColors || colors), [themeColors]);
-
-  const toggleFriendSelection = (id) => {
-    setSelectedFriendIds((prev) =>
-      prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id]
-    );
-  };
-
-  const handleCreateGroup = async () => {
-    if (!groupName.trim()) return;
-    setSubmitting(true);
-    try {
-      await createGroup({ name: groupName.trim(), inviteUserIds: selectedFriendIds });
-      setGroupName('');
-      setSelectedFriendIds([]);
-      setShowCreate(false);
-    } catch (err) {
-      Alert.alert('Unable to create group', err?.message || 'Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   const handleRespondInvite = async (inviteId, status) => {
     setResponding((prev) => ({ ...prev, [inviteId]: status }));
@@ -118,7 +89,7 @@ const GroupsScreen = () => {
               navigation.navigate('Paywall', { source: 'groups' });
               return;
             }
-            setShowCreate(true);
+            navigation.navigate('CreateGroup');
           }}
         >
           <Ionicons name="add" size={22} color={themedStyles.iconColor} />
@@ -170,65 +141,6 @@ const GroupsScreen = () => {
           )}
         </Card>
       </ScrollView>
-
-      <Modal
-        visible={showCreate}
-        onClose={() => {
-          setShowCreate(false);
-          setGroupName('');
-          setSelectedFriendIds([]);
-        }}
-        title="Create group"
-        fullScreen={false}
-      >
-        <Input
-          label="Group name"
-          value={groupName}
-          onChangeText={setGroupName}
-          placeholder="e.g., Morning crew"
-        />
-        <Text style={themedStyles.subheading}>Invite friends (optional)</Text>
-        {friends.length === 0 ? (
-          <Text style={themedStyles.emptyText}>Add friends to invite them here.</Text>
-        ) : (
-          friends.map((friend) => {
-            const selected = selectedFriendIds.includes(friend.id);
-            return (
-              <TouchableOpacity
-                key={friend.id}
-                style={[
-                  themedStyles.friendRow,
-                  selected && { borderColor: themeColors?.primary || colors.primary },
-                ]}
-                onPress={() => toggleFriendSelection(friend.id)}
-              >
-                <Text style={themedStyles.friendName}>
-                  {friend.name || friend.username || 'Friend'}
-                </Text>
-                {selected ? (
-                  <Ionicons name="checkmark-circle" size={18} color={colors.success} />
-                ) : (
-                  <Ionicons name="ellipse-outline" size={18} color={themedStyles.subduedText} />
-                )}
-              </TouchableOpacity>
-            );
-          })
-        )}
-        <View style={themedStyles.modalActions}>
-          <Button
-            title="Cancel"
-            variant="secondary"
-            onPress={() => setShowCreate(false)}
-            style={themedStyles.modalButton}
-          />
-          <Button
-            title="Create"
-            onPress={handleCreateGroup}
-            disabled={!groupName.trim() || submitting}
-            style={themedStyles.modalButton}
-          />
-        </View>
-      </Modal>
     </View>
   );
 };
@@ -380,33 +292,6 @@ const createStyles = (themeColorsParam = colors) => {
       color: subdued,
       textAlign: 'center',
       marginTop: spacing.md,
-    },
-    subheading: {
-      ...typography.caption,
-      color: subdued,
-      marginTop: spacing.md,
-      marginBottom: spacing.xs,
-    },
-    friendRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingVertical: spacing.sm,
-      borderBottomWidth: 1,
-      borderColor: themeColorsParam?.border || colors.border,
-    },
-    friendName: {
-      ...typography.body,
-      color: baseText,
-    },
-    modalActions: {
-      flexDirection: 'row',
-      justifyContent: 'flex-end',
-      gap: spacing.sm,
-      marginTop: spacing.lg,
-    },
-    modalButton: {
-      flex: 1,
     },
   });
 };

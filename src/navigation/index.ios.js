@@ -35,6 +35,7 @@ import PrivacySecurityScreen from '../screens/PrivacySecurityScreen';
 import HelpSupportScreen from '../screens/HelpSupportScreen';
 import FriendsScreen from '../screens/FriendsScreen';
 import GroupsScreen from '../screens/GroupsScreen';
+import CreateGroupScreen from '../screens/CreateGroupScreen';
 import GroupDetailScreen from '../screens/GroupDetailScreen';
 import GroupDetailsScreen from '../screens/GroupDetailsScreen';
 import ChatScreen from '../screens/ChatScreen';
@@ -398,6 +399,7 @@ const Navigation = () => {
           />
           <Stack.Screen name="FriendProfile" component={FriendProfileScreen} />
           <Stack.Screen name="Groups" component={GroupsScreen} />
+          <Stack.Screen name="CreateGroup" component={CreateGroupScreen} />
           <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />
           <Stack.Screen name="GroupDetails" component={GroupDetailsScreen} />
           <Stack.Screen name="Insights" component={InsightsScreen} />
