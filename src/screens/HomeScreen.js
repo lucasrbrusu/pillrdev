@@ -175,8 +175,7 @@ const HomeScreen = () => {
     .sort((a, b) => getReminderDate(a) - getReminderDate(b))
     .slice(0, 3);
   const groceryPreview = groceries.filter((g) => !g.completed).slice(0, 3);
-  const rawListCount = (groceryLists || []).filter((list) => list?.id !== 'default-list').length;
-  const totalListCount = rawListCount || (groceries.length > 0 ? 1 : 0);
+  const totalListCount = (groceryLists || []).length;
   const totalOpenListItems = groceries.filter((item) => !item.completed).length;
   const totalCompletedListItems = groceries.filter((item) => item.completed).length;
 

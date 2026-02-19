@@ -7008,13 +7008,11 @@ const deleteReminder = async (reminderId) => {
 
 
 
-const GROCERY_DEFAULT_LIST_ID = 'default-list';
-const GROCERY_DEFAULT_LIST_NAME = 'Grocery List';
 const GROCERY_DEFAULT_LIST_EMOJI = '\uD83D\uDED2';
 
 const mapGroceryListRow = (row) => ({
-  id: row?.id || GROCERY_DEFAULT_LIST_ID,
-  name: row?.name || GROCERY_DEFAULT_LIST_NAME,
+  id: row?.id,
+  name: row?.name || 'Untitled List',
   emoji: row?.emoji || GROCERY_DEFAULT_LIST_EMOJI,
   dueDate: row?.due_date || null,
   dueTime: row?.due_time || null,
@@ -7091,22 +7089,11 @@ const fetchGroceriesFromSupabase = async (userId) => {
     return;
   }
 
-  let mappedLists = (listData || []).map(mapGroceryListRow);
-  if (mappedLists.length === 0) {
-    mappedLists = [
-      {
-        id: GROCERY_DEFAULT_LIST_ID,
-        name: GROCERY_DEFAULT_LIST_NAME,
-        emoji: GROCERY_DEFAULT_LIST_EMOJI,
-        dueDate: null,
-        dueTime: null,
-        createdAt: null,
-      },
-    ];
-  }
-
+  const mappedLists = (listData || [])
+    .map(mapGroceryListRow)
+    .filter((list) => !!list?.id);
   const validListIds = new Set(mappedLists.map((list) => list.id));
-  const fallbackListId = mappedLists[0].id;
+  const fallbackListId = mappedLists[0]?.id || null;
   const mappedItems = groceryRows.map((g) => {
     const rawListId = selectWithListId ? g.list_id : null;
     const resolvedListId =
@@ -7185,7 +7172,7 @@ const addGroceryList = async (name, emoji = GROCERY_DEFAULT_LIST_EMOJI, options 
   }
 
   const newList = mapGroceryListRow(data);
-  setGroceryLists((prev) => [...prev.filter((list) => list.id !== GROCERY_DEFAULT_LIST_ID), newList]);
+  setGroceryLists((prev) => [...prev, newList]);
   return newList;
 };
 
@@ -7195,9 +7182,6 @@ const updateGroceryList = async (listId, updates = {}) => {
   }
   if (!listId) {
     throw new Error('List id is required.');
-  }
-  if (listId === GROCERY_DEFAULT_LIST_ID) {
-    throw new Error('Create a new list before editing this default list.');
   }
 
   const payload = {};
@@ -7272,10 +7256,6 @@ const updateGroceryList = async (listId, updates = {}) => {
 const deleteGroceryList = async (listId) => {
   if (!authUser?.id || !listId) return;
 
-  if (groceryLists.length <= 1) {
-    throw new Error('Keep at least one list before deleting.');
-  }
-
   const { error } = await supabase
     .from('grocery_lists')
     .delete()
@@ -7303,11 +7283,10 @@ const addGroceryItem = async (item, listIdParam, options = {}) => {
     throw new Error('Item name is required.');
   }
 
-  const normalizedListId =
-    listIdParam && listIdParam !== GROCERY_DEFAULT_LIST_ID ? listIdParam : null;
+  const normalizedListId = listIdParam || null;
   const fallbackListId =
     normalizedListId ||
-    groceryLists.find((list) => list.id !== GROCERY_DEFAULT_LIST_ID)?.id ||
+    groceryLists[0]?.id ||
     null;
 
   const itemInsertAttempts = [
@@ -7381,7 +7360,7 @@ const addGroceryItem = async (item, listIdParam, options = {}) => {
     name: data.name,
     completed: data.completed,
     createdAt: data.created_at,
-    listId: data.list_id || fallbackListId || groceryLists[0]?.id || GROCERY_DEFAULT_LIST_ID,
+    listId: data.list_id || fallbackListId || groceryLists[0]?.id || null,
     dueDate: insertedWithDue ? data.due_date || null : null,
     dueTime: insertedWithDue ? data.due_time || null : null,
   };

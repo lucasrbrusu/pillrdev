@@ -748,14 +748,6 @@ const RoutineScreen = () => {
 
   const handleDeleteActiveGroceryList = async () => {
     if (!activeGroceryListId) return;
-    if (activeGroceryListId === 'default-list') {
-      Alert.alert('Cannot delete', 'Create a new list before deleting this default list.');
-      return;
-    }
-    if ((groceryLists || []).length <= 1) {
-      Alert.alert('Cannot delete', 'Create another list before deleting this one.');
-      return;
-    }
 
     Alert.alert('Delete list?', 'This removes the list and all of its items.', [
       { text: 'Cancel', style: 'cancel' },
@@ -897,8 +889,7 @@ const RoutineScreen = () => {
   const isGroceryListEditorOpen =
     groceryListEditorMode === 'create' || groceryListEditorMode === 'edit';
   const isEditingActiveGroceryList = groceryListEditorMode === 'edit';
-  const canModifySelectedGroceryList =
-    !!selectedGroceryList && selectedGroceryList.id !== 'default-list';
+  const canModifySelectedGroceryList = !!selectedGroceryList;
   const isGroceryRootScreen = !selectedGroceryList && !isGroceryListEditorOpen;
 
   const selectedGroceryItems = useMemo(() => {
@@ -1258,7 +1249,6 @@ const RoutineScreen = () => {
               style={[styles.sectionAction, { backgroundColor: groceriesTheme.itemBg }]}
               onPress={() => openGroceryModal()}
             >
-              <Ionicons name="add" size={16} color={groceriesTheme.accent} />
               <Text style={[styles.sectionActionText, { color: groceriesTheme.accent }]}>
                 + Create
               </Text>
