@@ -709,7 +709,7 @@ const SignupFlowScreen = ({ navigation }) => {
               <View style={[styles.logoDot, { backgroundColor: colors.health }]} />
               <View style={[styles.logoDot, { backgroundColor: colors.routine }]} />
             </View>
-            <Text style={styles.logoTitle}>PillarUp</Text>
+            <Text style={styles.logoTitle}>Pillaflow</Text>
           </View>
           <Text style={styles.subtitle}>
             {isJourneyStep ? 'Build your onboarding foundation' : 'Create your account'}
@@ -850,14 +850,14 @@ const SignupFlowScreen = ({ navigation }) => {
                       I agree to the{' '}
                       <Text
                         style={[styles.termsLink, { color: signupTheme.link }]}
-                        onPress={() => handleOpenLink('https://pillarup.net/terms-of-service.html')}
+                        onPress={() => handleOpenLink('https://pillaflow.net/terms-of-service.html')}
                       >
                         Terms of Service
                       </Text>{' '}
                       and{' '}
                       <Text
                         style={[styles.termsLink, { color: signupTheme.link }]}
-                        onPress={() => handleOpenLink('https://pillarup.net/privacy-policy.html')}
+                        onPress={() => handleOpenLink('https://pillaflow.net/privacy-policy.html')}
                       >
                         Privacy Policy
                       </Text>

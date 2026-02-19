@@ -1,4 +1,4 @@
-package com.pillarup.app
+package com.pillaflow.app
 
 import android.os.Build
 import android.os.Bundle
@@ -7,8 +7,8 @@ import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import com.facebook.react.defaults.DefaultReactActivityDelegate
-import com.pillarup.app.BuildConfig
-import com.pillarup.app.R
+import com.pillaflow.app.BuildConfig
+import com.pillaflow.app.R
 
 import expo.modules.ReactActivityDelegateWrapper
 

@@ -86,7 +86,7 @@ const featureList = [
     icon: 'shield-checkmark-outline',
     iconBg: '#F2EAFF',
     iconColor: '#8B5CF6',
-    subtitle: 'Get faster answers from the PillarUp team.',
+    subtitle: 'Get faster answers from the Pillaflow team.',
   },
 ];
 
@@ -250,7 +250,7 @@ const PaywallScreen = () => {
           />
           <View style={styles.titleRow}>
             <View style={styles.titleSide}>
-              <Text style={styles.titleText}>PillarUp</Text>
+              <Text style={styles.titleText}>Pillaflow</Text>
             </View>
             <View style={[styles.titleSide, styles.titleSideRight]}>
               <Svg width={110} height={28} style={styles.titleGradient}>
@@ -279,7 +279,7 @@ const PaywallScreen = () => {
             <View style={styles.entitlementPill}>
               <Ionicons name="checkmark-circle" size={16} color="#16a34a" />
               <Text style={styles.entitlementText}>
-                Active: {entitlementLabel || 'PillarUp Premium'}
+                Active: {entitlementLabel || 'Pillaflow Premium'}
               </Text>
             </View>
           )}

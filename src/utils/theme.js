@@ -1,4 +1,4 @@
-// PillarUp App Theme Configuration
+// Pillaflow App Theme Configuration
 
 export const colors = {
   // Base colors

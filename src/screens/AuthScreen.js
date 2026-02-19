@@ -225,7 +225,7 @@ const AuthScreen = ({ navigation }) => {
             <View style={[styles.logoDot, { backgroundColor: colors.health }]} />
             <View style={[styles.logoDot, { backgroundColor: colors.routine }]} />
           </View>
-          <Text style={styles.logoTitle}>PillarUp</Text>
+          <Text style={styles.logoTitle}>Pillaflow</Text>
         </View>
         <Text style={styles.subtitle}>Welcome back. Let's get you signed in.</Text>
 

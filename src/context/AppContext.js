@@ -14,6 +14,7 @@ import { colors, typography } from '../utils/theme';
 import themePresets from '../utils/themePresets';
 import { supabase } from '../utils/supabaseClient';
 import { addAppUsageMs, splitDurationByLocalDay } from '../utils/insightsTracking';
+import { migrateLegacyStorageKeys } from '../utils/storageMigration';
 import {
   requestNotificationPermissionAsync,
   cancelAllScheduledNotificationsAsync,
@@ -38,25 +39,25 @@ export const useApp = () => {
 };
 
 const STORAGE_KEYS = {
-  HABITS: '@pillarup_habits',
-  TASKS: '@pillarup_tasks',
-  NOTES: '@pillarup_notes',
-  HEALTH: '@pillarup_health',
-  HEALTH_FOOD_LOGS: '@pillarup_health_food_logs',
-  ROUTINES: '@pillarup_routines',
-  CHORES: '@pillarup_chores',
-  REMINDERS: '@pillarup_reminders',
-  GROCERIES: '@pillarup_groceries',
-  FINANCES: '@pillarup_finances',
-  BUDGETS: '@pillarup_budgets',
-  BUDGET_ASSIGNMENTS: '@pillarup_budget_assignments',
-  PROFILE: '@pillarup_profile',
-  THEME: '@pillarup_theme',
-  AUTH_USER: '@pillarup_auth_user',
-  ONBOARDING: '@pillarup_onboarding_complete',
-  STREAK_FROZEN_PREFIX: '@pillarup_streak_frozen_',
-  LAST_ACTIVE_PREFIX: '@pillarup_last_active_',
-  PUSH_DEVICE_ID: '@pillarup_push_device_id',
+  HABITS: '@pillaflow_habits',
+  TASKS: '@pillaflow_tasks',
+  NOTES: '@pillaflow_notes',
+  HEALTH: '@pillaflow_health',
+  HEALTH_FOOD_LOGS: '@pillaflow_health_food_logs',
+  ROUTINES: '@pillaflow_routines',
+  CHORES: '@pillaflow_chores',
+  REMINDERS: '@pillaflow_reminders',
+  GROCERIES: '@pillaflow_groceries',
+  FINANCES: '@pillaflow_finances',
+  BUDGETS: '@pillaflow_budgets',
+  BUDGET_ASSIGNMENTS: '@pillaflow_budget_assignments',
+  PROFILE: '@pillaflow_profile',
+  THEME: '@pillaflow_theme',
+  AUTH_USER: '@pillaflow_auth_user',
+  ONBOARDING: '@pillaflow_onboarding_complete',
+  STREAK_FROZEN_PREFIX: '@pillaflow_streak_frozen_',
+  LAST_ACTIVE_PREFIX: '@pillaflow_last_active_',
+  PUSH_DEVICE_ID: '@pillaflow_push_device_id',
 };
 
 const SUPABASE_STORAGE_KEYS = [
@@ -67,7 +68,7 @@ const SUPABASE_STORAGE_KEYS = [
 const defaultProfile = {
   name: 'User',
   username: '',
-  email: 'user@pillarup.app',
+  email: 'user@pillaflow.app',
   photo: null,
   dailyCalorieGoal: 2000,
   preferredDailyCalorieGoal: 2000,
@@ -131,6 +132,8 @@ const PRESENCE_WRITE_INTERVAL_MS = 2 * 60 * 1000;
 const DATA_REFRESH_TTL_MS = 5 * 60 * 1000;
 const PROFILE_CACHE_TTL_MS = 30 * 60 * 1000;
 const PUSH_REGISTRATION_TTL_MS = 12 * 60 * 60 * 1000;
+const FRIEND_SEARCH_CACHE_TTL_MS = 30 * 1000;
+const FRIEND_SEARCH_LIMIT = 20;
 
 const computeIsPremium = (plan, premiumExpiresAt, explicitFlag) => {
   if (explicitFlag === true) return true;
@@ -638,6 +641,8 @@ const friendDataPromiseRef = useRef(null);
 const healthDataPromiseRef = useRef(null);
 const realtimeEnabledRef = useRef(false);
 const profileCacheRef = useRef({});
+const friendSearchCacheRef = useRef(new Map());
+const friendSearchAbortControllerRef = useRef(null);
   const [blockedUsers, setBlockedUsers] = useState({ blocked: [], blockedBy: [] });
   const friendResponseSignatureRef = useRef('');
   const taskInviteResponseSignatureRef = useRef('');
@@ -660,6 +665,13 @@ const profileCacheRef = useRef({});
   const [themeName, setThemeName] = useState('default');
   const [themeColors, setThemeColors] = useState({ ...colors });
   const [themeReady, setThemeReady] = useState(false);
+
+  useEffect(() => {
+    friendSearchCacheRef.current.clear();
+    friendSearchAbortControllerRef.current?.abort?.();
+    friendSearchAbortControllerRef.current = null;
+  }, [authUser?.id]);
+
   const isPremiumUser = useMemo(
     () => {
       const rcMatchesUser =
@@ -825,6 +837,8 @@ const profileCacheRef = useRef({});
 
   const loadAllData = async () => {
   try {
+    await migrateLegacyStorageKeys();
+
     const cachedTheme = await AsyncStorage.getItem(STORAGE_KEYS.THEME);
     if (cachedTheme) {
       setThemeName(cachedTheme);
@@ -881,9 +895,9 @@ const profileCacheRef = useRef({});
     if (!themeReady) setThemeReady(true);
     setIsLoading(false);
   }
-};
+  };
 
-const loadUserDataFromSupabase = async (userId) => {
+  const loadUserDataFromSupabase = async (userId) => {
   try {
     await Promise.all([
       fetchProfileFromSupabase(userId),
@@ -3770,39 +3784,86 @@ const mapExternalProfile = (row) => ({
   const searchUsersByUsername = useCallback(
     async (query) => {
       if (!authUser?.id) return [];
-      const trimmed = (query || '').trim();
-      if (trimmed.length < 2) return [];
-      const exactPattern = trimmed; // exact match (case-insensitive)
-      const prefixPattern = `${trimmed}%`; // prefix search hits index on username
+      const trimmed = (query || '').trim().toLowerCase();
+      if (trimmed.length < 2) {
+        friendSearchAbortControllerRef.current?.abort?.();
+        friendSearchAbortControllerRef.current = null;
+        return [];
+      }
 
-      // Try exact match first (fast, small result)
-      const { data: exactData, error: exactError } = await supabase
-        .from('profiles')
-        .select('id, username, full_name, avatar_url')
-        .ilike('username', exactPattern)
-        .order('username', { ascending: true })
-        .limit(5);
+      const nowMs = Date.now();
+      const searchCache = friendSearchCacheRef.current;
+      const cached = searchCache.get(trimmed);
+      if (cached && cached.expiresAt > nowMs) {
+        return (cached.rows || [])
+          .map((row) => {
+            const relationship = getFriendRelationship(row.id);
+            if (relationship.blocked || relationship.blockedBy) return null;
+            return {
+              ...mapProfileSummary(row),
+              isFriend: relationship.isFriend,
+              pendingIncoming: !!relationship.incoming,
+              pendingOutgoing: !!relationship.outgoing,
+              isBlocked: relationship.blocked,
+              blockedBy: relationship.blockedBy,
+            };
+          })
+          .filter(Boolean);
+      }
 
-      let rows = exactData || [];
+      searchCache.forEach((entry, key) => {
+        if (!entry || entry.expiresAt <= nowMs) {
+          searchCache.delete(key);
+        }
+      });
 
-      // Primary: fast prefix search if exact returned nothing
-      let error = exactError;
-      if (!rows.length) {
-        const { data, error: prefixError } = await supabase
+      friendSearchAbortControllerRef.current?.abort?.();
+      const abortController =
+        typeof AbortController !== 'undefined' ? new AbortController() : null;
+      friendSearchAbortControllerRef.current = abortController;
+
+      const prefixPattern = `${trimmed}%`;
+      let queryBuilder = supabase
         .from('profiles')
         .select('id, username, full_name, avatar_url')
         .ilike('username', prefixPattern)
+        .neq('id', authUser.id)
         .order('username', { ascending: true })
-        .limit(20);
-        rows = data || [];
-        error = prefixError || exactError;
-      }
-      if (error) {
-        console.log('Error searching users:', error);
+        .limit(FRIEND_SEARCH_LIMIT);
+
+      if (abortController?.signal) {
+        queryBuilder = queryBuilder.abortSignal(abortController.signal);
       }
 
+      let data = null;
+      let error = null;
+      try {
+        ({ data, error } = await queryBuilder);
+      } catch (err) {
+        const combined = `${err?.name || ''} ${err?.message || ''}`.toLowerCase();
+        if (combined.includes('abort')) return [];
+        console.log('Error searching users:', err);
+        return [];
+      } finally {
+        if (friendSearchAbortControllerRef.current === abortController) {
+          friendSearchAbortControllerRef.current = null;
+        }
+      }
+
+      const rows = data || [];
+      if (error) {
+        const combined = `${error?.name || ''} ${error?.message || ''}`.toLowerCase();
+        if (combined.includes('abort')) return [];
+        console.log('Error searching users:', error);
+        return [];
+      }
+
+      searchCache.set(trimmed, {
+        rows,
+        expiresAt: nowMs + FRIEND_SEARCH_CACHE_TTL_MS,
+      });
+
       return (rows || [])
-        .filter((row) => row.id !== authUser.id)
         .map((row) => {
           const relationship = getFriendRelationship(row.id);
           if (relationship.blocked || relationship.blockedBy) return null;
@@ -4307,7 +4368,7 @@ const shareHabitWithFriends = async (habitId, friendIds = []) => {
   }
 
   return validFriendIds;
-};
+  };
 
 const addHabit = async (habit) => {
   if (!authUser?.id) {

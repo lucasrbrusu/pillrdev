@@ -64,17 +64,17 @@ const legalLinks = [
   {
     id: 'terms',
     label: 'Terms of Service',
-    url: 'https://pillarup.net/terms-of-service.html',
+    url: 'https://pillaflow.net/terms-of-service.html',
   },
   {
     id: 'privacy',
     label: 'Privacy Policy',
-    url: 'https://pillarup.net/privacy-policy.html',
+    url: 'https://pillaflow.net/privacy-policy.html',
   },
   {
     id: 'community',
     label: 'Community Guidelines',
-    url: 'https://pillarup.net/community-guidelines.html',
+    url: 'https://pillaflow.net/community-guidelines.html',
   },
 ];
 
@@ -264,7 +264,7 @@ const OnboardingScreen = ({ navigation }) => {
                 <View style={[styles.logoDot, { backgroundColor: colors.health }]} />
                 <View style={[styles.logoDot, { backgroundColor: colors.routine }]} />
               </View>
-              <Text style={styles.logoTitle}>PillarUp</Text>
+              <Text style={styles.logoTitle}>Pillaflow</Text>
             </View>
             <Text style={styles.subtitle}>
               {step === 0

@@ -52,6 +52,9 @@ const getInitial = (name, username) => {
   return (source[0] || '?').toUpperCase();
 };
 
+const SEARCH_MIN_CHARS = 2;
+const SEARCH_DEBOUNCE_MS = 180;
+
 const FriendsScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -86,6 +89,7 @@ const FriendsScreen = () => {
   const [inviteResponding, setInviteResponding] = useState({});
   const tabTranslate = React.useRef(new Animated.Value(0)).current;
   const tabOpacity = React.useRef(new Animated.Value(1)).current;
+  const searchRequestIdRef = React.useRef(0);
 
   useEffect(() => {
     refreshFriendData();
@@ -116,17 +120,30 @@ const FriendsScreen = () => {
       setSearching(false);
       return undefined;
     }
+    if (trimmed.length < SEARCH_MIN_CHARS) {
+      setResults([]);
+      setSearching(false);
+      return undefined;
+    }
+    const requestId = searchRequestIdRef.current + 1;
+    searchRequestIdRef.current = requestId;
     setSearching(true);
     const handle = setTimeout(async () => {
       try {
         const res = await searchUsersByUsername(trimmed);
-        setResults(res);
+        if (requestId === searchRequestIdRef.current) {
+          setResults(res);
+        }
       } catch (err) {
-        Alert.alert('Search failed', err?.message || 'Please try again.');
+        if (requestId === searchRequestIdRef.current) {
+          Alert.alert('Search failed', err?.message || 'Please try again.');
+        }
       } finally {
-        setSearching(false);
+        if (requestId === searchRequestIdRef.current) {
+          setSearching(false);
+        }
       }
-    }, 120);
+    }, SEARCH_DEBOUNCE_MS);
 
     return () => clearTimeout(handle);
   }, [query, searchUsersByUsername]);
@@ -524,7 +541,9 @@ const FriendsScreen = () => {
                 {dataset.length === 0 ? (
                   <Text style={themedStyles.emptyText}>
                     {query.trim()
-                      ? 'No users found with that username.'
+                      ? query.trim().length < SEARCH_MIN_CHARS
+                        ? 'Type at least 2 characters to search.'
+                        : 'No users found with that username.'
                       : 'No friends yet. Search above to add someone.'}
                   </Text>
                 ) : (

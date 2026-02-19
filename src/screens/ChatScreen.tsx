@@ -348,7 +348,7 @@ export default function ChatScreen() {
           <View style={styles.lockedCard}>
             <Text style={styles.lockedTitle}>Premium required</Text>
             <Text style={styles.lockedCopy}>
-              Upgrade to a premium plan to unlock the PillarUp AI agent and start chatting.
+              Upgrade to a premium plan to unlock the Pillaflow AI agent and start chatting.
             </Text>
             <TouchableOpacity
               onPress={() => navigation.navigate("Paywall", { source: "chat" })}
@@ -356,7 +356,7 @@ export default function ChatScreen() {
               style={styles.lockedButton}
             >
               <LinearGradient colors={primaryGradient} style={styles.lockedButtonInner}>
-                <Text style={styles.lockedButtonText}>View PillarUp Premium</Text>
+                <Text style={styles.lockedButtonText}>View Pillaflow Premium</Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>

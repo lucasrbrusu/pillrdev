@@ -456,7 +456,7 @@ const EditProfileScreen = () => {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.actionItem}
-            onPress={() => Linking.openURL('https://pillarup.net/account-deletion.html')}
+            onPress={() => Linking.openURL('https://pillaflow.net/account-deletion.html')}
           >
             <Ionicons name="document-text-outline" size={20} color={themeColors.text} />
             <Text style={styles.actionText}>Account & Data Deletion Terms</Text>

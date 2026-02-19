@@ -75,7 +75,7 @@ const groupNotifications = (items) => {
   return ordered;
 };
 
-const CLEAR_NOTIFICATIONS_KEY = '@pillarup_notification_center_cleared_at';
+const CLEAR_NOTIFICATIONS_KEY = '@pillaflow_notification_center_cleared_at';
 
 const isAfterClearCutoff = (timestamp, cutoff) => {
   if (!cutoff) return true;

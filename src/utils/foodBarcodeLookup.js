@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const CACHE_PREFIX = '@pillarup:barcode_food:';
+const CACHE_PREFIX = '@pillaflow:barcode_food:';
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 
 const toNumber = (v) => {
@@ -90,7 +90,7 @@ const parseInlineFormats = (rawData) => {
 const fetchOpenFoodFacts = async (barcode) => {
   // OFF prefers a descriptive User-Agent
   const headers = {
-    'User-Agent': 'PillarUp/1.0 (https://pillr.xyz)',
+    'User-Agent': 'Pillaflow/1.0 (https://pillr.xyz)',
     'Accept': 'application/json',
   };
 

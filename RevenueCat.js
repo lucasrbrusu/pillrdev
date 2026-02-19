@@ -17,7 +17,7 @@ const androidApiKey = 'goog_pwyWISJSXbUBoSRppNHtySWkYwU';
 const ENTITLEMENT_ID = 'premium';
 const DEFAULT_OFFERING_ID = 'default';
 
-const globalKey = '__PILLARUP_REVENUECAT__';
+const globalKey = '__PILLAFLOW_REVENUECAT__';
 const globalState = (() => {
   if (!globalThis[globalKey]) {
     globalThis[globalKey] = { configured: false, configurePromise: null, appUserId: null };

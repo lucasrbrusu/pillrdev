@@ -11,12 +11,12 @@ Notifications.setNotificationHandler({
   }),
 });
 
-const ANDROID_CHANNEL_ID = 'pillarup-default';
+const ANDROID_CHANNEL_ID = 'pillaflow-default';
 
 export const ensureDefaultChannelAsync = async () => {
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
-      name: 'PillarUp Alerts',
+      name: 'Pillaflow Alerts',
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#FF5A5F',

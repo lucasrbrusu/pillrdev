@@ -7,8 +7,8 @@ import { useApp } from '../context/AppContext';
 import { Card, Button } from '../components';
 import { colors, spacing, typography } from '../utils/theme';
 
-const WEBSITE_URL = 'https://pillarup.net';
-const SUPPORT_EMAIL = 'pillarup@outlook.com';
+const WEBSITE_URL = 'https://pillaflow.net';
+const SUPPORT_EMAIL = 'pillaflow@outlook.com';
 
 const HelpSupportScreen = () => {
   const insets = useSafeAreaInsets();
@@ -45,7 +45,7 @@ const HelpSupportScreen = () => {
             {t('Find more resources and updates on our website.')}
           </Text>
           <Button
-            title="Visit PillarUp.net"
+            title="Visit Pillaflow.net"
             icon="open-outline"
             variant="outline"
             onPress={() => handleOpenLink(WEBSITE_URL)}

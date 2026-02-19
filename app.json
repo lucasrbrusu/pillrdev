@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "PillarUp",
+    "name": "Pillaflow",
     "slug": "pillr",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -17,11 +17,11 @@
     "scheme": "pillr",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.pillarup.app",
+      "bundleIdentifier": "com.pillaflow.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": "PillarUp uses the camera to let you scan/attach photos within the app.",
-        "NSPhotoLibraryUsageDescription": "PillarUp uses the library of the user to attach an image for profile appearance",
+        "NSCameraUsageDescription": "Pillaflow uses the camera to let you scan/attach photos within the app.",
+        "NSPhotoLibraryUsageDescription": "Pillaflow uses the library of the user to attach an image for profile appearance",
         "NSPhotoLibraryAddUsageDescription": "This adds the image that the user chose to the app to set their profile picture"
       }
     },
@@ -30,7 +30,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.pillarup.app",
+      "package": "com.pillaflow.app",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
