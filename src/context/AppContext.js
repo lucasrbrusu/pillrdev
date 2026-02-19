@@ -138,6 +138,7 @@ const PUSH_REGISTRATION_TTL_MS = 12 * 60 * 60 * 1000;
 const FRIEND_SEARCH_CACHE_TTL_MS = 30 * 1000;
 const FRIEND_SEARCH_LIMIT = 20;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const NOTIFICATION_RESCHEDULE_DEBOUNCE_MS = 750;
 
 const computeIsPremium = (plan, premiumExpiresAt, explicitFlag) => {
   if (explicitFlag === true) return true;
@@ -667,6 +668,71 @@ const areNotificationIdsEqual = (a = [], b = []) => {
   return true;
 };
 
+const normalizeNotificationFingerprintValue = (value) => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => normalizeNotificationFingerprintValue(item)).join(',')}]`;
+  }
+  if (typeof value === 'object') {
+    const keys = Object.keys(value).sort();
+    return `{${keys
+      .map((key) => `${key}:${normalizeNotificationFingerprintValue(value[key])}`)
+      .join(',')}}`;
+  }
+  return String(value);
+};
+
+const getNotificationTriggerSignature = (trigger) => {
+  if (!trigger) return '';
+  if (trigger instanceof Date) return `date:${trigger.getTime()}`;
+  if (typeof trigger === 'object' && trigger.date instanceof Date) {
+    return `date:${trigger.date.getTime()}`;
+  }
+  return normalizeNotificationFingerprintValue(trigger);
+};
+
+const getNotificationCandidateSignature = (candidate) => {
+  if (!candidate) return '';
+  return [
+    candidate.itemType || '',
+    candidate.itemId || '',
+    candidate.kind || '',
+    candidate.title || '',
+    candidate.body || '',
+    normalizeNotificationFingerprintValue(candidate.data || {}),
+    getNotificationTriggerSignature(candidate.trigger),
+  ].join('|');
+};
+
+const buildNotificationPlanSignature = ({
+  authUserId,
+  notificationsEnabled,
+  taskRemindersEnabled,
+  habitRemindersEnabled,
+  healthRemindersEnabled,
+  hasNotificationPermission,
+  selectedCandidates = [],
+}) => {
+  const candidateSignatures = (selectedCandidates || [])
+    .map((candidate) => getNotificationCandidateSignature(candidate))
+    .filter(Boolean)
+    .sort()
+    .join('||');
+
+  return [
+    authUserId || '',
+    notificationsEnabled ? '1' : '0',
+    taskRemindersEnabled ? '1' : '0',
+    habitRemindersEnabled ? '1' : '0',
+    healthRemindersEnabled ? '1' : '0',
+    hasNotificationPermission ? '1' : '0',
+    candidateSignatures,
+  ].join('::');
+};
+
 const getNextDailyOccurrence = (hour, minute) => {
   const now = new Date();
   const next = new Date(now);
@@ -914,6 +980,7 @@ const friendSearchAbortControllerRef = useRef(null);
     lastAttemptMs: 0,
   });
   const reschedulingNotificationsRef = useRef(false);
+  const notificationPlanSignatureRef = useRef('');
 
   // Immutable snapshots of the original palettes and typography
   const defaultPaletteRef = useRef(
@@ -9546,13 +9613,28 @@ const mapProfileRow = (row) => {
     reschedulingNotificationsRef.current = true;
 
     try {
-      if (!userSettings.notificationsEnabled || !authUser || !hasNotificationPermission) {
-        await cancelAllScheduledNotificationsAsync();
-        await clearAllNotificationIds();
+      const isNotificationSchedulingEnabled = Boolean(
+        userSettings.notificationsEnabled && authUser?.id && hasNotificationPermission
+      );
+
+      if (!isNotificationSchedulingEnabled) {
+        const disabledPlanSignature = buildNotificationPlanSignature({
+          authUserId: authUser?.id,
+          notificationsEnabled: userSettings.notificationsEnabled,
+          taskRemindersEnabled: userSettings.taskRemindersEnabled,
+          habitRemindersEnabled: userSettings.habitRemindersEnabled,
+          healthRemindersEnabled: userSettings.healthRemindersEnabled,
+          hasNotificationPermission,
+          selectedCandidates: [],
+        });
+
+        if (notificationPlanSignatureRef.current !== disabledPlanSignature) {
+          await cancelAllScheduledNotificationsAsync();
+          await clearAllNotificationIds();
+          notificationPlanSignatureRef.current = disabledPlanSignature;
+        }
         return;
       }
-
-      await cancelAllScheduledNotificationsAsync();
 
       const candidates = [];
       if (userSettings.taskRemindersEnabled) {
@@ -9586,6 +9668,22 @@ const mapProfileRow = (row) => {
           return (a.sortTimeMs || 0) - (b.sortTimeMs || 0);
         })
         .slice(0, maxScheduled);
+
+      const nextPlanSignature = buildNotificationPlanSignature({
+        authUserId: authUser?.id,
+        notificationsEnabled: userSettings.notificationsEnabled,
+        taskRemindersEnabled: userSettings.taskRemindersEnabled,
+        habitRemindersEnabled: userSettings.habitRemindersEnabled,
+        healthRemindersEnabled: userSettings.healthRemindersEnabled,
+        hasNotificationPermission,
+        selectedCandidates: selected,
+      });
+
+      if (notificationPlanSignatureRef.current === nextPlanSignature) {
+        return;
+      }
+
+      await cancelAllScheduledNotificationsAsync();
 
       const idsByType = {
         task: new Map(),
@@ -9642,11 +9740,13 @@ const mapProfileRow = (row) => {
           idsById: idsByType.routine,
         }),
       ]);
+
+      notificationPlanSignatureRef.current = nextPlanSignature;
     } finally {
       reschedulingNotificationsRef.current = false;
     }
   }, [
-    authUser,
+    authUser?.id,
     hasNotificationPermission,
     chores,
     todayHealth?.mood,
@@ -9700,24 +9800,15 @@ const mapProfileRow = (row) => {
   }, [isLoading, authUser?.id, profileLoaded, applyStreakFreezeIfNeeded]);
 
   useEffect(() => {
-    if (isLoading) return;
-    rescheduleAllNotifications();
-  }, [
-    isLoading,
-    rescheduleAllNotifications,
-    tasks,
-    habits,
-    routines,
-    groupRoutines,
-    chores,
-    reminders,
-    todayHealth?.mood,
-    userSettings.notificationsEnabled,
-    userSettings.taskRemindersEnabled,
-    userSettings.habitRemindersEnabled,
-    userSettings.healthRemindersEnabled,
-    hasNotificationPermission,
-  ]);
+    if (isLoading) return undefined;
+    const timeoutId = setTimeout(
+      () => {
+        rescheduleAllNotifications();
+      },
+      NOTIFICATION_RESCHEDULE_DEBOUNCE_MS
+    );
+    return () => clearTimeout(timeoutId);
+  }, [isLoading, rescheduleAllNotifications]);
 
   useEffect(() => {
     if (!authUser?.id) return undefined;
