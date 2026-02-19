@@ -37,6 +37,7 @@ const TIME_RANGE_OPTIONS = [
   { label: 'Afternoon', value: 'afternoon' },
   { label: 'Evening', value: 'evening' },
 ];
+const HABIT_VIEW_FILTERS = ['All', 'Personal', 'Group', 'Achieved'];
 const GOAL_PERIOD_OPTIONS = [
   { label: 'Daily', value: 'day' },
   { label: 'Weekly', value: 'week' },
@@ -152,6 +153,13 @@ const extractMonthDaySet = (habit = {}) => {
     if (Number.isFinite(day) && day >= 1 && day <= 31) set.add(day);
   });
   return set;
+};
+const hasHabitReachedEndDate = (habit, referenceDateValue = new Date()) => {
+  if (!habit?.endDate) return false;
+  const endDate = parseDateOnly(habit.endDate);
+  const referenceDate = parseDateOnly(referenceDateValue);
+  if (!endDate || !referenceDate) return false;
+  return toUtcDayNumber(referenceDate) >= toUtcDayNumber(endDate);
 };
 const isHabitScheduledForDate = (habit, dateValue) => {
   if (!habit) return false;
@@ -369,10 +377,10 @@ const getDateProgressAmount = (habit, dateKey, localMap) => {
   return 0;
 };
 
-const getCompletionRatio = (habit, amount) => {
+const getCompletionRatio = (habit, amount, referenceDate = new Date()) => {
+  if (hasHabitReachedEndDate(habit, referenceDate)) return 1;
   const goal = getGoalValue(habit);
   if ((habit?.habitType || 'build') === 'quit') {
-    if (amount <= 0) return 0;
     if (amount <= goal) return 1;
     return clamp(1 - (amount - goal) / goal, 0, 1);
   }
@@ -380,6 +388,7 @@ const getCompletionRatio = (habit, amount) => {
 };
 
 const isCompletedForDate = (habit, dateKey, amount) => {
+  if (hasHabitReachedEndDate(habit, dateKey)) return true;
   if ((habit?.habitType || 'build') === 'quit') {
     return amount <= getGoalValue(habit);
   }
@@ -472,21 +481,26 @@ const SwipeHabitCard = ({
   progress,
   ratio,
   completed,
+  achieved = false,
   overdone = false,
   isInteractive,
   onTap,
   onEdit,
   onSkip,
   onReset,
+  onDelete,
   onSwipeAdd,
   onSwipeInteractionChange,
   styles,
   palette,
 }) => {
-  const ACTION_RAIL_WIDTH = 228;
+  const actionTileCount = achieved ? 2 : 3;
+  const ACTION_RAIL_WIDTH = spacing.sm + actionTileCount * (64 + spacing.sm);
   const FILL_SWIPE_DISTANCE = 165;
   const { width: windowWidth } = useWindowDimensions();
   const rowWidth = Math.max(1, windowWidth - spacing.lg * 2);
+  const canSwipeProgress = isInteractive && !achieved;
+  const canSwipeActions = isInteractive || achieved;
   const translateX = useRef(new Animated.Value(0)).current;
   const [actionsOpen, setActionsOpen] = useState(false);
   const [dragFillRatio, setDragFillRatio] = useState(0);
@@ -612,15 +626,19 @@ const SwipeHabitCard = ({
   const panResponder = useMemo(
     () =>
       PanResponder.create({
-        onMoveShouldSetPanResponder: (_, g) =>
-          isInteractive && Math.abs(g.dx) > Math.abs(g.dy) && Math.abs(g.dx) > 7,
+        onMoveShouldSetPanResponder: (_, g) => {
+          if (Math.abs(g.dx) <= Math.abs(g.dy) || Math.abs(g.dx) <= 7) return false;
+          if (actionsOpen && canSwipeActions) return true;
+          if (g.dx < 0) return canSwipeActions;
+          return canSwipeProgress;
+        },
         onPanResponderGrant: () => {
-          if (!isInteractive) return;
+          if (!canSwipeProgress && !canSwipeActions) return;
           swipeStartRatioRef.current = progressRatioRef.current;
           setSwipeInteractionActive(true);
         },
         onPanResponderMove: (_, g) => {
-          if (!isInteractive) return;
+          if (!canSwipeProgress && !canSwipeActions) return;
 
           if (actionsOpen) {
             clearDragFillPreview();
@@ -633,18 +651,20 @@ const SwipeHabitCard = ({
           }
 
           if (g.dx < 0) {
+            if (!canSwipeActions) return;
             clearDragFillPreview();
             translateX.setValue(clamp(g.dx, -ACTION_RAIL_WIDTH, 0));
             return;
           }
 
+          if (!canSwipeProgress) return;
           // Right swipe should fill progress only; card stays in place.
           translateX.setValue(0);
           setDragFillPreview(getSwipeTargetRatio(g.dx, swipeStartRatioRef.current));
         },
         onPanResponderRelease: (_, g) => {
           setSwipeInteractionActive(false);
-          if (!isInteractive) {
+          if (!canSwipeProgress && !canSwipeActions) {
             clearDragFillPreview();
             closeActions();
             return;
@@ -662,6 +682,11 @@ const SwipeHabitCard = ({
           }
 
           if (g.dx < 0) {
+            if (!canSwipeActions) {
+              clearDragFillPreview();
+              closeActions();
+              return;
+            }
             clearDragFillPreview();
             const shouldOpen = g.dx < -42 || g.vx < -0.35;
             if (shouldOpen) {
@@ -672,7 +697,7 @@ const SwipeHabitCard = ({
             return;
           }
 
-          if (g.dx >= 12) {
+          if (g.dx >= 12 && canSwipeProgress) {
             const targetRatio = Math.max(
               dragFillRatioRef.current,
               getSwipeTargetRatio(g.dx, swipeStartRatioRef.current)
@@ -706,12 +731,13 @@ const SwipeHabitCard = ({
     [
       ACTION_RAIL_WIDTH,
       actionsOpen,
+      canSwipeActions,
+      canSwipeProgress,
       clearDragFillPreview,
       closeActions,
       dragFillRatioRef,
       getSwipeTargetRatio,
       habit,
-      isInteractive,
       onSwipeAdd,
       setSwipeInteractionActive,
       openActions,
@@ -721,17 +747,26 @@ const SwipeHabitCard = ({
     ]
   );
 
+  const achievedReferenceDate = parseDateOnly(habit?.endDate) || new Date();
+  const achievedFinalStreak = achieved
+    ? computeCurrentStreakFromDateKeys(
+        habit?.completedDates || [],
+        habit?.goalPeriod || 'day',
+        achievedReferenceDate
+      )
+    : 0;
+  const overdoneVisual = overdone && !achieved;
   const isAndroid = Platform.OS === 'android';
   const displayRatio = clamp(isAndroid ? ratio : Math.max(ratio, dragFillRatio), 0, 1);
-  const visualFillRatio = overdone ? 0 : completed ? 1 : displayRatio;
+  const visualFillRatio = overdoneVisual ? 0 : completed ? 1 : displayRatio;
   const fillWidth = rowWidth * visualFillRatio;
   const habitColor = habit.color || palette.habits;
   const overdoneBorderColor = palette.isDark ? '#6B7280' : '#9CA3AF';
   const overdoneSurfaceColor = palette.isDark ? '#4B5563' : '#D1D5DB';
   const overdoneTrackColor = palette.isDark ? '#374151' : '#E5E7EB';
-  const tintedTrack = overdone ? overdoneTrackColor : withAlpha(habitColor, 0.16);
+  const tintedTrack = overdoneVisual ? overdoneTrackColor : withAlpha(habitColor, 0.16);
   const surfaceTone = shadeColor(habitColor, completed ? -0.16 : -0.24);
-  const tintedSurface = overdone
+  const tintedSurface = overdoneVisual
     ? overdoneSurfaceColor
     : withAlpha(surfaceTone, completed ? 0.58 : 0.52);
   const colorBackdrop = palette.background || palette.card || '#FFFFFF';
@@ -740,28 +775,60 @@ const SwipeHabitCard = ({
     ? toOpaqueColor(tintedSurface, colorBackdrop)
     : tintedSurface;
   const androidFillOverlayColor = isAndroid ? habitColor : null;
-  const shouldRenderFillTrack = !isAndroid && !overdone && visualFillRatio > 0.001;
-  const habitTextColor = overdone ? (palette.isDark ? '#F9FAFB' : '#111827') : '#F8FAFC';
-  const habitSubTextColor = withAlpha(habitTextColor, 0.82);
-  const habitHintColor = overdone ? '#DC2626' : withAlpha(habitTextColor, 0.72);
-  const streakIconColor = overdone
+  const achievedPreferredText = getReadableTextColor(habitColor);
+  const achievedFallbackText = achievedPreferredText === '#111827' ? '#F8FAFC' : '#111827';
+  const achievedContrastText = resolveContrastColor({
+    preferredColor: achievedPreferredText,
+    backgroundColor: habitColor,
+    fallbackColor: achievedFallbackText,
+    backgroundBaseColor: palette.background || '#FFFFFF',
+    minContrast: 4.5,
+  });
+  const shouldRenderFillTrack = !isAndroid && !overdoneVisual && !achieved && visualFillRatio > 0.001;
+  const habitTextColor = overdoneVisual
+    ? palette.isDark
+      ? '#F9FAFB'
+      : '#111827'
+    : achieved
+      ? achievedContrastText
+      : '#F8FAFC';
+  const habitSubTextColor = achieved ? habitTextColor : withAlpha(habitTextColor, 0.82);
+  const habitHintColor = overdoneVisual
     ? '#DC2626'
+    : achieved
+      ? habitTextColor
+      : withAlpha(habitTextColor, 0.72);
+  const streakIconColor = overdoneVisual
+    ? '#DC2626'
+    : achieved
+      ? habitTextColor
     : resolveContrastColor({
         preferredColor: '#F97316',
         backgroundColor: tintedSurfaceColor,
         fallbackColor: habitTextColor === '#F8FAFC' ? '#F97316' : habitTextColor,
         backgroundBaseColor: tintedTrackColor,
       });
-  const streakIconName = overdone ? 'close-circle' : 'flame';
-  const streakLabel = overdone
+  const streakIconName = overdoneVisual ? 'close-circle' : achieved ? 'flag' : 'flame';
+  const streakLabel = overdoneVisual
     ? 'Habit overdone'
-    : formatStreakSummary(habit.streak || 0, habit.goalPeriod);
-  const warningHintText = overdone
+    : achieved
+      ? `Final streak: ${achievedFinalStreak} ${getStreakUnit(habit.goalPeriod, achievedFinalStreak !== 1)}`
+      : formatStreakSummary(habit.streak || 0, habit.goalPeriod);
+  const warningHintText = overdoneVisual
     ? 'Stick to your limit to complete this quit habit and keep your streak.'
+    : achieved
+      ? 'This habit has been achieved'
     : 'Swipe right to add progress - Swipe left for actions - Tap for exact amount';
-  const cardBorderColor = overdone ? overdoneBorderColor : habitColor;
-  const avatarColor = overdone
+  const cardBorderColor = overdoneVisual
+    ? overdoneBorderColor
+    : achieved
+      ? shadeColor(habitColor, -0.18)
+      : habitColor;
+  const cardSurfaceColor = achieved ? habitColor : tintedSurfaceColor;
+  const avatarColor = overdoneVisual
     ? withAlpha('#FFFFFF', palette.isDark ? 0.16 : 0.42)
+    : achieved
+      ? withAlpha('#FFFFFF', palette.isDark ? 0.22 : 0.24)
     : withAlpha(habitColor, 0.2);
 
   return (
@@ -787,7 +854,7 @@ const SwipeHabitCard = ({
               styles.habitCard,
               {
                 borderColor: cardBorderColor,
-                backgroundColor: tintedSurfaceColor,
+                backgroundColor: cardSurfaceColor,
               },
             ]}
             onPress={() => {
@@ -799,7 +866,7 @@ const SwipeHabitCard = ({
             }}
             activeOpacity={0.9}
           >
-            {isAndroid && !overdone && visualFillRatio > 0.001 ? (
+            {isAndroid && !overdoneVisual && !achieved && visualFillRatio > 0.001 ? (
               <View
                 pointerEvents="none"
                 style={[
@@ -824,25 +891,38 @@ const SwipeHabitCard = ({
                 </View>
                 <View style={styles.habitInfo}>
                   <Text style={[styles.habitTitle, { color: habitTextColor }]} numberOfLines={1}>{habit.title}</Text>
-                  <Text style={[styles.habitMeta, { color: habitSubTextColor }]}>
-                    {Math.round(progress)} / {getGoalValue(habit)} {habit.goalUnit || 'times'}
-                  </Text>
+                  {!achieved ? (
+                    <Text style={[styles.habitMeta, { color: habitSubTextColor }]}>
+                      {Math.round(progress)} / {getGoalValue(habit)} {habit.goalUnit || 'times'}
+                    </Text>
+                  ) : null}
                 </View>
                 <View style={styles.progressMeta}>
                   <View style={styles.progressStreakRow}>
                     <Ionicons name={streakIconName} size={14} color={streakIconColor} />
-                    <Text style={[styles.progressMetaStreak, { color: overdone ? '#DC2626' : habitTextColor }]}>
+                    <Text style={[styles.progressMetaStreak, { color: overdoneVisual ? '#DC2626' : habitTextColor }]}>
                       {streakLabel}
                     </Text>
                   </View>
-                  <Text style={[styles.progressMetaPercent, { color: habitTextColor }]}>
-                    {Math.round(ratio * 100)}%
-                  </Text>
+                  {!achieved ? (
+                    <Text style={[styles.progressMetaPercent, { color: habitTextColor }]}>
+                      {Math.round(ratio * 100)}%
+                    </Text>
+                  ) : null}
                 </View>
               </View>
-              <Text style={[styles.habitHint, { color: habitHintColor }]}>
-                {warningHintText}
-              </Text>
+              {achieved ? (
+                <View style={styles.habitHintRow}>
+                  <Ionicons name="checkmark-circle" size={14} color={habitTextColor} />
+                  <Text style={[styles.habitHint, { color: habitHintColor, marginTop: 0, marginLeft: spacing.xs }]}>
+                    {warningHintText}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={[styles.habitHint, { color: habitHintColor }]}>
+                  {warningHintText}
+                </Text>
+              )}
             </View>
           </TouchableOpacity>
         </View>
@@ -851,14 +931,23 @@ const SwipeHabitCard = ({
             <Feather name="edit-2" size={17} color="#2D6BFF" />
             <Text style={[styles.actionText, { color: '#2D6BFF' }]}>Details</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionTile, styles.actionTileSkip]} onPress={() => { closeActions(); onSkip(habit); }}>
-            <Ionicons name="play-skip-forward" size={17} color="#FF8A1F" />
-            <Text style={[styles.actionText, { color: '#FF8A1F' }]}>Skip</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionTile, styles.actionTileReset]} onPress={() => { closeActions(); onReset(habit); }}>
-            <Ionicons name="refresh" size={17} color="#16A34A" />
-            <Text style={[styles.actionText, { color: '#16A34A' }]}>Reset</Text>
-          </TouchableOpacity>
+          {achieved ? (
+            <TouchableOpacity style={[styles.actionTile, styles.actionTileDelete]} onPress={() => { closeActions(); onDelete?.(habit); }}>
+              <Ionicons name="trash-outline" size={17} color="#DC2626" />
+              <Text style={[styles.actionText, { color: '#DC2626' }]}>Delete</Text>
+            </TouchableOpacity>
+          ) : (
+            <>
+              <TouchableOpacity style={[styles.actionTile, styles.actionTileSkip]} onPress={() => { closeActions(); onSkip(habit); }}>
+                <Ionicons name="play-skip-forward" size={17} color="#FF8A1F" />
+                <Text style={[styles.actionText, { color: '#FF8A1F' }]}>Skip</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.actionTile, styles.actionTileReset]} onPress={() => { closeActions(); onReset(habit); }}>
+                <Ionicons name="refresh" size={17} color="#16A34A" />
+                <Text style={[styles.actionText, { color: '#16A34A' }]}>Reset</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </Animated.View>
     </View>
@@ -1002,6 +1091,9 @@ const HabitsScreen = () => {
   const selectedDateKey = toDateKey(selectedDate);
   const selectedDateISO = toISODate(selectedDate);
   const isSelectedDateToday = isSameDay(selectedDate, new Date());
+  const manualAmountValue = Math.max(0, parseNumber(manualAmount, 0));
+  const parsedStartDate = parseDateOnly(startDate) || new Date();
+  const parsedEndDate = parseDateOnly(endDate);
 
   const habitsWithDefaults = useMemo(() => (habits || []).map(withDefaults), [habits]);
   const sourceHabitsById = useMemo(
@@ -1152,12 +1244,15 @@ const HabitsScreen = () => {
     ? getDateProgressAmount(selectedHabit, selectedDateKey, localProgressMap)
     : 0;
   const selectedHabitRatio = selectedHabit
-    ? getCompletionRatio(selectedHabit, selectedHabitAmount)
+    ? getCompletionRatio(selectedHabit, selectedHabitAmount, selectedDate)
     : 0;
   const selectedHabitPercent = Math.round(selectedHabitRatio * 100);
   const selectedHabitGoalValue = selectedHabit ? getGoalValue(selectedHabit) : 1;
   const selectedHabitIsQuit = (selectedHabit?.habitType || 'build') === 'quit';
   const selectedHabitIsOverdone = selectedHabitIsQuit && selectedHabitAmount > selectedHabitGoalValue;
+  const selectedHabitLifecycleCompleted = selectedHabit
+    ? hasHabitReachedEndDate(selectedHabit, new Date())
+    : false;
   const selectedHabitCompletions = selectedHabit?.completedDates?.length || 0;
   const selectedHabitBestStreak = useMemo(
     () => computeBestStreakFromDateKeys(selectedHabit?.completedDates || [], selectedHabit?.goalPeriod || 'day'),
@@ -1186,41 +1281,50 @@ const HabitsScreen = () => {
     year: 'numeric',
   });
 
-  const categoryOptions = useMemo(() => {
-    const values = new Set(visibleHabits.map((habit) => habit.category || 'Personal'));
-    return ['All', ...Array.from(values)];
-  }, [visibleHabits]);
-
   const baseFilteredHabits = useMemo(
     () =>
       visibleHabits
-        .filter((habit) => (selectedCategory === 'All' ? true : (habit.category || 'Personal') === selectedCategory))
+        .filter((habit) => {
+          const fullyCompleted = hasHabitReachedEndDate(habit, new Date());
+          if (selectedCategory === 'Achieved') return fullyCompleted;
+          if (fullyCompleted) return false;
+          if (selectedCategory === 'Personal') return !habit.__isGroupHabit;
+          if (selectedCategory === 'Group') return Boolean(habit.__isGroupHabit);
+          return true;
+        })
         .filter((habit) => (selectedTimeRange === 'all_day' ? true : habit.timeRange === selectedTimeRange))
         .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)),
     [visibleHabits, selectedCategory, selectedTimeRange]
   );
   const dueHabits = useMemo(
-    () => baseFilteredHabits.filter((habit) => isHabitScheduledForDate(habit, selectedDate)),
-    [baseFilteredHabits, selectedDate]
+    () => {
+      if (selectedCategory === 'Achieved') return baseFilteredHabits;
+      return baseFilteredHabits.filter((habit) => isHabitScheduledForDate(habit, selectedDate));
+    },
+    [baseFilteredHabits, selectedCategory, selectedDate]
   );
   const filteredHabits = useMemo(
-    () =>
-      baseFilteredHabits.filter((habit) => {
+    () => {
+      if (selectedCategory === 'Achieved') return baseFilteredHabits;
+      return baseFilteredHabits.filter((habit) => {
         if (isHabitScheduledForDate(habit, selectedDate)) return true;
         const amount = getDateProgressAmount(habit, selectedDateKey, localProgressMap);
         if (amount > 0) return true;
         return (habit.completedDates || []).includes(selectedDateKey);
-      }),
-    [baseFilteredHabits, localProgressMap, selectedDate, selectedDateKey]
+      });
+    },
+    [baseFilteredHabits, localProgressMap, selectedCategory, selectedDate, selectedDateKey]
   );
 
   const completedCount = useMemo(
-    () =>
-      dueHabits.filter((habit) => {
+    () => {
+      if (selectedCategory === 'Achieved') return dueHabits.length;
+      return dueHabits.filter((habit) => {
         const amount = getDateProgressAmount(habit, selectedDateKey, localProgressMap);
         return isCompletedForDate(habit, selectedDateKey, amount);
-      }).length,
-    [dueHabits, selectedDateKey, localProgressMap]
+      }).length;
+    },
+    [dueHabits, selectedCategory, selectedDateKey, localProgressMap]
   );
   const selectedDateLabel = useMemo(() => {
     const date = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
@@ -1531,6 +1635,7 @@ const HabitsScreen = () => {
   };
 
   const applyProgress = async (habit, amountValue) => {
+    if (hasHabitReachedEndDate(habit, new Date())) return;
     const amount = Math.max(0, parseNumber(amountValue, 0));
     const localKey = `${habit.id}|${selectedDateKey}`;
     setLocalProgressMap((prev) => ({ ...prev, [localKey]: amount }));
@@ -1572,6 +1677,16 @@ const HabitsScreen = () => {
     setManualAutoComplete(false);
   };
 
+  const nudgeManualAmount = useCallback(
+    (delta) => {
+      const next = Math.max(0, manualAmountValue + delta);
+      const normalized = Number.isInteger(next) ? next : Math.round(next * 1000) / 1000;
+      setManualAutoComplete(false);
+      setManualAmount(String(normalized));
+    },
+    [manualAmountValue]
+  );
+
   const closeFormModal = () => {
     setShowFormModal(false);
     setShowEmojiSheet(false);
@@ -1581,6 +1696,8 @@ const HabitsScreen = () => {
     setShowTaskDaysSheet(false);
     setShowReminderTimePicker(false);
     setEditingReminderTimeIndex(null);
+    setShowStartDatePicker(false);
+    setShowEndDatePicker(false);
     setShowQuitHabitInfoModal(false);
   };
 
@@ -1594,14 +1711,47 @@ const HabitsScreen = () => {
     setShowGoalPeriodSheet(false);
   };
 
+  const openStartDatePicker = () => {
+    setShowEndDatePicker(false);
+    setShowStartDatePicker(true);
+  };
+
+  const openEndDatePicker = () => {
+    setShowStartDatePicker(false);
+    setShowEndDatePicker(true);
+  };
+
+  const handleStartDateChange = (dateValue) => {
+    const nextStartDate = parseDateOnly(dateValue) || new Date();
+    const nextStartISO = toISODate(nextStartDate);
+    setStartDate(nextStartISO);
+
+    const currentEndDate = parseDateOnly(endDate);
+    if (
+      currentEndDate &&
+      toUtcDayNumber(nextStartDate) > toUtcDayNumber(currentEndDate)
+    ) {
+      setEndDate(nextStartISO);
+    }
+  };
+
+  const handleEndDateChange = (dateValue) => {
+    const nextEndDate = parseDateOnly(dateValue) || parsedStartDate;
+    if (toUtcDayNumber(nextEndDate) < toUtcDayNumber(parsedStartDate)) {
+      setEndDate(toISODate(parsedStartDate));
+      return;
+    }
+    setEndDate(toISODate(nextEndDate));
+  };
+
   const handleHabitTypeSelect = useCallback(
     (nextType) => {
       setHabitType(nextType);
-      if (nextType === 'quit' && habitType !== 'quit' && !isEditingHabit) {
+      if (nextType === 'quit' && habitType !== 'quit') {
         setShowQuitHabitInfoModal(true);
       }
     },
-    [habitType, isEditingHabit]
+    [habitType]
   );
 
   const toggleInvitedFriend = (friendId) => {
@@ -1751,26 +1901,47 @@ const HabitsScreen = () => {
     resetForm();
   };
 
-  const removeSelectedHabit = async () => {
+  const completeSelectedHabit = async () => {
     if (!selectedHabit) return;
+    const todayISO = toISODate(new Date());
     try {
       if (selectedHabit.__isGroupHabit) {
-        await deleteGroupHabit(selectedHabit.id);
-        setShowDetailModal(false);
-        setActiveGroupHabitId(null);
-        setActiveGroupHabitGroupId(null);
+        await updateGroupHabit(selectedHabit.id, { endDate: todayISO });
+      } else {
+        await updateHabit(selectedHabit.id, { endDate: todayISO });
+      }
+      setSelectedDate(toStartOfDay(new Date()));
+    } catch (error) {
+      Alert.alert('Unable to complete habit', error?.message || 'Please try again.');
+    }
+  };
+
+  const removeHabitByItem = async (habitToRemove, { closeDetail = false } = {}) => {
+    if (!habitToRemove) return;
+    try {
+      if (habitToRemove.__isGroupHabit) {
+        await deleteGroupHabit(habitToRemove.id);
+        if (closeDetail) setShowDetailModal(false);
+        setActiveGroupHabitId((prev) => (prev === habitToRemove.id ? null : prev));
+        setActiveGroupHabitGroupId((prev) =>
+          prev === (habitToRemove.groupId || null) ? null : prev
+        );
         return;
       }
-      await deleteHabit(selectedHabit.id);
-      setShowDetailModal(false);
-      setActiveGroupHabitGroupId(null);
-      setActiveHabitId(null);
+      await deleteHabit(habitToRemove.id);
+      if (closeDetail) setShowDetailModal(false);
+      setActiveHabitId((prev) => (prev === habitToRemove.id ? null : prev));
     } catch (error) {
       Alert.alert(
         'Unable to delete habit',
         error?.message || 'Please try again. The habit was not removed from the database.'
       );
     }
+  };
+
+  const removeSelectedHabit = async () => {
+    if (!selectedHabit) return;
+    await removeHabitByItem(selectedHabit, { closeDetail: true });
   };
 
   const toggleWeekday = (day) => {
@@ -1877,7 +2048,7 @@ const HabitsScreen = () => {
         </View>
 
         <View style={styles.filterRow}>
-          {categoryOptions.map((category) => {
+          {HABIT_VIEW_FILTERS.map((category) => {
             const selected = selectedCategory === category;
             return (
               <TouchableOpacity
@@ -1920,7 +2091,7 @@ const HabitsScreen = () => {
           })}
         </View>
 
-        {!isSelectedDateToday ? (
+        {!isSelectedDateToday && selectedCategory !== 'Achieved' ? (
           <View style={[styles.notice, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]}>
             <Ionicons name="information-circle-outline" size={15} color={palette.textMuted} />
             <Text style={[styles.noticeText, { color: palette.textMuted }]}>
@@ -1932,7 +2103,9 @@ const HabitsScreen = () => {
         {filteredHabits.length === 0 ? (
           <View style={[styles.emptyState, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}>
             <Feather name="target" size={34} color={palette.habits} />
-            <Text style={[styles.emptyTitle, { color: palette.text }]}>No habits found</Text>
+            <Text style={[styles.emptyTitle, { color: palette.text }]}>
+              {selectedCategory === 'Achieved' ? 'No achieved habits yet' : 'No habits found'}
+            </Text>
             <TouchableOpacity style={[styles.emptyButton, { backgroundColor: palette.habits }]} onPress={openCreateModalPersonal}>
               <Text style={styles.emptyButtonText}>Create Habit</Text>
             </TouchableOpacity>
@@ -1940,10 +2113,11 @@ const HabitsScreen = () => {
         ) : (
           filteredHabits.map((habit) => {
             const amount = getDateProgressAmount(habit, selectedDateKey, localProgressMap);
-            const ratio = getCompletionRatio(habit, amount);
+            const ratio = getCompletionRatio(habit, amount, selectedDate);
             const completed = isCompletedForDate(habit, selectedDateKey, amount);
             const overdone =
               (habit.habitType || 'build') === 'quit' && amount > getGoalValue(habit);
+            const lifecycleCompleted = hasHabitReachedEndDate(habit, new Date());
             return (
               <SwipeHabitCard
                 key={`${habit.__isGroupHabit ? 'group' : 'personal'}-${habit.id}`}
@@ -1951,8 +2125,9 @@ const HabitsScreen = () => {
                 progress={amount}
                 ratio={ratio}
                 completed={completed}
+                achieved={lifecycleCompleted}
                 overdone={overdone}
-                isInteractive={isSelectedDateToday}
+                isInteractive={isSelectedDateToday && !lifecycleCompleted}
                 onTap={(item) => {
                   if (item.__isGroupHabit) {
                     setActiveHabitId(null);
@@ -1962,6 +2137,10 @@ const HabitsScreen = () => {
                     setActiveGroupHabitId(null);
                     setActiveGroupHabitGroupId(null);
                     setActiveHabitId(item.id);
+                  }
+                  if (lifecycleCompleted) {
+                    setShowDetailModal(true);
+                    return;
                   }
                   setManualAmount(String(Math.round(getDateProgressAmount(item, selectedDateKey, localProgressMap))));
                   setManualAutoComplete(false);
@@ -1984,6 +2163,9 @@ const HabitsScreen = () => {
                 }}
                 onReset={async (item) => {
                   await applyProgress(item, 0);
+                }}
+                onDelete={async (item) => {
+                  await removeHabitByItem(item);
                 }}
                 onSwipeAdd={applyProgress}
                 onSwipeInteractionChange={setIsHabitSwipeActive}
@@ -2099,6 +2281,34 @@ const HabitsScreen = () => {
               placeholder="0"
               placeholderTextColor={palette.textLight}
             />
+            <View style={styles.manualStepRow}>
+              <TouchableOpacity
+                style={[
+                  styles.manualStepBtn,
+                  {
+                    backgroundColor: palette.mutedSurface,
+                    borderColor: manualAmountValue <= 0 ? palette.cardBorder : palette.habits,
+                    opacity: manualAmountValue <= 0 ? 0.55 : 1,
+                  },
+                ]}
+                onPress={() => nudgeManualAmount(-1)}
+                disabled={manualAmountValue <= 0}
+              >
+                <Ionicons name="remove" size={18} color={palette.textMuted} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.manualStepBtn,
+                  {
+                    backgroundColor: palette.mutedSurface,
+                    borderColor: palette.habits,
+                  },
+                ]}
+                onPress={() => nudgeManualAmount(1)}
+              >
+                <Ionicons name="add" size={18} color={palette.habits} />
+              </TouchableOpacity>
+            </View>
             <Text style={[styles.manualGoal, { color: palette.textMuted }]}>
               Goal: {getGoalValue(selectedHabit)} {selectedHabit.goalUnit || 'times'}
             </Text>
@@ -2146,50 +2356,18 @@ const HabitsScreen = () => {
         ) : null}
       </Modal>
 
-      <RNModal
-        visible={showQuitHabitInfoModal}
-        transparent
-        animationType="fade"
-        statusBarTranslucent={Platform.OS === 'android'}
-        onRequestClose={() => setShowQuitHabitInfoModal(false)}
+      <Modal
+        visible={showFormModal}
+        onClose={() => {
+          if (showQuitHabitInfoModal) return;
+          closeFormModal();
+        }}
+        hideHeader
+        fullScreen
+        swipeToCloseEnabled={!showQuitHabitInfoModal}
+        scrollEnabled={!showQuitHabitInfoModal}
+        contentStyle={{ paddingHorizontal: 0 }}
       >
-        <View style={styles.quitInfoOverlay}>
-          <TouchableOpacity
-            style={styles.quitInfoBackdrop}
-            activeOpacity={1}
-            onPress={() => setShowQuitHabitInfoModal(false)}
-          />
-          <View
-            style={[
-              styles.quitInfoCard,
-              { backgroundColor: palette.card, borderColor: palette.cardBorder },
-            ]}
-          >
-            <View style={[styles.quitInfoIconWrap, { backgroundColor: withAlpha('#EF4444', 0.12) }]}>
-              <Ionicons name="close-circle-outline" size={32} color="#DC2626" />
-            </View>
-            <Text style={[styles.quitInfoTitle, { color: palette.text }]}>{'\u{1F44E} Quit Habit'}</Text>
-            <Text style={[styles.quitInfoText, { color: palette.textMuted }]}>
-              You must not exceed your goal to complete a habit. If you don't do
-              anything to a habit, it is completed.
-            </Text>
-            <TouchableOpacity
-              style={[
-                styles.quitInfoButton,
-                {
-                  backgroundColor: withAlpha(palette.habits, 0.14),
-                  borderColor: withAlpha(palette.habits, 0.38),
-                },
-              ]}
-              onPress={() => setShowQuitHabitInfoModal(false)}
-            >
-              <Text style={[styles.quitInfoButtonText, { color: palette.habits }]}>Confirm</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </RNModal>
-
-      <Modal visible={showFormModal} onClose={closeFormModal} hideHeader fullScreen contentStyle={{ paddingHorizontal: 0 }}>
         <View style={[styles.formScreen, { backgroundColor: palette.background, paddingTop: insets.top + spacing.sm }]}>
           <View style={styles.formTop}>
             <TouchableOpacity style={[styles.iconButton, { borderColor: palette.cardBorder, backgroundColor: palette.card }]} onPress={closeFormModal}>
@@ -2538,7 +2716,7 @@ const HabitsScreen = () => {
 
             <View style={[styles.sectionCard, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}>
               <View style={styles.rowBetween}>
-                <Text style={[styles.rowLabel, { color: palette.text }]}>Show memo after completion</Text>
+                <Text style={[styles.rowLabel, { color: palette.text }]}>Completion</Text>
                 <Switch value={showMemoAfterCompletion} onValueChange={setShowMemoAfterCompletion} trackColor={{ false: palette.switchTrack, true: palette.habits }} />
               </View>
               <View style={styles.rowLine}>
@@ -2552,13 +2730,22 @@ const HabitsScreen = () => {
                   </TouchableOpacity>
                 </View>
               </View>
-              <TouchableOpacity style={styles.rowLine} onPress={() => setShowStartDatePicker(true)}>
+              <TouchableOpacity style={styles.rowLine} onPress={openStartDatePicker}>
                 <Text style={[styles.rowLabel, { color: palette.text }]}>Start date</Text>
                 <Text style={[styles.rowValue, { color: palette.textMuted }]}>{startDate}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.rowLine} onPress={() => setShowEndDatePicker(true)}>
+              <TouchableOpacity style={styles.rowLine} onPress={openEndDatePicker}>
                 <Text style={[styles.rowLabel, { color: palette.text }]}>End date</Text>
                 <Text style={[styles.rowValue, { color: palette.textMuted }]}>{endDate || 'No end'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.rowLine}
+                onPress={() => setEndDate(null)}
+              >
+                <Text style={[styles.rowLabel, { color: palette.text }]}>No end</Text>
+                <Text style={[styles.rowValue, { color: palette.textMuted }]}>
+                  {endDate ? 'Tap to clear' : 'Enabled'}
+                </Text>
               </TouchableOpacity>
             </View>
 
@@ -2566,6 +2753,39 @@ const HabitsScreen = () => {
               <Text style={styles.saveButtonText}>{isEditingHabit ? 'Save changes' : 'Create habit'}</Text>
             </TouchableOpacity>
           </View>
+
+          {showQuitHabitInfoModal ? (
+            <View style={styles.quitInfoOverlay}>
+              <View style={styles.quitInfoBackdrop} />
+              <View
+                style={[
+                  styles.quitInfoCard,
+                  { backgroundColor: palette.card, borderColor: palette.cardBorder },
+                ]}
+              >
+                <View style={[styles.quitInfoIconWrap, { backgroundColor: withAlpha('#EF4444', 0.12) }]}>
+                  <Ionicons name="close-circle-outline" size={32} color="#DC2626" />
+                </View>
+                <Text style={[styles.quitInfoTitle, { color: palette.text }]}>{'\u{1F44E} Quit Habit'}</Text>
+                <Text style={[styles.quitInfoText, { color: palette.textMuted }]}>
+                  You must not exceed your goal to complete a habit. If you don't do
+                  anything to a habit, it is completed.
+                </Text>
+                <TouchableOpacity
+                  style={[
+                    styles.quitInfoButton,
+                    {
+                      backgroundColor: withAlpha(palette.habits, 0.14),
+                      borderColor: withAlpha(palette.habits, 0.38),
+                    },
+                  ]}
+                  onPress={() => setShowQuitHabitInfoModal(false)}
+                >
+                  <Text style={[styles.quitInfoButtonText, { color: palette.habits }]}>Continue</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
         </View>
       </Modal>
 
@@ -2611,20 +2831,24 @@ const HabitsScreen = () => {
                   >
                     <Ionicons name="arrow-back" size={20} color={selectedHabitColor} />
                   </TouchableOpacity>
-                  <View style={styles.detailTopActions}>
-                    <TouchableOpacity
-                      style={[styles.detailIconButton, styles.detailTopActionButton, { backgroundColor: withAlpha(selectedHabitColor, 0.16), borderWidth: 1, borderColor: withAlpha(selectedHabitColor, 0.28) }]}
-                      onPress={openEditFromDetail}
-                    >
-                      <Feather name="edit-2" size={16} color={selectedHabitColor} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.detailIconButton, styles.detailTopActionButton, { backgroundColor: withAlpha(selectedHabitColor, 0.16), borderWidth: 1, borderColor: withAlpha(selectedHabitColor, 0.28) }]}
-                      onPress={removeSelectedHabit}
-                    >
-                      <Ionicons name="trash-outline" size={17} color={selectedHabitColor} />
-                    </TouchableOpacity>
-                  </View>
+                  {selectedHabitLifecycleCompleted ? (
+                    <View style={styles.detailTopActionsSpacer} />
+                  ) : (
+                    <View style={styles.detailTopActions}>
+                      <TouchableOpacity
+                        style={[styles.detailIconButton, styles.detailTopActionButton, { backgroundColor: withAlpha(selectedHabitColor, 0.16), borderWidth: 1, borderColor: withAlpha(selectedHabitColor, 0.28) }]}
+                        onPress={openEditFromDetail}
+                      >
+                        <Feather name="edit-2" size={16} color={selectedHabitColor} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.detailIconButton, styles.detailTopActionButton, { backgroundColor: withAlpha(selectedHabitColor, 0.16), borderWidth: 1, borderColor: withAlpha(selectedHabitColor, 0.28) }]}
+                        onPress={removeSelectedHabit}
+                      >
+                        <Ionicons name="trash-outline" size={17} color={selectedHabitColor} />
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
 
                 <View style={styles.detailIdentityRow}>
@@ -2674,12 +2898,18 @@ const HabitsScreen = () => {
                     style={[
                       styles.markBtn,
                       {
-                        backgroundColor: isSelectedDateToday ? selectedHabitColor : palette.cardBorder,
-                        borderColor: isSelectedDateToday ? selectedHabitColor : palette.cardBorder,
+                        backgroundColor:
+                          isSelectedDateToday && !selectedHabitLifecycleCompleted
+                            ? selectedHabitColor
+                            : palette.cardBorder,
+                        borderColor:
+                          isSelectedDateToday && !selectedHabitLifecycleCompleted
+                            ? selectedHabitColor
+                            : palette.cardBorder,
                       },
                     ]}
                     onPress={() => {
-                      if (!isSelectedDateToday) return;
+                      if (!isSelectedDateToday || selectedHabitLifecycleCompleted) return;
                       if (selectedHabitIsQuit) {
                         applyProgress(
                           selectedHabit,
@@ -2692,10 +2922,12 @@ const HabitsScreen = () => {
                         selectedHabitCompletedForDate ? 0 : getGoalValue(selectedHabit)
                       );
                     }}
-                    disabled={!isSelectedDateToday}
+                    disabled={!isSelectedDateToday || selectedHabitLifecycleCompleted}
                   >
                     <Text style={styles.markBtnText}>
-                      {!isSelectedDateToday
+                      {selectedHabitLifecycleCompleted
+                        ? 'Habit fully completed'
+                        : !isSelectedDateToday
                         ? 'Only today can be updated'
                         : selectedHabitIsQuit
                           ? selectedHabitIsOverdone
@@ -2704,6 +2936,36 @@ const HabitsScreen = () => {
                           : selectedHabitCompletedForDate
                             ? 'Mark as incomplete'
                             : 'Mark as complete'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.completeHabitBtn,
+                      {
+                        backgroundColor: selectedHabitLifecycleCompleted
+                          ? palette.mutedSurface
+                          : withAlpha('#10B981', 0.14),
+                        borderColor: selectedHabitLifecycleCompleted
+                          ? palette.cardBorder
+                          : withAlpha('#10B981', 0.45),
+                      },
+                    ]}
+                    onPress={completeSelectedHabit}
+                    disabled={selectedHabitLifecycleCompleted}
+                  >
+                    <Ionicons
+                      name={selectedHabitLifecycleCompleted ? 'checkmark-circle' : 'checkmark-done-circle-outline'}
+                      size={16}
+                      color={selectedHabitLifecycleCompleted ? palette.textMuted : '#10B981'}
+                    />
+                    <Text
+                      style={[
+                        styles.completeHabitBtnText,
+                        { color: selectedHabitLifecycleCompleted ? palette.textMuted : '#10B981' },
+                      ]}
+                    >
+                      {selectedHabitLifecycleCompleted ? 'Habit completed' : 'Complete habit'}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -2825,8 +3087,22 @@ const HabitsScreen = () => {
         onChange={(date) => setSelectedDate(toStartOfDay(date))}
         accentColor={palette.habits}
       />
-      <PlatformDatePicker visible={showStartDatePicker} value={startDate} onClose={() => setShowStartDatePicker(false)} onChange={(date) => setStartDate(toISODate(date))} />
-      <PlatformDatePicker visible={showEndDatePicker} value={endDate || new Date()} onClose={() => setShowEndDatePicker(false)} onChange={(date) => setEndDate(toISODate(date))} />
+      <PlatformDatePicker
+        visible={showStartDatePicker}
+        value={parsedStartDate}
+        onClose={() => setShowStartDatePicker(false)}
+        onChange={handleStartDateChange}
+        maximumDate={parsedEndDate || undefined}
+        accentColor={palette.habits}
+      />
+      <PlatformDatePicker
+        visible={showEndDatePicker}
+        value={parsedEndDate || parsedStartDate}
+        onClose={() => setShowEndDatePicker(false)}
+        onChange={handleEndDateChange}
+        minimumDate={parsedStartDate}
+        accentColor={palette.habits}
+      />
     </View>
   );
 };
@@ -2943,6 +3219,7 @@ const createStyles = (palette) =>
     actionTileEdit: { backgroundColor: '#EAF1FF', borderColor: '#D7E5FF' },
     actionTileSkip: { backgroundColor: '#FFF3E7', borderColor: '#FFE2C9' },
     actionTileReset: { backgroundColor: '#E9F8F3', borderColor: '#CDEFE2' },
+    actionTileDelete: { backgroundColor: '#FEE2E2', borderColor: '#FECACA' },
     actionText: { ...typography.caption, fontWeight: '700', marginTop: spacing.xs },
     habitWrapper: {
       borderRadius: borderRadius.xl,
@@ -2988,11 +3265,22 @@ const createStyles = (palette) =>
     progressStreakRow: { flexDirection: 'row', alignItems: 'center' },
     progressMetaStreak: { ...typography.bodySmall, fontWeight: '800', marginLeft: 4 },
     progressMetaPercent: { ...typography.bodySmall, fontWeight: '800', marginTop: 8 },
+    habitHintRow: { marginTop: spacing.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
     habitHint: { ...typography.caption, marginTop: spacing.sm, textAlign: 'center' },
     manualCard: { borderRadius: borderRadius.xl, borderWidth: 1, padding: spacing.lg },
     manualTitle: { ...typography.h3, fontWeight: '700' },
     manualSub: { ...typography.bodySmall, marginTop: 2, marginBottom: spacing.sm },
     manualInput: { borderWidth: 1, borderRadius: borderRadius.lg, paddingVertical: spacing.md, paddingHorizontal: spacing.md, ...typography.body },
+    manualStepRow: { flexDirection: 'row', justifyContent: 'center', marginTop: spacing.sm },
+    manualStepBtn: {
+      width: 48,
+      height: 38,
+      borderRadius: borderRadius.full,
+      borderWidth: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginHorizontal: spacing.xs,
+    },
     manualGoal: { ...typography.caption, marginTop: spacing.sm },
     manualButtons: { flexDirection: 'row', marginTop: spacing.lg },
     manualBtn: { flex: 1, borderRadius: borderRadius.lg, paddingVertical: spacing.md, alignItems: 'center', marginHorizontal: spacing.xs },
@@ -3007,10 +3295,12 @@ const createStyles = (palette) =>
     manualBtnText: { ...typography.bodySmall, fontWeight: '700' },
     manualBtnTextWhite: { ...typography.bodySmall, color: '#FFFFFF', fontWeight: '700' },
     quitInfoOverlay: {
-      flex: 1,
+      ...StyleSheet.absoluteFillObject,
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: spacing.lg,
+      zIndex: 40,
+      elevation: 40,
     },
     quitInfoBackdrop: {
       ...StyleSheet.absoluteFillObject,
@@ -3164,6 +3454,7 @@ const createStyles = (palette) =>
     },
     detailTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     detailTopActions: { flexDirection: 'row' },
+    detailTopActionsSpacer: { width: 92 },
     detailTopActionButton: { marginLeft: spacing.sm },
     detailIconButton: {
       width: 40,
@@ -3233,6 +3524,21 @@ const createStyles = (palette) =>
       borderWidth: 1,
     },
     markBtnText: { ...typography.bodySmall, color: '#FFFFFF', fontWeight: '700' },
+    completeHabitBtn: {
+      marginTop: spacing.sm,
+      borderRadius: borderRadius.full,
+      borderWidth: 1,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.lg,
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexDirection: 'row',
+    },
+    completeHabitBtnText: {
+      ...typography.bodySmall,
+      fontWeight: '700',
+      marginLeft: spacing.xs,
+    },
     progressDateRow: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.md },
     progressDateNav: {
       width: 34,

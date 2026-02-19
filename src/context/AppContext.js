@@ -3510,6 +3510,49 @@ const mapExternalProfile = (row) => ({
     }
   };
 
+  const shareTaskWithGroup = async ({ groupId, task }) => {
+    if (!authUser?.id) throw new Error('You must be logged in to share a task with a group.');
+    if (!groupId) throw new Error('Select a group.');
+    if (!task?.title || !task?.date || !task?.time) {
+      throw new Error('Task title, date, and time are required.');
+    }
+
+    const { data, error } = await supabase.rpc('share_task_with_group', {
+      p_group_id: groupId,
+      p_title: task.title,
+      p_description: task.description || null,
+      p_priority: task.priority || 'medium',
+      p_date: task.date,
+      p_time: task.time,
+    });
+
+    if (error) {
+      if (isMissingFunctionError(error, 'share_task_with_group')) {
+        throw new Error('Group task sharing is not enabled yet. Run supabase/group-task-sharing.sql.');
+      }
+      console.log('Error sharing task with group:', error);
+      throw new Error(error.message || 'Unable to share this task with the selected group.');
+    }
+
+    const createdTask = {
+      id: data.id,
+      title: data.title,
+      description: data.description || '',
+      priority: data.priority || 'medium',
+      date: data.date,
+      time: data.time,
+      completed: Boolean(data.completed),
+      createdAt: data.created_at,
+      archivedAt: data.archived_at || null,
+      sharedTaskId: data.shared_task_id || data.id,
+      groupId: data.group_id || groupId,
+    };
+
+    setTasks((prev) => dedupeById([...prev, createdTask]));
+    setArchivedTasks((prev) => prev.filter((item) => item.id !== createdTask.id));
+    return createdTask;
+  };
+
   const sendTaskInvite = async ({ task, toUserId }) => {
     if (!authUser?.id) throw new Error('You must be logged in to invite someone.');
     if (!task?.id) throw new Error('Task is required.');
@@ -3609,6 +3652,7 @@ const mapExternalProfile = (row) => ({
         createdAt: newRow.created_at,
         archivedAt: newRow.archived_at || null,
         sharedTaskId: invite.task_id,
+        groupId: newRow.group_id || null,
       };
 
       setTasks((prev) => dedupeById([...prev, newTask]));
@@ -5158,6 +5202,7 @@ const TASK_SELECT_FIELDS_MINIMAL = `${TASK_SELECT_FIELDS_BASE_MINIMAL},notificat
 const TASK_SELECT_FIELDS_ARCHIVE = `${TASK_SELECT_FIELDS_ARCHIVE_BASE},notification_ids`;
 const TASK_SELECT_FIELDS_ARCHIVE_NO_DESC = `${TASK_SELECT_FIELDS_ARCHIVE_BASE_NO_DESC},notification_ids`;
 const TASK_SELECT_FIELDS_ARCHIVE_MINIMAL = `${TASK_SELECT_FIELDS_ARCHIVE_BASE_MINIMAL},notification_ids`;
+const withTaskGroupIdField = (selectFields) => `${selectFields},group_id`;
 
 const TASK_SELECT_VARIANTS_WITH_ARCHIVE = [
   TASK_SELECT_FIELDS_ARCHIVE,
@@ -5176,6 +5221,12 @@ const TASK_SELECT_VARIANTS_LEGACY = [
   TASK_SELECT_FIELDS_BASE_NO_DESC,
   TASK_SELECT_FIELDS_BASE_MINIMAL,
 ];
+const TASK_SELECT_VARIANTS_WITH_ARCHIVE_GROUP = TASK_SELECT_VARIANTS_WITH_ARCHIVE.map(
+  withTaskGroupIdField
+);
+const TASK_SELECT_VARIANTS_LEGACY_GROUP = TASK_SELECT_VARIANTS_LEGACY.map(
+  withTaskGroupIdField
+);
 
 const fetchTasksFromSupabase = async (userId) => {
   const buildQuery = (table, selectFields) =>
@@ -5187,6 +5238,16 @@ const fetchTasksFromSupabase = async (userId) => {
       .order('created_at', { ascending: true });
 
   const attempts = [];
+  ['tasks_list', 'tasks'].forEach((table) => {
+    TASK_SELECT_VARIANTS_WITH_ARCHIVE_GROUP.forEach((fields) => {
+      attempts.push({ table, fields });
+    });
+  });
+  ['tasks_list', 'tasks'].forEach((table) => {
+    TASK_SELECT_VARIANTS_LEGACY_GROUP.forEach((fields) => {
+      attempts.push({ table, fields });
+    });
+  });
   ['tasks_list', 'tasks'].forEach((table) => {
     TASK_SELECT_VARIANTS_WITH_ARCHIVE.forEach((fields) => {
       attempts.push({ table, fields });
@@ -5235,6 +5296,7 @@ const fetchTasksFromSupabase = async (userId) => {
     createdAt: t.created_at,
     archivedAt: t.archived_at || null,
     sharedTaskId: t.shared_task_id || t.id,
+    groupId: t.group_id || null,
   }));
 
   if (mappedTasks.length) {
@@ -5301,7 +5363,7 @@ const fetchTasksFromSupabase = async (userId) => {
 
   const { data, error } = await supabase
     .from('tasks')
-    .insert({
+    .insert(pruneUndefined({
       user_id: authUser.id,
       title: task.title,
       description: task.description || null,
@@ -5309,7 +5371,9 @@ const fetchTasksFromSupabase = async (userId) => {
       date: task.date,
       time: task.time,
       completed: false,
-    })
+      shared_task_id: task.sharedTaskId ?? undefined,
+      group_id: task.groupId ?? undefined,
+    }))
     .select()
     .single();
 
@@ -5329,6 +5393,7 @@ const fetchTasksFromSupabase = async (userId) => {
     createdAt: data.created_at,
     archivedAt: data.archived_at || null,
     sharedTaskId: data.shared_task_id || data.id,
+    groupId: data.group_id || task.groupId || null,
   };
 
   setTasks((prev) => dedupeById([...prev, newTask]));
@@ -9833,6 +9898,7 @@ const mapProfileRow = (row) => {
 
     // Task collaboration
     taskInvites,
+    shareTaskWithGroup,
     sendTaskInvite,
     respondToTaskInvite,
     fetchTaskParticipants,

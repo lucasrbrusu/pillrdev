@@ -25,6 +25,26 @@ const parseNumber = (value, fallback = 0) => {
   const next = Number(value);
   return Number.isFinite(next) ? next : fallback;
 };
+const getTaskSortMs = (task) => {
+  if (!task?.date) return Number.MAX_SAFE_INTEGER;
+  const candidate = new Date(task.date);
+  if (Number.isNaN(candidate.getTime())) return Number.MAX_SAFE_INTEGER;
+  const [hoursStr, minutesStr] = String(task.time || '23:59').split(':');
+  const hours = Number(hoursStr);
+  const minutes = Number(minutesStr);
+  candidate.setHours(Number.isFinite(hours) ? hours : 23, Number.isFinite(minutes) ? minutes : 59, 0, 0);
+  return candidate.getTime();
+};
+const formatTaskDateLabel = (dateISO) => {
+  if (!dateISO) return 'No date';
+  const date = new Date(dateISO);
+  if (Number.isNaN(date.getTime())) return String(dateISO);
+  return date.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+};
 const withAlpha = (hexColor, alpha = 0.15) => {
   if (!hexColor || typeof hexColor !== 'string') return `rgba(155,89,182,${alpha})`;
   const clean = hexColor.replace('#', '');
@@ -670,11 +690,13 @@ const GroupDetailScreen = () => {
 
   const {
     habits,
+    tasks,
     groups,
     groupHabits,
     groupHabitCompletions,
     groupRoutines,
     fetchGroupMembers,
+    toggleTaskCompletion,
     toggleGroupHabitCompletion,
     addTaskToGroupRoutine,
     removeTaskFromGroupRoutine,
@@ -686,6 +708,7 @@ const GroupDetailScreen = () => {
     friends,
     sendGroupInvites,
     isPremiumUser,
+    ensureTasksLoaded,
     ensureGroupDataLoaded,
     ensureFriendDataLoaded,
     themeName,
@@ -732,6 +755,13 @@ const GroupDetailScreen = () => {
   const groupRoutinesForGroup = useMemo(
     () => (groupRoutines || []).filter((routine) => routine.groupId === groupId),
     [groupRoutines, groupId]
+  );
+  const groupTasksForGroup = useMemo(
+    () =>
+      (tasks || [])
+        .filter((task) => task.groupId === groupId)
+        .sort((a, b) => getTaskSortMs(a) - getTaskSortMs(b)),
+    [tasks, groupId]
   );
   const memberList = useMemo(
     () => (members.length ? members : group?.members || []),
@@ -877,7 +907,8 @@ const GroupDetailScreen = () => {
   useEffect(() => {
     ensureGroupDataLoaded();
     ensureFriendDataLoaded();
-  }, [ensureFriendDataLoaded, ensureGroupDataLoaded]);
+    ensureTasksLoaded();
+  }, [ensureFriendDataLoaded, ensureGroupDataLoaded, ensureTasksLoaded]);
 
   useEffect(() => {
     if (groupId) {
@@ -1247,7 +1278,7 @@ const GroupDetailScreen = () => {
         </Card>
 
         <View style={themedStyles.segmentWrap}>
-          {['overview', 'habits', 'routines'].map((tab) => {
+          {['overview', 'habits', 'routines', 'tasks'].map((tab) => {
             const isActive = activeTab === tab;
             return (
               <TouchableOpacity
@@ -1421,6 +1452,60 @@ const GroupDetailScreen = () => {
               <Text style={themedStyles.emptyText}>No group routines yet.</Text>
             ) : (
               groupRoutinesForGroup.map((routine) => renderRoutine(routine))
+            )}
+          </View>
+        ) : null}
+
+        {activeTab === 'tasks' ? (
+          <View style={themedStyles.sectionBlock}>
+            <View style={themedStyles.sectionHeader}>
+              <Text style={themedStyles.sectionTitle}>Group tasks</Text>
+            </View>
+            {groupTasksForGroup.length === 0 ? (
+              <Text style={themedStyles.emptyText}>No group tasks yet.</Text>
+            ) : (
+              groupTasksForGroup.map((task) => {
+                const priorityLabel = task.priority
+                  ? `${task.priority.charAt(0).toUpperCase()}${task.priority.slice(1)}`
+                  : 'Medium';
+                const dateLabel = formatTaskDateLabel(task.date);
+                const whenLabel = task.time ? `${dateLabel} - ${task.time}` : dateLabel;
+                return (
+                  <View key={task.id} style={themedStyles.groupTaskCard}>
+                    <View style={themedStyles.groupTaskMain}>
+                      <TouchableOpacity
+                        style={[
+                          themedStyles.groupTaskCheckbox,
+                          task.completed && themedStyles.groupTaskCheckboxDone,
+                        ]}
+                        onPress={() => toggleTaskCompletion(task.id)}
+                        activeOpacity={0.85}
+                      >
+                        {task.completed ? <Ionicons name="checkmark" size={13} color="#FFFFFF" /> : null}
+                      </TouchableOpacity>
+                      <View style={themedStyles.groupTaskTextWrap}>
+                        <Text
+                          style={[
+                            themedStyles.groupTaskTitle,
+                            task.completed && themedStyles.groupTaskTitleDone,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {task.title || 'Task'}
+                        </Text>
+                        <Text style={themedStyles.groupTaskMeta} numberOfLines={1}>
+                          {whenLabel} - {priorityLabel}
+                        </Text>
+                        {task.description ? (
+                          <Text style={themedStyles.groupTaskMeta} numberOfLines={1}>
+                            {task.description}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  </View>
+                );
+              })
             )}
           </View>
         ) : null}
@@ -2108,6 +2193,52 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
       padding: spacing.xs,
       borderRadius: borderRadius.full,
       backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
+    },
+    groupTaskCard: {
+      borderWidth: 1,
+      borderColor: themeColorsParam?.border || colors.border,
+      borderRadius: borderRadius.lg,
+      padding: spacing.md,
+      marginBottom: spacing.sm,
+      backgroundColor: themeColorsParam?.card || colors.card,
+      ...shadows.small,
+    },
+    groupTaskMain: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.sm,
+    },
+    groupTaskCheckbox: {
+      width: 22,
+      height: 22,
+      borderRadius: borderRadius.full,
+      borderWidth: 1,
+      borderColor: themeColorsParam?.border || colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 1,
+      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
+    },
+    groupTaskCheckboxDone: {
+      borderColor: colors.success,
+      backgroundColor: colors.success,
+    },
+    groupTaskTextWrap: {
+      flex: 1,
+    },
+    groupTaskTitle: {
+      ...typography.body,
+      color: baseText,
+      fontWeight: '700',
+    },
+    groupTaskTitleDone: {
+      textDecorationLine: 'line-through',
+      color: subdued,
+    },
+    groupTaskMeta: {
+      ...typography.caption,
+      color: subdued,
+      marginTop: 2,
     },
     taskRow: {
       flexDirection: 'row',

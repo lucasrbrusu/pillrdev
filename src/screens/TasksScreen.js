@@ -81,8 +81,10 @@ const TasksScreen = () => {
   const {
     tasks,
     friends,
+    groups,
     notes,
     addTask,
+    shareTaskWithGroup,
     updateTask,
     deleteTask,
     toggleTaskCompletion,
@@ -101,6 +103,7 @@ const TasksScreen = () => {
     themeColors,
     ensureTasksLoaded,
     ensureNotesLoaded,
+    ensureGroupDataLoaded,
   } = useApp();
   const isDark = themeName === 'dark';
   const tasksTheme = useMemo(
@@ -168,6 +171,8 @@ const TasksScreen = () => {
   const [selectedNote, setSelectedNote] = useState(null);
   const [invitedFriendIds, setInvitedFriendIds] = useState([]);
   const [invitingFriends, setInvitingFriends] = useState(false);
+  const [showGroupPicker, setShowGroupPicker] = useState(false);
+  const [selectedGroupId, setSelectedGroupId] = useState(null);
   const [taskPeople, setTaskPeople] = useState([]);
   const [loadingTaskPeople, setLoadingTaskPeople] = useState(false);
   const [noteToUnlock, setNoteToUnlock] = useState(null);
@@ -199,11 +204,16 @@ const TasksScreen = () => {
   const tabs = ['All Tasks', 'Today', 'Upcoming'];
   const filters = ['Date', 'Priority', 'A-Z'];
   const timeOptions = TIME_OPTIONS;
+  const selectedGroup = useMemo(
+    () => (groups || []).find((group) => group.id === selectedGroupId) || null,
+    [groups, selectedGroupId]
+  );
 
   useEffect(() => {
     ensureTasksLoaded();
     ensureNotesLoaded();
-  }, [ensureNotesLoaded, ensureTasksLoaded]);
+    ensureGroupDataLoaded();
+  }, [ensureGroupDataLoaded, ensureNotesLoaded, ensureTasksLoaded]);
 
   const filteredTasks = useMemo(() => {
     let filtered = [...tasks];
@@ -257,6 +267,8 @@ const TasksScreen = () => {
     setTimePickerTarget(null);
     setInvitedFriendIds([]);
     setShowPeopleModal(false);
+    setShowGroupPicker(false);
+    setSelectedGroupId(null);
   };
 
   const closeTaskModal = () => {
@@ -299,16 +311,26 @@ const TasksScreen = () => {
 
     try {
       setInvitingFriends(true);
-      const createdTask = await addTask({
+      const taskPayload = {
         title: taskTitle.trim(),
         description: taskDescription.trim(),
         priority: taskPriority,
         date: taskDate,
         time: taskTime,
-      });
+      };
+      const createdTask = selectedGroupId
+        ? await shareTaskWithGroup({ groupId: selectedGroupId, task: taskPayload })
+        : await addTask(taskPayload);
 
-      if (invitedFriendIds.length) {
-        for (const toUserId of invitedFriendIds) {
+      const selectedGroupMemberIds = new Set(
+        (selectedGroup?.members || []).map((member) => member.id).filter(Boolean)
+      );
+      const inviteTargetIds = selectedGroupId
+        ? invitedFriendIds.filter((friendId) => !selectedGroupMemberIds.has(friendId))
+        : invitedFriendIds;
+
+      if (inviteTargetIds.length) {
+        for (const toUserId of inviteTargetIds) {
           try {
             await sendTaskInvite({ task: createdTask, toUserId });
           } catch (err) {
@@ -363,6 +385,11 @@ const TasksScreen = () => {
     setInvitedFriendIds((prev) =>
       prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
     );
+  };
+
+  const toggleSelectedGroup = (groupId) => {
+    if (!groupId) return;
+    setSelectedGroupId((prev) => (prev === groupId ? null : groupId));
   };
 
   const handleCreateNote = async () => {
@@ -1070,6 +1097,73 @@ const TasksScreen = () => {
                 <Text style={[styles.taskFormSectionTitle, { color: themeColors.text }]}>Sharing</Text>
                 <TouchableOpacity
                   style={styles.taskFormRowLine}
+                  onPress={() => setShowGroupPicker((prev) => !prev)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.taskFormRowLabel, { color: themeColors.text }]}>Share with group</Text>
+                  <Text style={[styles.taskFormRowValue, { color: themeColors.textSecondary }]}>
+                    {selectedGroup?.name || 'None'}
+                  </Text>
+                </TouchableOpacity>
+                {showGroupPicker ? (
+                  <View
+                    style={[
+                      styles.taskFormInlineSheet,
+                      {
+                        borderColor: tasksTheme.taskItemBorder,
+                        backgroundColor: tasksTheme.taskItemBg,
+                      },
+                    ]}
+                  >
+                    {!groups.length ? (
+                      <Text style={[styles.taskFormShareHint, { color: themeColors.textLight }]}>
+                        No groups yet. Create one in the Groups area.
+                      </Text>
+                    ) : (
+                      (groups || []).map((group) => {
+                        const selected = selectedGroupId === group.id;
+                        const memberCount = (group.members || []).length;
+                        return (
+                          <View key={group.id} style={styles.taskFormFriendRow}>
+                            <View style={styles.taskFormFriendTextWrap}>
+                              <Text style={[styles.taskFormFriendName, { color: themeColors.text }]} numberOfLines={1}>
+                                {group.name || 'Group'}
+                              </Text>
+                              <Text style={[styles.taskFormFriendUser, { color: themeColors.textSecondary }]} numberOfLines={1}>
+                                {memberCount} {memberCount === 1 ? 'member' : 'members'}
+                              </Text>
+                            </View>
+                            <TouchableOpacity
+                              style={[
+                                styles.taskFormFriendAction,
+                                {
+                                  borderColor: selected ? themeColors.tasks : tasksTheme.taskItemBorder,
+                                  backgroundColor: selected ? themeColors.tasks : tasksTheme.tasksCardBg,
+                                },
+                              ]}
+                              onPress={() => toggleSelectedGroup(group.id)}
+                              activeOpacity={0.85}
+                            >
+                              <Text
+                                style={[
+                                  styles.taskFormFriendActionText,
+                                  { color: selected ? '#FFFFFF' : themeColors.textSecondary },
+                                ]}
+                              >
+                                {selected ? 'Selected' : 'Select'}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })
+                    )}
+                    <Text style={[styles.taskFormShareHint, { color: themeColors.textSecondary }]}>
+                      Group sharing creates this task for all members immediately.
+                    </Text>
+                  </View>
+                ) : null}
+                <TouchableOpacity
+                  style={styles.taskFormRowLine}
                   onPress={() => setShowPeopleModal((prev) => !prev)}
                   activeOpacity={0.85}
                 >
@@ -1127,7 +1221,9 @@ const TasksScreen = () => {
                         );
                       })
                     )}
-                    <Text style={[styles.taskFormShareHint, { color: themeColors.textSecondary }]}>Invites are sent when you create the task.</Text>
+                    <Text style={[styles.taskFormShareHint, { color: themeColors.textSecondary }]}>
+                      Invites are sent when you create the task.
+                    </Text>
                   </View>
                 ) : null}
               </View>
