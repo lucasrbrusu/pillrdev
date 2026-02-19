@@ -8,6 +8,7 @@ import {
   Animated,
   PanResponder,
   TextInput,
+  Alert,
   Switch,
   Platform,
   useWindowDimensions,
@@ -16,7 +17,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRoute } from '@react-navigation/native';
+import { useIsFocused, useRoute } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
 import {
   Card,
@@ -25,6 +26,7 @@ import {
   PlatformScrollView,
   PlatformDatePicker,
 } from '../components';
+import HabitsHowToOverlay from '../components/HabitsHowToOverlay';
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { colors, borderRadius, spacing, typography, shadows, habitCategories } from '../utils/theme';
 
@@ -36,9 +38,9 @@ const TIME_RANGE_OPTIONS = [
   { label: 'Evening', value: 'evening' },
 ];
 const GOAL_PERIOD_OPTIONS = [
-  { label: 'Day-Long', value: 'day' },
-  { label: 'Week-Long', value: 'week' },
-  { label: 'Month-Long', value: 'month' },
+  { label: 'Daily', value: 'day' },
+  { label: 'Weekly', value: 'week' },
+  { label: 'Monthly', value: 'month' },
 ];
 const HABIT_COLOR_OPTIONS = [
   '#9B59B6',
@@ -378,10 +380,10 @@ const getCompletionRatio = (habit, amount) => {
 };
 
 const isCompletedForDate = (habit, dateKey, amount) => {
-  if ((habit.completedDates || []).includes(dateKey)) return true;
   if ((habit?.habitType || 'build') === 'quit') {
-    return amount > 0 && amount <= getGoalValue(habit);
+    return amount <= getGoalValue(habit);
   }
+  if ((habit.completedDates || []).includes(dateKey)) return true;
   return amount >= getGoalValue(habit);
 };
 
@@ -393,22 +395,69 @@ const formatTaskDaysSummary = ({ taskDaysMode, taskDaysCount, days, monthDays })
   if (taskDaysMode === 'days_per_month') return `${taskDaysCount} days/month`;
   return 'Every day';
 };
-const computeBestStreakFromDateKeys = (dateKeys = []) => {
-  const dayNumbers = Array.from(
+const normalizeStreakGoalPeriod = (value) => {
+  const normalized = String(value || 'day').toLowerCase();
+  if (normalized === 'week' || normalized === 'month') return normalized;
+  return 'day';
+};
+const getStreakPeriodIndex = (value, goalPeriod = 'day') => {
+  const period = normalizeStreakGoalPeriod(goalPeriod);
+  const date = toStartOfDay(value);
+  if (Number.isNaN(date.getTime())) return null;
+  if (period === 'month') return date.getFullYear() * 12 + date.getMonth();
+  const dayNumber = toUtcDayNumber(date);
+  if (!Number.isFinite(dayNumber)) return null;
+  if (period === 'week') return Math.floor((dayNumber + 3) / 7);
+  return dayNumber;
+};
+const getStreakUnit = (goalPeriod = 'day', plural = false) => {
+  const period = normalizeStreakGoalPeriod(goalPeriod);
+  if (period === 'week') return plural ? 'weeks' : 'week';
+  if (period === 'month') return plural ? 'months' : 'month';
+  return plural ? 'days' : 'day';
+};
+const formatStreakSummary = (streak = 0, goalPeriod = 'day') =>
+  `${streak} ${getStreakUnit(goalPeriod)} streak`;
+const computeCurrentStreakFromDateKeys = (dateKeys = [], goalPeriod = 'day', referenceDate = new Date()) => {
+  const indices = Array.from(
     new Set(
       (dateKeys || [])
-        .map((value) => new Date(value))
-        .filter((date) => !Number.isNaN(date.getTime()))
-        .map((date) => Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000))
+        .map((value) => getStreakPeriodIndex(value, goalPeriod))
+        .filter((index) => Number.isFinite(index))
+    )
+  ).sort((a, b) => a - b);
+  if (!indices.length) return 0;
+
+  const currentPeriodIndex = getStreakPeriodIndex(referenceDate, goalPeriod);
+  if (!Number.isFinite(currentPeriodIndex)) return 0;
+
+  const latestCompletedPeriod = indices[indices.length - 1];
+  if (currentPeriodIndex - latestCompletedPeriod > 1) return 0;
+
+  const indexSet = new Set(indices);
+  let streak = 0;
+  let cursor = latestCompletedPeriod;
+  while (indexSet.has(cursor)) {
+    streak += 1;
+    cursor -= 1;
+  }
+  return streak;
+};
+const computeBestStreakFromDateKeys = (dateKeys = [], goalPeriod = 'day') => {
+  const indices = Array.from(
+    new Set(
+      (dateKeys || [])
+        .map((value) => getStreakPeriodIndex(value, goalPeriod))
+        .filter((index) => Number.isFinite(index))
     )
   ).sort((a, b) => a - b);
 
-  if (!dayNumbers.length) return 0;
+  if (!indices.length) return 0;
 
   let best = 1;
   let current = 1;
-  for (let index = 1; index < dayNumbers.length; index += 1) {
-    if (dayNumbers[index] - dayNumbers[index - 1] === 1) {
+  for (let index = 1; index < indices.length; index += 1) {
+    if (indices[index] - indices[index - 1] === 1) {
       current += 1;
       if (current > best) best = current;
     } else {
@@ -423,6 +472,7 @@ const SwipeHabitCard = ({
   progress,
   ratio,
   completed,
+  overdone = false,
   isInteractive,
   onTap,
   onEdit,
@@ -673,28 +723,46 @@ const SwipeHabitCard = ({
 
   const isAndroid = Platform.OS === 'android';
   const displayRatio = clamp(isAndroid ? ratio : Math.max(ratio, dragFillRatio), 0, 1);
-  const visualFillRatio = completed ? 1 : displayRatio;
+  const visualFillRatio = overdone ? 0 : completed ? 1 : displayRatio;
   const fillWidth = rowWidth * visualFillRatio;
   const habitColor = habit.color || palette.habits;
-  const tintedTrack = withAlpha(habitColor, 0.16);
+  const overdoneBorderColor = palette.isDark ? '#6B7280' : '#9CA3AF';
+  const overdoneSurfaceColor = palette.isDark ? '#4B5563' : '#D1D5DB';
+  const overdoneTrackColor = palette.isDark ? '#374151' : '#E5E7EB';
+  const tintedTrack = overdone ? overdoneTrackColor : withAlpha(habitColor, 0.16);
   const surfaceTone = shadeColor(habitColor, completed ? -0.16 : -0.24);
-  const tintedSurface = withAlpha(surfaceTone, completed ? 0.58 : 0.52);
+  const tintedSurface = overdone
+    ? overdoneSurfaceColor
+    : withAlpha(surfaceTone, completed ? 0.58 : 0.52);
   const colorBackdrop = palette.background || palette.card || '#FFFFFF';
   const tintedTrackColor = isAndroid ? toOpaqueColor(tintedTrack, colorBackdrop) : tintedTrack;
   const tintedSurfaceColor = isAndroid
     ? toOpaqueColor(tintedSurface, colorBackdrop)
     : tintedSurface;
   const androidFillOverlayColor = isAndroid ? habitColor : null;
-  const shouldRenderFillTrack = !isAndroid && visualFillRatio > 0.001;
-  const habitTextColor = '#F8FAFC';
+  const shouldRenderFillTrack = !isAndroid && !overdone && visualFillRatio > 0.001;
+  const habitTextColor = overdone ? (palette.isDark ? '#F9FAFB' : '#111827') : '#F8FAFC';
   const habitSubTextColor = withAlpha(habitTextColor, 0.82);
-  const habitHintColor = withAlpha(habitTextColor, 0.72);
-  const streakIconColor = resolveContrastColor({
-    preferredColor: '#F97316',
-    backgroundColor: tintedSurfaceColor,
-    fallbackColor: habitTextColor === '#F8FAFC' ? '#F97316' : habitTextColor,
-    backgroundBaseColor: tintedTrackColor,
-  });
+  const habitHintColor = overdone ? '#DC2626' : withAlpha(habitTextColor, 0.72);
+  const streakIconColor = overdone
+    ? '#DC2626'
+    : resolveContrastColor({
+        preferredColor: '#F97316',
+        backgroundColor: tintedSurfaceColor,
+        fallbackColor: habitTextColor === '#F8FAFC' ? '#F97316' : habitTextColor,
+        backgroundBaseColor: tintedTrackColor,
+      });
+  const streakIconName = overdone ? 'close-circle' : 'flame';
+  const streakLabel = overdone
+    ? 'Habit overdone'
+    : formatStreakSummary(habit.streak || 0, habit.goalPeriod);
+  const warningHintText = overdone
+    ? 'Stick to your limit to complete this quit habit and keep your streak.'
+    : 'Swipe right to add progress - Swipe left for actions - Tap for exact amount';
+  const cardBorderColor = overdone ? overdoneBorderColor : habitColor;
+  const avatarColor = overdone
+    ? withAlpha('#FFFFFF', palette.isDark ? 0.16 : 0.42)
+    : withAlpha(habitColor, 0.2);
 
   return (
     <View style={styles.swipeRow}>
@@ -718,7 +786,7 @@ const SwipeHabitCard = ({
             style={[
               styles.habitCard,
               {
-                borderColor: habitColor,
+                borderColor: cardBorderColor,
                 backgroundColor: tintedSurfaceColor,
               },
             ]}
@@ -731,7 +799,7 @@ const SwipeHabitCard = ({
             }}
             activeOpacity={0.9}
           >
-            {isAndroid && visualFillRatio > 0.001 ? (
+            {isAndroid && !overdone && visualFillRatio > 0.001 ? (
               <View
                 pointerEvents="none"
                 style={[
@@ -749,7 +817,7 @@ const SwipeHabitCard = ({
             ) : null}
             <View style={styles.habitCardContent}>
               <View style={styles.habitRow}>
-                <View style={[styles.habitAvatar, { backgroundColor: withAlpha(habitColor, 0.2) }]}>
+                <View style={[styles.habitAvatar, { backgroundColor: avatarColor }]}>
                   <Text style={[styles.habitAvatarText, { color: habitTextColor }]}>
                     {habit.emoji || habit.title?.slice(0, 1)?.toUpperCase() || 'H'}
                   </Text>
@@ -762,9 +830,9 @@ const SwipeHabitCard = ({
                 </View>
                 <View style={styles.progressMeta}>
                   <View style={styles.progressStreakRow}>
-                    <Ionicons name="flame" size={14} color={streakIconColor} />
-                    <Text style={[styles.progressMetaStreak, { color: habitTextColor }]}>
-                      {habit.streak || 0} day streak
+                    <Ionicons name={streakIconName} size={14} color={streakIconColor} />
+                    <Text style={[styles.progressMetaStreak, { color: overdone ? '#DC2626' : habitTextColor }]}>
+                      {streakLabel}
                     </Text>
                   </View>
                   <Text style={[styles.progressMetaPercent, { color: habitTextColor }]}>
@@ -773,7 +841,7 @@ const SwipeHabitCard = ({
                 </View>
               </View>
               <Text style={[styles.habitHint, { color: habitHintColor }]}>
-                Swipe right to add progress - Swipe left for actions - Tap for exact amount
+                {warningHintText}
               </Text>
             </View>
           </TouchableOpacity>
@@ -800,6 +868,7 @@ const SwipeHabitCard = ({
 const HabitsScreen = () => {
   const insets = useSafeAreaInsets();
   const route = useRoute();
+  const isFocused = useIsFocused();
   const { width: windowWidth } = useWindowDimensions();
   const {
     habits,
@@ -820,10 +889,13 @@ const HabitsScreen = () => {
     sendGroupInvites,
     shareHabitWithFriends,
     authUser,
+    profile,
+    profileLoaded,
     themeName,
     themeColors,
     ensureHabitsLoaded,
     setHabitProgress,
+    completeHabitsTutorial,
   } = useApp();
 
   const isDark = themeName === 'dark';
@@ -849,6 +921,18 @@ const HabitsScreen = () => {
   useEffect(() => {
     ensureHabitsLoaded();
   }, [ensureHabitsLoaded]);
+
+  const hasCompletedHabitsTutorial = profile?.hasCompletedHabitsTutorial === true;
+  const shouldShowHabitsTutorial = profile?.hasCompletedHabitsTutorial === false;
+  const [showHabitsHowTo, setShowHabitsHowTo] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused || !authUser?.id || !profileLoaded) {
+      setShowHabitsHowTo(false);
+      return;
+    }
+    setShowHabitsHowTo(shouldShowHabitsTutorial);
+  }, [isFocused, authUser?.id, profileLoaded, shouldShowHabitsTutorial]);
 
   const [selectedDate, setSelectedDate] = useState(() => toStartOfDay(new Date()));
   const [showSelectedDatePicker, setShowSelectedDatePicker] = useState(false);
@@ -895,6 +979,7 @@ const HabitsScreen = () => {
   const [habitGroupId, setHabitGroupId] = useState(null);
   const [invitedFriendIds, setInvitedFriendIds] = useState([]);
   const [habitType, setHabitType] = useState('build');
+  const [showQuitHabitInfoModal, setShowQuitHabitInfoModal] = useState(false);
   const [habitColor, setHabitColor] = useState(colors.habits);
   const [goalPeriod, setGoalPeriod] = useState('day');
   const [goalValueInput, setGoalValueInput] = useState('1');
@@ -963,7 +1048,7 @@ const HabitsScreen = () => {
       });
       const completedDates = Object.entries(progressByDate)
         .filter(([, amount]) =>
-          isQuitHabit ? amount > 0 && amount <= goalValue : amount >= goalValue
+          isQuitHabit ? amount <= goalValue : amount >= goalValue
         )
         .map(([key]) => key);
       const groupName =
@@ -1016,7 +1101,7 @@ const HabitsScreen = () => {
         ...mergedHabit,
         progressByDate,
         completedDates,
-        streak: computeBestStreakFromDateKeys(completedDates),
+        streak: computeCurrentStreakFromDateKeys(completedDates, mergedHabit.goalPeriod || 'day'),
         __isGroupHabit: true,
       });
     },
@@ -1071,10 +1156,12 @@ const HabitsScreen = () => {
     : 0;
   const selectedHabitPercent = Math.round(selectedHabitRatio * 100);
   const selectedHabitGoalValue = selectedHabit ? getGoalValue(selectedHabit) : 1;
+  const selectedHabitIsQuit = (selectedHabit?.habitType || 'build') === 'quit';
+  const selectedHabitIsOverdone = selectedHabitIsQuit && selectedHabitAmount > selectedHabitGoalValue;
   const selectedHabitCompletions = selectedHabit?.completedDates?.length || 0;
   const selectedHabitBestStreak = useMemo(
-    () => computeBestStreakFromDateKeys(selectedHabit?.completedDates || []),
-    [selectedHabit?.completedDates]
+    () => computeBestStreakFromDateKeys(selectedHabit?.completedDates || [], selectedHabit?.goalPeriod || 'day'),
+    [selectedHabit?.completedDates, selectedHabit?.goalPeriod]
   );
   const selectedHabitGoalsThisMonth = useMemo(() => {
     if (!selectedHabit) return 0;
@@ -1164,6 +1251,7 @@ const HabitsScreen = () => {
     setHabitGroupId(null);
     setInvitedFriendIds([]);
     setHabitType('build');
+    setShowQuitHabitInfoModal(false);
     setHabitColor(palette.habits);
     setGoalPeriod('day');
     setGoalValueInput('1');
@@ -1204,6 +1292,7 @@ const HabitsScreen = () => {
     setHabitGroupId(null);
     setInvitedFriendIds([]);
     setHabitType(habit.habitType || 'build');
+    setShowQuitHabitInfoModal(false);
     setHabitColor(habit.color || palette.habits);
     setGoalPeriod(habit.goalPeriod || 'day');
     setGoalValueInput(String(getGoalValue(habit)));
@@ -1464,7 +1553,7 @@ const HabitsScreen = () => {
     const nowCompleted = isHabitCompletedToday(habit.id);
     const shouldBeCompleted =
       (habit.habitType || 'build') === 'quit'
-        ? amount > 0 && amount <= getGoalValue(habit)
+        ? amount <= getGoalValue(habit)
         : amount >= getGoalValue(habit);
     if (isSelectedDateToday && nowCompleted !== shouldBeCompleted) {
       await toggleHabitCompletion(habit.id);
@@ -1492,6 +1581,7 @@ const HabitsScreen = () => {
     setShowTaskDaysSheet(false);
     setShowReminderTimePicker(false);
     setEditingReminderTimeIndex(null);
+    setShowQuitHabitInfoModal(false);
   };
 
   const toggleGoalPeriodPicker = () => {
@@ -1503,6 +1593,16 @@ const HabitsScreen = () => {
     setShowTaskDaysSheet((prev) => !prev);
     setShowGoalPeriodSheet(false);
   };
+
+  const handleHabitTypeSelect = useCallback(
+    (nextType) => {
+      setHabitType(nextType);
+      if (nextType === 'quit' && habitType !== 'quit' && !isEditingHabit) {
+        setShowQuitHabitInfoModal(true);
+      }
+    },
+    [habitType, isEditingHabit]
+  );
 
   const toggleInvitedFriend = (friendId) => {
     setInvitedFriendIds((prev) =>
@@ -1701,6 +1801,12 @@ const HabitsScreen = () => {
     return cells;
   }, [monthAnchor]);
 
+  const handleFinishHabitsHowTo = useCallback(() => {
+    setShowHabitsHowTo(false);
+    if (hasCompletedHabitsTutorial) return;
+    completeHabitsTutorial?.();
+  }, [completeHabitsTutorial, hasCompletedHabitsTutorial]);
+
   return (
     <View style={[styles.container, { backgroundColor: palette.background, paddingTop: insets.top + spacing.sm }]}>
       <PlatformScrollView
@@ -1836,6 +1942,8 @@ const HabitsScreen = () => {
             const amount = getDateProgressAmount(habit, selectedDateKey, localProgressMap);
             const ratio = getCompletionRatio(habit, amount);
             const completed = isCompletedForDate(habit, selectedDateKey, amount);
+            const overdone =
+              (habit.habitType || 'build') === 'quit' && amount > getGoalValue(habit);
             return (
               <SwipeHabitCard
                 key={`${habit.__isGroupHabit ? 'group' : 'personal'}-${habit.id}`}
@@ -1843,6 +1951,7 @@ const HabitsScreen = () => {
                 progress={amount}
                 ratio={ratio}
                 completed={completed}
+                overdone={overdone}
                 isInteractive={isSelectedDateToday}
                 onTap={(item) => {
                   if (item.__isGroupHabit) {
@@ -1885,6 +1994,11 @@ const HabitsScreen = () => {
           })
         )}
       </PlatformScrollView>
+
+      <HabitsHowToOverlay
+        visible={showHabitsHowTo}
+        onFinish={handleFinishHabitsHowTo}
+      />
 
       {renderAddTypePicker ? (
         <RNModal
@@ -2031,6 +2145,49 @@ const HabitsScreen = () => {
           </View>
         ) : null}
       </Modal>
+
+      <RNModal
+        visible={showQuitHabitInfoModal}
+        transparent
+        animationType="fade"
+        statusBarTranslucent={Platform.OS === 'android'}
+        onRequestClose={() => setShowQuitHabitInfoModal(false)}
+      >
+        <View style={styles.quitInfoOverlay}>
+          <TouchableOpacity
+            style={styles.quitInfoBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowQuitHabitInfoModal(false)}
+          />
+          <View
+            style={[
+              styles.quitInfoCard,
+              { backgroundColor: palette.card, borderColor: palette.cardBorder },
+            ]}
+          >
+            <View style={[styles.quitInfoIconWrap, { backgroundColor: withAlpha('#EF4444', 0.12) }]}>
+              <Ionicons name="close-circle-outline" size={32} color="#DC2626" />
+            </View>
+            <Text style={[styles.quitInfoTitle, { color: palette.text }]}>{'\u{1F44E} Quit Habit'}</Text>
+            <Text style={[styles.quitInfoText, { color: palette.textMuted }]}>
+              You must not exceed your goal to complete a habit. If you don't do
+              anything to a habit, it is completed.
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.quitInfoButton,
+                {
+                  backgroundColor: withAlpha(palette.habits, 0.14),
+                  borderColor: withAlpha(palette.habits, 0.38),
+                },
+              ]}
+              onPress={() => setShowQuitHabitInfoModal(false)}
+            >
+              <Text style={[styles.quitInfoButtonText, { color: palette.habits }]}>Confirm</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </RNModal>
 
       <Modal visible={showFormModal} onClose={closeFormModal} hideHeader fullScreen contentStyle={{ paddingHorizontal: 0 }}>
         <View style={[styles.formScreen, { backgroundColor: palette.background, paddingTop: insets.top + spacing.sm }]}>
@@ -2222,17 +2379,17 @@ const HabitsScreen = () => {
             <View style={[styles.sectionCard, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}>
               <Text style={[styles.sectionTitle, { color: palette.text }]}>Habit type</Text>
               <View style={[styles.segmentWrap, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]}>
-                <TouchableOpacity style={[styles.segment, habitType === 'build' && { backgroundColor: palette.habits }]} onPress={() => setHabitType('build')}>
+                <TouchableOpacity style={[styles.segment, habitType === 'build' && { backgroundColor: palette.habits }]} onPress={() => handleHabitTypeSelect('build')}>
                   <Text style={[styles.segmentText, { color: habitType === 'build' ? '#FFFFFF' : palette.textMuted }]}>Build</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.segment, habitType === 'quit' && { backgroundColor: '#C7712A' }]} onPress={() => setHabitType('quit')}>
+                <TouchableOpacity style={[styles.segment, habitType === 'quit' && { backgroundColor: '#C7712A' }]} onPress={() => handleHabitTypeSelect('quit')}>
                   <Text style={[styles.segmentText, { color: habitType === 'quit' ? '#FFFFFF' : palette.textMuted }]}>Quit</Text>
                 </TouchableOpacity>
               </View>
               <TouchableOpacity style={styles.rowLine} onPress={toggleGoalPeriodPicker}>
-                <Text style={[styles.rowLabel, { color: palette.text }]}>Goal period</Text>
+                <Text style={[styles.rowLabel, { color: palette.text }]}>Streak repeat</Text>
                 <Text style={[styles.rowValue, { color: palette.textMuted }]}>
-                  {GOAL_PERIOD_OPTIONS.find((item) => item.value === goalPeriod)?.label || 'Day-Long'}
+                  {GOAL_PERIOD_OPTIONS.find((item) => item.value === goalPeriod)?.label || 'Daily'}
                 </Text>
               </TouchableOpacity>
               {showGoalPeriodSheet ? (
@@ -2523,6 +2680,13 @@ const HabitsScreen = () => {
                     ]}
                     onPress={() => {
                       if (!isSelectedDateToday) return;
+                      if (selectedHabitIsQuit) {
+                        applyProgress(
+                          selectedHabit,
+                          selectedHabitIsOverdone ? 0 : getGoalValue(selectedHabit) + 1
+                        );
+                        return;
+                      }
                       applyProgress(
                         selectedHabit,
                         selectedHabitCompletedForDate ? 0 : getGoalValue(selectedHabit)
@@ -2533,9 +2697,13 @@ const HabitsScreen = () => {
                     <Text style={styles.markBtnText}>
                       {!isSelectedDateToday
                         ? 'Only today can be updated'
-                        : selectedHabitCompletedForDate
-                          ? 'Mark as incomplete'
-                          : 'Mark as complete'}
+                        : selectedHabitIsQuit
+                          ? selectedHabitIsOverdone
+                            ? 'Clear overdone status'
+                            : 'Mark as overdone'
+                          : selectedHabitCompletedForDate
+                            ? 'Mark as incomplete'
+                            : 'Mark as complete'}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -2546,7 +2714,12 @@ const HabitsScreen = () => {
                   <Ionicons name="flame-outline" size={16} color="#F97316" />
                   <Text style={[styles.detailMiniStatLabel, { color: palette.textMuted }]}>Current</Text>
                   <Text style={[styles.detailMiniStatValue, { color: palette.text }]}>{selectedHabit.streak || 0}</Text>
-                  <Text style={[styles.detailMiniStatSuffix, { color: palette.textLight }]}>days</Text>
+                  <Text style={[styles.detailMiniStatSuffix, { color: palette.textLight }]}>
+                    {getStreakUnit(
+                      selectedHabit?.goalPeriod || 'day',
+                      (selectedHabit?.streak || 0) !== 1
+                    )}
+                  </Text>
                 </View>
                 <View style={[styles.detailMiniStatCard, { backgroundColor: palette.card, borderColor: palette.cardBorder }]}>
                   <Feather name="target" size={16} color="#10B981" />
@@ -2558,13 +2731,24 @@ const HabitsScreen = () => {
                   <Ionicons name="trophy-outline" size={16} color="#F59E0B" />
                   <Text style={[styles.detailMiniStatLabel, { color: palette.textMuted }]}>Best</Text>
                   <Text style={[styles.detailMiniStatValue, { color: palette.text }]}>{selectedHabitBestStreak}</Text>
-                  <Text style={[styles.detailMiniStatSuffix, { color: palette.textLight }]}>days</Text>
+                  <Text style={[styles.detailMiniStatSuffix, { color: palette.textLight }]}>
+                    {getStreakUnit(
+                      selectedHabit?.goalPeriod || 'day',
+                      selectedHabitBestStreak !== 1
+                    )}
+                  </Text>
                 </View>
               </View>
 
               <View style={[styles.detailLowerSection, { backgroundColor: palette.background }]}>
                 <View style={[styles.detailStreakCard, { backgroundColor: detailCardColor }]}>
-                  <Text style={styles.detailStreakBig}>{selectedHabit.streak || 0} days</Text>
+                  <Text style={styles.detailStreakBig}>
+                    {selectedHabit.streak || 0}{' '}
+                    {getStreakUnit(
+                      selectedHabit?.goalPeriod || 'day',
+                      (selectedHabit?.streak || 0) !== 1
+                    )}
+                  </Text>
                   <Text style={styles.detailStreakLabel}>Current streak</Text>
                   <View style={styles.detailStreakStatsRow}>
                     <View style={styles.detailStreakStat}>
@@ -2822,6 +3006,58 @@ const createStyles = (palette) =>
     },
     manualBtnText: { ...typography.bodySmall, fontWeight: '700' },
     manualBtnTextWhite: { ...typography.bodySmall, color: '#FFFFFF', fontWeight: '700' },
+    quitInfoOverlay: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: spacing.lg,
+    },
+    quitInfoBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(8, 12, 24, 0.5)',
+    },
+    quitInfoCard: {
+      width: '100%',
+      maxWidth: 420,
+      borderRadius: 30,
+      borderWidth: 1,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.xl,
+      alignItems: 'center',
+      ...shadows.large,
+    },
+    quitInfoIconWrap: {
+      width: 74,
+      height: 74,
+      borderRadius: 37,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: spacing.md,
+    },
+    quitInfoTitle: {
+      ...typography.h2,
+      fontWeight: '800',
+      textAlign: 'center',
+      marginBottom: spacing.sm,
+    },
+    quitInfoText: {
+      ...typography.body,
+      textAlign: 'center',
+      lineHeight: 30,
+      marginBottom: spacing.lg,
+    },
+    quitInfoButton: {
+      minWidth: 180,
+      borderRadius: borderRadius.full,
+      borderWidth: 1,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.xl,
+      alignItems: 'center',
+    },
+    quitInfoButtonText: {
+      ...typography.body,
+      fontWeight: '700',
+    },
     formScreen: { flex: 1 },
     formTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg, marginBottom: spacing.md },
     formTitle: { ...typography.h3, fontWeight: '700' },

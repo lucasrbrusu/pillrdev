@@ -89,6 +89,8 @@ const defaultProfile = {
   isPremium: false,
   hasCompletedAppTutorial: false,
   appTutorialCompletedAt: null,
+  hasCompletedHabitsTutorial: null,
+  habitsTutorialCompletedAt: null,
 };
 
 const defaultHealthDay = () => ({
@@ -124,6 +126,7 @@ const REMINDER_LEAD_MINUTES = 30;
 const HABIT_REMINDER_TIME = { hour: 8, minute: 0 };
 const HEALTH_REMINDER_TIME = { hour: 20, minute: 0 };
 const STREAK_FREEZE_REMINDER_TIME = { hour: 9, minute: 0 };
+const STREAK_FREEZE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const IOS_MAX_SCHEDULED_NOTIFICATIONS = 60;
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
 // Poll less frequently to reduce Supabase egress (friend/user status checks).
@@ -134,6 +137,7 @@ const PROFILE_CACHE_TTL_MS = 30 * 60 * 1000;
 const PUSH_REGISTRATION_TTL_MS = 12 * 60 * 60 * 1000;
 const FRIEND_SEARCH_CACHE_TTL_MS = 30 * 1000;
 const FRIEND_SEARCH_LIMIT = 20;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 const computeIsPremium = (plan, premiumExpiresAt, explicitFlag) => {
   if (explicitFlag === true) return true;
@@ -307,6 +311,198 @@ const normalizeDateKey = (value) => {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '';
   return d.toISOString().slice(0, 10);
+};
+
+const normalizeStreakGoalPeriod = (value) => {
+  const normalized = String(value || 'day').toLowerCase();
+  if (normalized === 'week' || normalized === 'month') return normalized;
+  return 'day';
+};
+
+const toStartOfLocalDay = (value) => {
+  const date = value instanceof Date ? value : new Date(value || Date.now());
+  if (Number.isNaN(date.getTime())) return null;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+};
+
+const toUtcDayNumberFromLocalDay = (value) => {
+  const date = toStartOfLocalDay(value);
+  if (!date) return null;
+  return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / MS_PER_DAY);
+};
+
+const getStreakPeriodIndex = (value, goalPeriod = 'day') => {
+  const period = normalizeStreakGoalPeriod(goalPeriod);
+  const dayStart = toStartOfLocalDay(value);
+  if (!dayStart) return null;
+
+  if (period === 'month') {
+    return dayStart.getFullYear() * 12 + dayStart.getMonth();
+  }
+
+  const dayNumber = toUtcDayNumberFromLocalDay(dayStart);
+  if (!Number.isFinite(dayNumber)) return null;
+  if (period === 'week') return Math.floor((dayNumber + 3) / 7);
+  return dayNumber;
+};
+
+const computeCurrentHabitStreak = (completedDates = [], goalPeriod = 'day', referenceDate = new Date()) => {
+  const periodIndices = Array.from(
+    new Set(
+      (completedDates || [])
+        .map((value) => getStreakPeriodIndex(value, goalPeriod))
+        .filter((index) => Number.isFinite(index))
+    )
+  ).sort((a, b) => a - b);
+
+  if (!periodIndices.length) return 0;
+
+  const currentPeriodIndex = getStreakPeriodIndex(referenceDate, goalPeriod);
+  if (!Number.isFinite(currentPeriodIndex)) return 0;
+
+  const latestCompletedPeriod = periodIndices[periodIndices.length - 1];
+  if (currentPeriodIndex - latestCompletedPeriod > 1) return 0;
+
+  const periodSet = new Set(periodIndices);
+  let streak = 0;
+  let cursor = latestCompletedPeriod;
+  while (periodSet.has(cursor)) {
+    streak += 1;
+    cursor -= 1;
+  }
+  return streak;
+};
+
+const isQuitHabit = (habit = {}) =>
+  (habit?.habitType || habit?.habit_type || 'build') === 'quit';
+
+const getHabitGoalValue = (habit = {}) =>
+  Math.max(1, Number(habit?.goalValue ?? habit?.goal_value) || 1);
+
+const resolveHabitStartDate = (habit = {}, referenceDate = new Date()) => {
+  const candidates = [
+    habit?.startDate,
+    habit?.start_date,
+    habit?.createdAt,
+    habit?.created_at,
+    referenceDate,
+  ];
+  for (const candidate of candidates) {
+    const parsed = toStartOfLocalDay(candidate);
+    if (parsed) return parsed;
+  }
+  return toStartOfLocalDay(referenceDate);
+};
+
+const computeQuitHabitStreak = (habit = {}, options = {}) => {
+  const goalValue = getHabitGoalValue(habit);
+  const goalPeriod = habit?.goalPeriod || habit?.goal_period || 'day';
+  const referenceDate = options?.referenceDate || new Date();
+  const progressByDate = options?.progressByDate || habit?.progressByDate || {};
+
+  const currentPeriodIndex = getStreakPeriodIndex(referenceDate, goalPeriod);
+  if (!Number.isFinite(currentPeriodIndex)) return 0;
+
+  const startDate = resolveHabitStartDate(habit, referenceDate);
+  const startPeriodIndex = getStreakPeriodIndex(startDate, goalPeriod);
+  if (!Number.isFinite(startPeriodIndex) || currentPeriodIndex < startPeriodIndex) return 0;
+
+  const failedPeriodIndices = new Set();
+  Object.entries(progressByDate).forEach(([dateKey, rawAmount]) => {
+    const amount = Number(rawAmount) || 0;
+    if (amount <= goalValue) return;
+    const periodIndex = getStreakPeriodIndex(dateKey, goalPeriod);
+    if (!Number.isFinite(periodIndex)) return;
+    if (periodIndex < startPeriodIndex || periodIndex > currentPeriodIndex) return;
+    failedPeriodIndices.add(periodIndex);
+  });
+
+  let streak = 0;
+  for (let cursor = currentPeriodIndex; cursor >= startPeriodIndex; cursor -= 1) {
+    if (failedPeriodIndices.has(cursor)) break;
+    streak += 1;
+  }
+  return streak;
+};
+
+const computeHabitStreak = (habit = {}, options = {}) => {
+  const completedDates = options?.completedDates || habit?.completedDates || [];
+  const progressByDate = options?.progressByDate || habit?.progressByDate || {};
+  const goalPeriod = habit?.goalPeriod || habit?.goal_period || 'day';
+  const referenceDate = options?.referenceDate || new Date();
+
+  if (isQuitHabit(habit)) {
+    return computeQuitHabitStreak(habit, { progressByDate, referenceDate });
+  }
+  return computeCurrentHabitStreak(completedDates, goalPeriod, referenceDate);
+};
+
+const isQuitAmountCompleted = (amount, goalValue) => {
+  const numericAmount = Number(amount);
+  if (!Number.isFinite(numericAmount)) return true;
+  return numericAmount <= Math.max(1, Number(goalValue) || 1);
+};
+
+const getUniqueHabitPeriodIndices = (completedDates = [], goalPeriod = 'day') =>
+  Array.from(
+    new Set(
+      (completedDates || [])
+        .map((value) => getStreakPeriodIndex(value, goalPeriod))
+        .filter((index) => Number.isFinite(index))
+    )
+  ).sort((a, b) => a - b);
+
+const dayNumberToLocalDate = (dayNumber) => {
+  if (!Number.isFinite(dayNumber)) return null;
+  const utcDate = new Date(dayNumber * MS_PER_DAY);
+  if (Number.isNaN(utcDate.getTime())) return null;
+  return new Date(utcDate.getUTCFullYear(), utcDate.getUTCMonth(), utcDate.getUTCDate());
+};
+
+const getPeriodStartDateFromIndex = (periodIndex, goalPeriod = 'day') => {
+  if (!Number.isFinite(periodIndex)) return null;
+  const period = normalizeStreakGoalPeriod(goalPeriod);
+
+  if (period === 'month') {
+    const year = Math.floor(periodIndex / 12);
+    const month = periodIndex - year * 12;
+    return new Date(year, month, 1);
+  }
+
+  if (period === 'week') {
+    const weekStartDayNumber = periodIndex * 7 - 3;
+    return dayNumberToLocalDate(weekStartDayNumber);
+  }
+
+  return dayNumberToLocalDate(periodIndex);
+};
+
+const getMissedHabitPeriodMeta = (habit, referenceDate = new Date()) => {
+  if (!habit || !habit.id) return null;
+  if ((habit.streak || 0) <= 0) return null;
+  if (isQuitHabit(habit)) return null;
+
+  const goalPeriod = habit.goalPeriod || 'day';
+  const periodIndices = getUniqueHabitPeriodIndices(habit.completedDates || [], goalPeriod);
+  if (!periodIndices.length) return null;
+
+  const latestCompletedPeriodIndex = periodIndices[periodIndices.length - 1];
+  const currentPeriodIndex = getStreakPeriodIndex(referenceDate, goalPeriod);
+  if (!Number.isFinite(currentPeriodIndex)) return null;
+
+  const missedPeriodCount = currentPeriodIndex - latestCompletedPeriodIndex - 1;
+  if (missedPeriodCount < 1) return null;
+
+  const firstMissedPeriodIndex = latestCompletedPeriodIndex + 1;
+  const firstMissedAt = getPeriodStartDateFromIndex(firstMissedPeriodIndex, goalPeriod);
+  if (!firstMissedAt || Number.isNaN(firstMissedAt.getTime())) return null;
+
+  return {
+    habitId: habit.id,
+    goalPeriod,
+    missedPeriodCount,
+    firstMissedAt,
+  };
 };
 
 const getFoodEntryKey = (food, fallbackDate) => {
@@ -4260,66 +4456,86 @@ const fetchHabitsFromSupabase = async (userId, _groupListParam) => {
 
   const mappedHabits = (habitRows || []).map((h) => {
     const goalValue = Number(h.goal_value) || 1;
-    const isQuitHabit = (h.habit_type || 'build') === 'quit';
+    const goalPeriod = h.goal_period || 'day';
+    const habitType = h.habit_type || 'build';
+    const quitHabit = habitType === 'quit';
+    const habitProgressByDate = progressByHabit[h.id] || {};
     const completedDates = (completionRowsByHabit[h.id] || [])
       .filter((entry) => {
         if (entry.amount === null || entry.amount === undefined) return true;
-        const amount = Number(entry.amount) || 0;
-        return isQuitHabit ? amount <= goalValue : amount >= goalValue;
+        return quitHabit
+          ? isQuitAmountCompleted(entry.amount, goalValue)
+          : (Number(entry.amount) || 0) >= goalValue;
       })
       .map((entry) => entry.dateString);
 
-	    return {
-	    id: h.id,
+    const mappedHabit = {
+      id: h.id,
       ownerId: h.user_id || null,
       isOwned: h.user_id === userId,
       isShared: Boolean(h.user_id && h.user_id !== userId),
-	    title: h.title,
-	    category: h.category,
-    description: h.description,
-    repeat: h.repeat,
-    days: h.days || [],
-    streak: h.streak || 0,
-    createdAt: h.created_at,
-    completedDates,
-    progressByDate: progressByHabit[h.id] || {},
-    habitType: h.habit_type || 'build',
-    goalPeriod: h.goal_period || 'day',
-    goalValue,
-    goalUnit: h.goal_unit || 'times',
-    timeRange: h.time_range || 'all_day',
-    remindersEnabled: h.reminders_enabled ?? false,
-    reminderTimes: Array.isArray(h.reminder_times) ? h.reminder_times : [],
-    reminderMessage: h.reminder_message || '',
-    taskDaysMode: h.task_days_mode || 'every_day',
-    taskDaysCount: Number(h.task_days_count) || 3,
-    monthDays: Array.isArray(h.month_days) ? h.month_days : [],
-    showMemoAfterCompletion: h.show_memo_after_completion ?? false,
-    chartType: h.chart_type || 'bar',
-    startDate: h.start_date || null,
-    endDate: h.end_date || null,
-    color: h.color || colors.habits,
-    emoji: h.emoji || '',
-  };
+      title: h.title,
+      category: h.category,
+      description: h.description,
+      repeat: h.repeat,
+      days: h.days || [],
+      streak: h.streak || 0,
+      createdAt: h.created_at,
+      completedDates,
+      progressByDate: habitProgressByDate,
+      habitType,
+      goalPeriod,
+      goalValue,
+      goalUnit: h.goal_unit || 'times',
+      timeRange: h.time_range || 'all_day',
+      remindersEnabled: h.reminders_enabled ?? false,
+      reminderTimes: Array.isArray(h.reminder_times) ? h.reminder_times : [],
+      reminderMessage: h.reminder_message || '',
+      taskDaysMode: h.task_days_mode || 'every_day',
+      taskDaysCount: Number(h.task_days_count) || 3,
+      monthDays: Array.isArray(h.month_days) ? h.month_days : [],
+      showMemoAfterCompletion: h.show_memo_after_completion ?? false,
+      chartType: h.chart_type || 'bar',
+      startDate: h.start_date || null,
+      endDate: h.end_date || null,
+      color: h.color || colors.habits,
+      emoji: h.emoji || '',
+    };
+    if (quitHabit) {
+      mappedHabit.streak = computeHabitStreak(mappedHabit, {
+        progressByDate: habitProgressByDate,
+      });
+    }
+    return mappedHabit;
   });
 
   setHabits(mappedHabits);
 };
 
-  const resetAllHabitStreaks = useCallback(async () => {
-    if (!authUser?.id) return;
-    await persistStreakFrozenState(false);
-    setHabits((prev) => prev.map((h) => ({ ...h, streak: 0 })));
-    const { error } = await supabase
-      .from('habits')
-      .update({ streak: 0 })
-      .eq('user_id', authUser.id);
-    if (error) {
-      console.log('Error resetting habit streaks:', error);
-    }
-  }, [authUser?.id, persistStreakFrozenState]);
+  const resetHabitStreaksByIds = useCallback(
+    async (habitIds = []) => {
+      if (!authUser?.id) return;
+      const targetIds = Array.from(new Set((habitIds || []).filter(Boolean)));
+      if (!targetIds.length) return;
 
+      const targetSet = new Set(targetIds);
+      setHabits((prev) =>
+        (prev || []).map((habit) =>
+          targetSet.has(habit?.id) ? { ...habit, streak: 0 } : habit
+        )
+      );
 
+      const { error } = await supabase
+        .from('habits')
+        .update({ streak: 0 })
+        .eq('user_id', authUser.id)
+        .in('id', targetIds);
+      if (error) {
+        console.log('Error resetting selected habit streaks:', error);
+      }
+    },
+    [authUser?.id]
+  );
 
   // HABIT FUNCTIONS
 const shareHabitWithFriends = async (habitId, friendIds = []) => {
@@ -4441,7 +4657,11 @@ const addHabit = async (habit) => {
     createdAt: data.created_at,
     streak: data.streak || 0,
     completedDates: [],
+    progressByDate: {},
   };
+  if (isQuitHabit(newHabit)) {
+    newHabit.streak = computeHabitStreak(newHabit, { progressByDate: {} });
+  }
 
   setHabits((prev) => [...prev, newHabit]);
   return newHabit;
@@ -4450,27 +4670,44 @@ const addHabit = async (habit) => {
 const updateHabit = async (habitId, updates) => {
   if (!authUser?.id) return;
 
+  const existingHabit = (habits || []).find((habit) => habit.id === habitId) || null;
+  const localUpdates = { ...(updates || {}) };
+  const existingGoalPeriod = existingHabit?.goalPeriod || 'day';
+  const goalPeriodChanged =
+    localUpdates.goalPeriod !== undefined &&
+    normalizeStreakGoalPeriod(localUpdates.goalPeriod) !== normalizeStreakGoalPeriod(existingGoalPeriod);
+  const existingHabitType = existingHabit?.habitType || 'build';
+  const nextHabitType = localUpdates.habitType || existingHabitType;
+  const habitTypeChanged = localUpdates.habitType !== undefined && nextHabitType !== existingHabitType;
+  if ((goalPeriodChanged || habitTypeChanged) && localUpdates.streak === undefined) {
+    const mergedHabit = { ...(existingHabit || {}), ...localUpdates };
+    localUpdates.streak = computeHabitStreak(mergedHabit, {
+      completedDates: existingHabit?.completedDates || [],
+      progressByDate: existingHabit?.progressByDate || {},
+    });
+  }
+
   const updateData = {};
   const directFields = ['title', 'category', 'description', 'repeat', 'days', 'streak', 'color', 'emoji'];
   directFields.forEach((key) => {
-    if (updates[key] !== undefined) updateData[key] = updates[key];
+    if (localUpdates[key] !== undefined) updateData[key] = localUpdates[key];
   });
-  if (updates.habitType !== undefined) updateData.habit_type = updates.habitType;
-  if (updates.goalPeriod !== undefined) updateData.goal_period = updates.goalPeriod;
-  if (updates.goalValue !== undefined) updateData.goal_value = updates.goalValue;
-  if (updates.goalUnit !== undefined) updateData.goal_unit = updates.goalUnit;
-  if (updates.timeRange !== undefined) updateData.time_range = updates.timeRange;
-  if (updates.remindersEnabled !== undefined) updateData.reminders_enabled = updates.remindersEnabled;
-  if (updates.reminderTimes !== undefined) updateData.reminder_times = updates.reminderTimes;
-  if (updates.reminderMessage !== undefined) updateData.reminder_message = updates.reminderMessage;
-  if (updates.taskDaysMode !== undefined) updateData.task_days_mode = updates.taskDaysMode;
-  if (updates.taskDaysCount !== undefined) updateData.task_days_count = updates.taskDaysCount;
-  if (updates.monthDays !== undefined) updateData.month_days = updates.monthDays;
-  if (updates.showMemoAfterCompletion !== undefined)
-    updateData.show_memo_after_completion = updates.showMemoAfterCompletion;
-  if (updates.chartType !== undefined) updateData.chart_type = updates.chartType;
-  if (updates.startDate !== undefined) updateData.start_date = updates.startDate;
-  if (updates.endDate !== undefined) updateData.end_date = updates.endDate;
+  if (localUpdates.habitType !== undefined) updateData.habit_type = localUpdates.habitType;
+  if (localUpdates.goalPeriod !== undefined) updateData.goal_period = localUpdates.goalPeriod;
+  if (localUpdates.goalValue !== undefined) updateData.goal_value = localUpdates.goalValue;
+  if (localUpdates.goalUnit !== undefined) updateData.goal_unit = localUpdates.goalUnit;
+  if (localUpdates.timeRange !== undefined) updateData.time_range = localUpdates.timeRange;
+  if (localUpdates.remindersEnabled !== undefined) updateData.reminders_enabled = localUpdates.remindersEnabled;
+  if (localUpdates.reminderTimes !== undefined) updateData.reminder_times = localUpdates.reminderTimes;
+  if (localUpdates.reminderMessage !== undefined) updateData.reminder_message = localUpdates.reminderMessage;
+  if (localUpdates.taskDaysMode !== undefined) updateData.task_days_mode = localUpdates.taskDaysMode;
+  if (localUpdates.taskDaysCount !== undefined) updateData.task_days_count = localUpdates.taskDaysCount;
+  if (localUpdates.monthDays !== undefined) updateData.month_days = localUpdates.monthDays;
+  if (localUpdates.showMemoAfterCompletion !== undefined)
+    updateData.show_memo_after_completion = localUpdates.showMemoAfterCompletion;
+  if (localUpdates.chartType !== undefined) updateData.chart_type = localUpdates.chartType;
+  if (localUpdates.startDate !== undefined) updateData.start_date = localUpdates.startDate;
+  if (localUpdates.endDate !== undefined) updateData.end_date = localUpdates.endDate;
 
   if (Object.keys(updateData).length > 0) {
     let { error } = await supabase
@@ -4482,7 +4719,7 @@ const updateHabit = async (habitId, updates) => {
     if (error && isMissingColumnError(error)) {
       const fallbackData = {};
       directFields.forEach((key) => {
-        if (updates[key] !== undefined) fallbackData[key] = updates[key];
+        if (localUpdates[key] !== undefined) fallbackData[key] = localUpdates[key];
       });
       if (Object.keys(fallbackData).length) {
         ({ error } = await supabase
@@ -4513,7 +4750,7 @@ const updateHabit = async (habitId, updates) => {
   }
 
   setHabits((prev) =>
-    prev.map((h) => (h.id === habitId ? { ...h, ...updates } : h))
+    prev.map((h) => (h.id === habitId ? { ...h, ...localUpdates } : h))
   );
 };
 
@@ -4663,9 +4900,19 @@ const toggleHabitCompletion = async (habitId) => {
   const habit = habits.find((h) => h.id === habitId);
   if (!habit) return;
 
-  const isCompletedToday = habit.completedDates?.includes(todayKey);
-  const completionAmount = Math.max(Number(habit.goalValue) || 1, 1);
-  const nextAmount = isCompletedToday ? 0 : completionAmount;
+  const goalValue = Math.max(Number(habit.goalValue) || 1, 1);
+  const quitHabit = isQuitHabit(habit);
+  const todayAmount = Number((habit.progressByDate || {})[todayKey]) || 0;
+  const isCompletedToday = quitHabit
+    ? isQuitAmountCompleted(todayAmount, goalValue)
+    : habit.completedDates?.includes(todayKey);
+  const nextAmount = isCompletedToday
+    ? quitHabit
+      ? goalValue + 1
+      : 0
+    : quitHabit
+      ? 0
+      : goalValue;
   await setHabitProgress(habitId, nextAmount, todayISO);
 };
 
@@ -4680,14 +4927,15 @@ const setHabitProgress = async (habitId, amount = 0, dateISO = null, options = {
   const habit = habits.find((item) => item.id === habitId);
   if (!habit) return;
   const goalValue = Math.max(Number(habit.goalValue) || 1, 1);
-  const isQuit = (habit.habitType || 'build') === 'quit';
-  const shouldComplete = numericAmount > 0 && (isQuit ? numericAmount <= goalValue : numericAmount >= goalValue);
-  const wasCompleted = (habit.completedDates || []).includes(dateKey);
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayKey = yesterday.toDateString();
-  const wasCompletedYesterday = (habit.completedDates || []).includes(yesterdayKey);
+  const quitHabit = isQuitHabit(habit);
+  const shouldComplete = quitHabit
+    ? isQuitAmountCompleted(numericAmount, goalValue)
+    : numericAmount >= goalValue;
   const isTargetToday = dateKey === todayKey;
+  const existingAmountOnDate = Number((habit.progressByDate || {})[dateKey]) || 0;
+  const wasCompletedOnTargetDate = quitHabit
+    ? isQuitAmountCompleted(existingAmountOnDate, goalValue)
+    : (habit.completedDates || []).includes(dateKey);
 
   await supabase
     .from('habit_completions')
@@ -4719,54 +4967,80 @@ const setHabitProgress = async (habitId, amount = 0, dateISO = null, options = {
     }
   }
 
+  const nextCompletedDates = (() => {
+    const current = Array.isArray(habit.completedDates) ? [...habit.completedDates] : [];
+    if (shouldComplete && !current.includes(dateKey)) return [...current, dateKey];
+    if (!shouldComplete && current.includes(dateKey)) {
+      return current.filter((value) => value !== dateKey);
+    }
+    return current;
+  })();
+  const nextProgressByDate = {
+    ...(habit.progressByDate || {}),
+    [dateKey]: numericAmount,
+  };
+  const shouldPreserveFrozenStreak =
+    !quitHabit && streakFrozen && isTargetToday && shouldComplete && !wasCompletedOnTargetDate;
+  const computedNextStreak = computeHabitStreak(
+    {
+      ...habit,
+      completedDates: nextCompletedDates,
+      progressByDate: nextProgressByDate,
+    },
+    {
+      completedDates: nextCompletedDates,
+      progressByDate: nextProgressByDate,
+    }
+  );
+  const nextStreak = shouldPreserveFrozenStreak
+    ? Math.max(computedNextStreak, (habit.streak || 0) + 1)
+    : computedNextStreak;
+
   setHabits((prev) =>
     prev.map((item) => {
       if (item.id !== habitId) return item;
-      let nextCompletedDates = item.completedDates || [];
-      if (shouldComplete && !nextCompletedDates.includes(dateKey)) {
-        nextCompletedDates = [...nextCompletedDates, dateKey];
+      let itemCompletedDates = item.completedDates || [];
+      if (shouldComplete && !itemCompletedDates.includes(dateKey)) {
+        itemCompletedDates = [...itemCompletedDates, dateKey];
       }
-      if (!shouldComplete && nextCompletedDates.includes(dateKey)) {
-        nextCompletedDates = nextCompletedDates.filter((value) => value !== dateKey);
+      if (!shouldComplete && itemCompletedDates.includes(dateKey)) {
+        itemCompletedDates = itemCompletedDates.filter((value) => value !== dateKey);
       }
-
-      let nextStreak = item.streak || 0;
-      if (isTargetToday && shouldComplete && !wasCompleted) {
-        nextStreak = wasCompletedYesterday ? nextStreak + 1 : 1;
-      }
-      if (isTargetToday && !shouldComplete && wasCompleted) {
-        nextStreak = Math.max(nextStreak - 1, 0);
-      }
+      const itemNextProgressByDate = {
+        ...(item.progressByDate || {}),
+        [dateKey]: numericAmount,
+      };
+      const itemComputedStreak = computeHabitStreak(
+        {
+          ...item,
+          completedDates: itemCompletedDates,
+          progressByDate: itemNextProgressByDate,
+        },
+        {
+          completedDates: itemCompletedDates,
+          progressByDate: itemNextProgressByDate,
+        }
+      );
 
       return {
         ...item,
-        completedDates: nextCompletedDates,
-        streak: nextStreak,
-        progressByDate: {
-          ...(item.progressByDate || {}),
-          [dateKey]: numericAmount,
-        },
+        completedDates: itemCompletedDates,
+        streak: shouldPreserveFrozenStreak
+          ? Math.max(
+              itemComputedStreak,
+              (item.streak || 0) + 1
+            )
+          : itemComputedStreak,
+        progressByDate: itemNextProgressByDate,
       };
     })
   );
 
-  if (isTargetToday) {
-    const nextStreak = shouldComplete
-      ? wasCompleted
-        ? habit.streak || 0
-        : wasCompletedYesterday
-          ? (habit.streak || 0) + 1
-          : 1
-      : wasCompleted
-        ? Math.max((habit.streak || 0) - 1, 0)
-        : habit.streak || 0;
-
-    await supabase
-      .from('habits')
-      .update({ streak: nextStreak })
-      .eq('id', habitId)
-      .eq('user_id', authUser.id);
-  }
+  await supabase
+    .from('habits')
+    .update({ streak: nextStreak })
+    .eq('id', habitId)
+    .eq('user_id', authUser.id);
 
   if (syncLinkedGroupHabits) {
     const linkedGroupHabits = (groupHabits || []).filter(
@@ -4781,15 +5055,16 @@ const setHabitProgress = async (habitId, amount = 0, dateISO = null, options = {
     }
   }
 
-  if (isTargetToday && shouldComplete && streakFrozen) {
-    await persistStreakFrozenState(false);
-  }
 };
 
 const isHabitCompletedToday = (habitId) => {
   const habit = habits.find((h) => h.id === habitId);
   if (!habit) return false;
   const today = new Date().toDateString();
+  if (isQuitHabit(habit)) {
+    const amount = Number((habit.progressByDate || {})[today]) || 0;
+    return isQuitAmountCompleted(amount, getHabitGoalValue(habit));
+  }
   return habit.completedDates?.includes(today) || false;
 };
 
@@ -4797,18 +5072,9 @@ const isHabitCompletedToday = (habitId) => {
     if (!authUser?.id || !profileLoaded) return;
 
     const userId = authUser.id;
-    const lastActive = await readLastActive(userId);
     const now = new Date();
-    const todayStart = new Date(now.toDateString());
-
-    if (!lastActive) {
-      await writeLastActive(userId, now);
-      return;
-    }
-
-    const hasAnyStreak = habits.some((h) => (h.streak || 0) > 0);
-    if (!hasAnyStreak) {
-      // Nothing to freeze; ensure we aren't stuck in a frozen state and record activity.
+    const streakingHabits = (habits || []).filter((habit) => (habit?.streak || 0) > 0);
+    if (!streakingHabits.length) {
       if (streakFrozen) {
         await persistStreakFrozenState(false);
       }
@@ -4816,31 +5082,66 @@ const isHabitCompletedToday = (habitId) => {
       return;
     }
 
-    const lastActiveStart = new Date(lastActive.toDateString());
-    const dayDiff = Math.max(
-      Math.floor((todayStart.getTime() - lastActiveStart.getTime()) / (24 * 60 * 60 * 1000)),
-      0
-    );
+    const missedMeta = streakingHabits
+      .map((habit) => getMissedHabitPeriodMeta(habit, now))
+      .filter(Boolean);
+    if (!missedMeta.length) {
+      if (streakFrozen) {
+        await persistStreakFrozenState(false);
+      }
+      await writeLastActive(userId, now);
+      return;
+    }
 
     const isPremiumUser =
       profile?.isPremium ||
       computeIsPremium(profile?.plan, profile?.premiumExpiresAt || profile?.premium_expires_at);
 
-    // Premium users get a 24h freeze window; streak resets only after 48h away.
-    const resetThreshold = isPremiumUser ? 2 : 1;
+    if (!isPremiumUser) {
+      await resetHabitStreaksByIds(missedMeta.map((meta) => meta.habitId));
+      if (streakFrozen) {
+        await persistStreakFrozenState(false);
+      }
+      await writeLastActive(userId, now);
+      return;
+    }
 
-    if (isPremiumUser && dayDiff === 1) {
-      await persistStreakFrozenState(true);
-    } else if (!isPremiumUser && streakFrozen) {
+    const expiredHabitIds = [];
+    let hasActiveFreezeWindow = false;
+    missedMeta.forEach((meta) => {
+      const missedAtMs = meta.firstMissedAt.getTime();
+      if (now.getTime() - missedAtMs >= STREAK_FREEZE_WINDOW_MS) {
+        expiredHabitIds.push(meta.habitId);
+      } else {
+        hasActiveFreezeWindow = true;
+      }
+    });
+
+    if (expiredHabitIds.length) {
+      await resetHabitStreaksByIds(expiredHabitIds);
+    }
+
+    if (hasActiveFreezeWindow) {
+      if (!streakFrozen) {
+        await persistStreakFrozenState(true);
+      }
+    } else if (streakFrozen) {
       await persistStreakFrozenState(false);
     }
 
-    if (dayDiff > resetThreshold) {
-      await resetAllHabitStreaks();
-    }
-
     await writeLastActive(userId, now);
-  }, [authUser?.id, profile?.isPremium, profile?.plan, profile?.premiumExpiresAt, profile?.premium_expires_at, profileLoaded, resetAllHabitStreaks, persistStreakFrozenState, streakFrozen, habits]);
+  }, [
+    authUser?.id,
+    profile?.isPremium,
+    profile?.plan,
+    profile?.premiumExpiresAt,
+    profile?.premium_expires_at,
+    profileLoaded,
+    persistStreakFrozenState,
+    resetHabitStreaksByIds,
+    streakFrozen,
+    habits,
+  ]);
 
 const TASK_SELECT_FIELDS_BASE =
   'id,title,description,priority,date,time,completed,created_at,shared_task_id';
@@ -7741,6 +8042,23 @@ const mapProfileRow = (row) => {
     row?.appTutorialCompletedAt ??
     profile.appTutorialCompletedAt ??
     defaultProfile.appTutorialCompletedAt;
+  const hasCompletedHabitsFromTimestamp =
+    row?.habits_tutorial_completed_at || row?.habitsTutorialCompletedAt ? true : undefined;
+  const hasCompletedHabitsTutorial =
+    row?.has_completed_habits_tutorial ??
+    row?.hasCompletedHabitsTutorial ??
+    hasCompletedHabitsFromTimestamp ??
+    profile.hasCompletedHabitsTutorial ??
+    defaultProfile.hasCompletedHabitsTutorial;
+  const normalizedHasCompletedHabitsTutorial =
+    hasCompletedHabitsTutorial === null || hasCompletedHabitsTutorial === undefined
+      ? null
+      : !!hasCompletedHabitsTutorial;
+  const habitsTutorialCompletedAt =
+    row?.habits_tutorial_completed_at ??
+    row?.habitsTutorialCompletedAt ??
+    profile.habitsTutorialCompletedAt ??
+    defaultProfile.habitsTutorialCompletedAt;
 
   return {
     profileId: row?.id || null,
@@ -7794,6 +8112,9 @@ const mapProfileRow = (row) => {
     hasCompletedAppTutorial: !!hasCompletedAppTutorial,
     appTutorialCompletedAt,
     app_tutorial_completed_at: appTutorialCompletedAt,
+    hasCompletedHabitsTutorial: normalizedHasCompletedHabitsTutorial,
+    habitsTutorialCompletedAt,
+    habits_tutorial_completed_at: habitsTutorialCompletedAt,
   };
 };
 
@@ -7821,17 +8142,65 @@ const mapProfileRow = (row) => {
     if (!userId) return null;
 
     const fetchByColumn = async (column) => {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select(
-          'id, user_id, username, full_name, email, avatar_url, photo, daily_calorie_goal, daily_water_goal, daily_sleep_goal, weight_manager_unit, weight_manager_current_weight, weight_manager_target_weight, weight_manager_current_body_type, weight_manager_target_body_type, weight_manager_target_calories, weight_manager_protein_grams, weight_manager_carbs_grams, weight_manager_fat_grams, plan, premium_expires_at, is_premium, has_onboarded, has_completed_app_tutorial, app_tutorial_completed_at, created_at, updated_at'
-        )
-        .eq(column, userId)
-        .limit(1);
+      const selectableColumns = [
+        'id',
+        'user_id',
+        'username',
+        'full_name',
+        'email',
+        'avatar_url',
+        'photo',
+        'daily_calorie_goal',
+        'daily_water_goal',
+        'daily_sleep_goal',
+        'weight_manager_unit',
+        'weight_manager_current_weight',
+        'weight_manager_target_weight',
+        'weight_manager_current_body_type',
+        'weight_manager_target_body_type',
+        'weight_manager_target_calories',
+        'weight_manager_protein_grams',
+        'weight_manager_carbs_grams',
+        'weight_manager_fat_grams',
+        'plan',
+        'premium_expires_at',
+        'is_premium',
+        'has_onboarded',
+        'has_completed_app_tutorial',
+        'app_tutorial_completed_at',
+        'has_completed_habits_tutorial',
+        'habits_tutorial_completed_at',
+        'created_at',
+        'updated_at',
+      ];
 
-      if (error) return { row: null, error };
-      const row = Array.isArray(data) ? data[0] : data;
-      return { row: row || null, error: null };
+      let selectedColumns = [...selectableColumns];
+      while (selectedColumns.length) {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select(selectedColumns.join(', '))
+          .eq(column, userId)
+          .limit(1);
+
+        if (error && isMissingColumnError(error)) {
+          const missingColumn = extractMissingColumnName(error);
+          if (!missingColumn) return { row: null, error };
+          const nextColumns = selectedColumns.filter(
+            (name) => name.toLowerCase() !== missingColumn
+          );
+          if (nextColumns.length === selectedColumns.length) {
+            return { row: null, error };
+          }
+          selectedColumns = nextColumns;
+          continue;
+        }
+
+        if (error) return { row: null, error };
+        const row = Array.isArray(data) ? data[0] : data;
+        return { row: row || null, error: null };
+      }
+
+      return { row: null, error: null };
     };
 
     const pickBestProfileRow = (rows) => {
@@ -8046,6 +8415,34 @@ const mapProfileRow = (row) => {
         : fields.appTutorialCompletedAt;
       if (appTutorialCompletedAt !== undefined) {
         basePayload.app_tutorial_completed_at = appTutorialCompletedAt;
+      }
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(fields, 'has_completed_habits_tutorial') ||
+      Object.prototype.hasOwnProperty.call(fields, 'hasCompletedHabitsTutorial')
+    ) {
+      const hasCompletedHabitsTutorial = Object.prototype.hasOwnProperty.call(
+        fields,
+        'has_completed_habits_tutorial'
+      )
+        ? fields.has_completed_habits_tutorial
+        : fields.hasCompletedHabitsTutorial;
+      if (hasCompletedHabitsTutorial !== undefined) {
+        basePayload.has_completed_habits_tutorial = !!hasCompletedHabitsTutorial;
+      }
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(fields, 'habits_tutorial_completed_at') ||
+      Object.prototype.hasOwnProperty.call(fields, 'habitsTutorialCompletedAt')
+    ) {
+      const habitsTutorialCompletedAt = Object.prototype.hasOwnProperty.call(
+        fields,
+        'habits_tutorial_completed_at'
+      )
+        ? fields.habits_tutorial_completed_at
+        : fields.habitsTutorialCompletedAt;
+      if (habitsTutorialCompletedAt !== undefined) {
+        basePayload.habits_tutorial_completed_at = habitsTutorialCompletedAt;
       }
     }
 
@@ -8292,6 +8689,33 @@ const mapProfileRow = (row) => {
     await upsertProfileRow({
       has_completed_app_tutorial: true,
       app_tutorial_completed_at: completedAt,
+    });
+  }, [
+    authUser?.id,
+    hasOnboarded,
+    profile,
+    setCachedProfile,
+    upsertProfileRow,
+    persistProfileLocally,
+  ]);
+
+  const completeHabitsTutorial = useCallback(async () => {
+    if (!authUser?.id) return;
+    const completedAt = new Date().toISOString();
+    const nextProfile = {
+      ...profile,
+      hasCompletedHabitsTutorial: true,
+      habitsTutorialCompletedAt: completedAt,
+      habits_tutorial_completed_at: completedAt,
+    };
+
+    setProfile(nextProfile);
+    setCachedProfile(authUser.id, nextProfile);
+    persistProfileLocally(authUser.id, nextProfile, hasOnboarded);
+
+    await upsertProfileRow({
+      has_completed_habits_tutorial: true,
+      habits_tutorial_completed_at: completedAt,
     });
   }, [
     authUser?.id,
@@ -9274,9 +9698,13 @@ const mapProfileRow = (row) => {
 
   const getTodayHabitsCount = () => {
     const today = new Date().toDateString();
-    const completedToday = habits.filter((h) =>
-      h.completedDates?.includes(today)
-    ).length;
+    const completedToday = habits.filter((habit) => {
+      if (isQuitHabit(habit)) {
+        const amount = Number((habit.progressByDate || {})[today]) || 0;
+        return isQuitAmountCompleted(amount, getHabitGoalValue(habit));
+      }
+      return habit.completedDates?.includes(today);
+    }).length;
     return `${completedToday}/${habits.length}`;
   };
 
@@ -9531,6 +9959,7 @@ const mapProfileRow = (row) => {
     refreshRevenueCatPremium,
     updateProfile,
     completeAppTutorial,
+    completeHabitsTutorial,
     userSettings,
     updateUserSettings,
     t,

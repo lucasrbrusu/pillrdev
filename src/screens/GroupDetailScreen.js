@@ -156,16 +156,71 @@ const getCompletionRatio = (habit, amount) => {
   const goal = getGoalValue(habit);
   return clamp(amount / goal, 0, 1);
 };
-const computeCurrentStreakFromIsoDates = (dateValues = []) => {
-  if (!dateValues.length) return 0;
-  const dateSet = new Set((dateValues || []).map((value) => String(value).slice(0, 10)));
+const normalizeStreakGoalPeriod = (value) => {
+  const normalized = String(value || 'day').toLowerCase();
+  if (normalized === 'week' || normalized === 'month') return normalized;
+  return 'day';
+};
+const parseDateOnly = (value) => {
+  if (!value) return null;
+  const raw = String(value).slice(0, 10);
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    const year = Number(isoMatch[1]);
+    const month = Number(isoMatch[2]) - 1;
+    const day = Number(isoMatch[3]);
+    const parsed = new Date(year, month, day);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+};
+const toUtcDayNumber = (value) => {
+  const date = parseDateOnly(value);
+  if (!date) return null;
+  return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
+};
+const getStreakPeriodIndex = (value, goalPeriod = 'day') => {
+  const period = normalizeStreakGoalPeriod(goalPeriod);
+  const date = parseDateOnly(value);
+  if (!date) return null;
+  if (period === 'month') return date.getFullYear() * 12 + date.getMonth();
+  const dayNumber = toUtcDayNumber(date);
+  if (!Number.isFinite(dayNumber)) return null;
+  if (period === 'week') return Math.floor((dayNumber + 3) / 7);
+  return dayNumber;
+};
+const getStreakUnit = (goalPeriod = 'day') => {
+  const period = normalizeStreakGoalPeriod(goalPeriod);
+  if (period === 'week') return 'week';
+  if (period === 'month') return 'month';
+  return 'day';
+};
+const formatStreakSummary = (streak = 0, goalPeriod = 'day') =>
+  `${streak} ${getStreakUnit(goalPeriod)} streak`;
+const computeCurrentStreakFromIsoDates = (dateValues = [], goalPeriod = 'day', referenceDate = new Date()) => {
+  const periodIndices = Array.from(
+    new Set(
+      (dateValues || [])
+        .map((value) => getStreakPeriodIndex(value, goalPeriod))
+        .filter((index) => Number.isFinite(index))
+    )
+  ).sort((a, b) => a - b);
+  if (!periodIndices.length) return 0;
+
+  const currentPeriodIndex = getStreakPeriodIndex(referenceDate, goalPeriod);
+  if (!Number.isFinite(currentPeriodIndex)) return 0;
+
+  const latestCompletedPeriod = periodIndices[periodIndices.length - 1];
+  if (currentPeriodIndex - latestCompletedPeriod > 1) return 0;
+
+  const periodSet = new Set(periodIndices);
   let streak = 0;
-  const cursor = new Date();
-  while (true) {
-    const key = cursor.toISOString().slice(0, 10);
-    if (!dateSet.has(key)) break;
+  let cursor = latestCompletedPeriod;
+  while (periodSet.has(cursor)) {
     streak += 1;
-    cursor.setDate(cursor.getDate() - 1);
+    cursor -= 1;
   }
   return streak;
 };
@@ -556,7 +611,7 @@ const SwipeHabitCard = ({
                   <View style={styles.progressStreakRow}>
                     <Ionicons name="flame" size={14} color={streakIconColor} />
                     <Text style={[styles.progressMetaStreak, { color: habitTextColor }]}>
-                      {habit.streak || 0} day streak
+                      {formatStreakSummary(habit.streak || 0, habit.goalPeriod)}
                     </Text>
                   </View>
                   <Text style={[styles.progressMetaPercent, { color: habitTextColor }]}>
@@ -750,12 +805,13 @@ const GroupDetailScreen = () => {
           .filter((completion) => completion.userId === authUser?.id)
           .map((completion) => String(completion.date).slice(0, 10));
         const goalValue = Math.max(1, parseNumber(habit.goalValue, parseNumber(sourceHabit?.goalValue, 1)));
+        const goalPeriod = habit.goalPeriod || sourceHabit?.goalPeriod || 'day';
         return {
           ...habit,
           habitType: habit.habitType || sourceHabit?.habitType || 'build',
           goalValue,
           goalUnit: habit.goalUnit || sourceHabit?.goalUnit || 'times',
-          goalPeriod: habit.goalPeriod || sourceHabit?.goalPeriod || 'day',
+          goalPeriod,
           timeRange: habit.timeRange || sourceHabit?.timeRange || 'all_day',
           taskDaysMode: habit.taskDaysMode || sourceHabit?.taskDaysMode || 'every_day',
           taskDaysCount: parseNumber(habit.taskDaysCount, parseNumber(sourceHabit?.taskDaysCount, 3)),
@@ -780,7 +836,7 @@ const GroupDetailScreen = () => {
           endDate: habit.endDate || sourceHabit?.endDate || null,
           color: habit.color || sourceHabit?.color || habitPalette.habits,
           emoji: habit.emoji || sourceHabit?.emoji || '',
-          streak: computeCurrentStreakFromIsoDates(myCompletionDays),
+          streak: computeCurrentStreakFromIsoDates(myCompletionDays, goalPeriod),
         };
       }),
     [groupHabitsForGroup, groupHabitCompletions, authUser?.id, habitPalette.habits, sourceHabitsById]
