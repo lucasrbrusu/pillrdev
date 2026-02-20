@@ -9418,9 +9418,9 @@ const mapProfileRow = (row) => {
             body: habit.reminderMessage || `${habitTitle} - due today.`,
             data: { type: 'habit', id: habit.id },
             trigger: {
+              type: 'daily',
               hour: parsed.hour,
               minute: parsed.minute,
-              repeats: true,
             },
           });
         });
@@ -9447,9 +9447,9 @@ const mapProfileRow = (row) => {
             body: habit.reminderMessage || `${habitTitle} - due today.`,
             data: { type: 'habit', id: habit.id },
             trigger: {
+              type: 'daily',
               hour: parsed.hour,
               minute: parsed.minute,
-              repeats: true,
             },
           });
         });
@@ -9470,10 +9470,10 @@ const mapProfileRow = (row) => {
             body: habit.reminderMessage || `${habitTitle} - due today.`,
             data: { type: 'habit', id: habit.id },
             trigger: {
+              type: 'weekly',
               weekday,
               hour: parsed.hour,
               minute: parsed.minute,
-              repeats: true,
             },
           });
         });
@@ -9512,9 +9512,9 @@ const mapProfileRow = (row) => {
         body,
         data: { type: 'routine', id: routine.id },
         trigger: {
+          type: 'daily',
           hour: parsed.hour,
           minute: parsed.minute,
-          repeats: true,
         },
       });
     }
@@ -9537,9 +9537,9 @@ const mapProfileRow = (row) => {
         body,
         data: { type: 'group_routine', id: groupRoutine.id },
         trigger: {
+          type: 'daily',
           hour: parsed.hour,
           minute: parsed.minute,
-          repeats: true,
         },
       });
     }

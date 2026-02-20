@@ -107,6 +107,12 @@ const ProfileScreen = () => {
       onPress: () => navigation.navigate('Appearance'),
     },
     {
+      id: 'membership',
+      label: 'Your membership',
+      icon: 'card-outline',
+      onPress: () => navigation.navigate('Membership'),
+    },
+    {
       id: 'privacy',
       label: 'Privacy & Security',
       icon: 'shield-checkmark-outline',
@@ -130,6 +136,11 @@ const ProfileScreen = () => {
         bg: isDark ? 'rgba(168,85,247,0.2)' : '#F3E8FF',
         border: isDark ? 'rgba(168,85,247,0.35)' : '#E9D5FF',
         color: '#A855F7',
+      },
+      membership: {
+        bg: isDark ? 'rgba(245,158,11,0.2)' : '#FEF3C7',
+        border: isDark ? 'rgba(245,158,11,0.35)' : '#FDE68A',
+        color: '#F59E0B',
       },
       privacy: {
         bg: isDark ? 'rgba(34,197,94,0.2)' : '#DCFCE7',
