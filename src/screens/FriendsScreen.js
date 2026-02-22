@@ -33,20 +33,6 @@ const dedupeById = (list = []) => {
   return deduped;
 };
 
-const formatRelative = (value) => {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  const diffMs = Date.now() - date.getTime();
-  const minutes = Math.max(0, Math.round(diffMs / 60000));
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
-};
-
 const getInitial = (name, username) => {
   const source = (name || username || '?').trim();
   return (source[0] || '?').toUpperCase();
@@ -61,7 +47,6 @@ const FriendsScreen = () => {
   const {
     themeColors,
     friends,
-    onlineFriends,
     groups,
     groupInvites,
     ensureGroupDataLoaded,
@@ -70,7 +55,6 @@ const FriendsScreen = () => {
     respondToFriendRequest,
     respondToGroupInvite,
     getFriendRelationship,
-    isUserOnline,
     refreshFriendData,
     isPremiumUser,
     themeName,
@@ -149,7 +133,6 @@ const FriendsScreen = () => {
     () => (query.trim() ? dedupedResults : dedupedFriends),
     [query, dedupedResults, dedupedFriends]
   );
-  const uniqueOnlineFriends = useMemo(() => dedupeById(onlineFriends), [onlineFriends]);
   const isDark = themeName === 'dark';
   const friendsCount = dedupedFriends.length;
   const groupsList = groups || [];
@@ -242,11 +225,6 @@ const FriendsScreen = () => {
   const renderFriendRow = (user, isLast) => {
     const relationship = getFriendRelationship(user.id);
     const loadingState = actionState[user.id];
-    const statusText = isUserOnline(user.id)
-      ? 'Online'
-      : user.lastSeen
-        ? `Last seen ${formatRelative(user.lastSeen)}`
-        : '';
 
     return (
       <View key={user.id} style={[themedStyles.friendRow, isLast && themedStyles.friendRowLast]}>
@@ -263,7 +241,6 @@ const FriendsScreen = () => {
             <Text style={themedStyles.friendUsername}>
               {user.username ? `@${user.username}` : 'No username'}
             </Text>
-            {statusText ? <Text style={themedStyles.friendStatus}>{statusText}</Text> : null}
           </View>
         </TouchableOpacity>
 
@@ -480,31 +457,6 @@ const FriendsScreen = () => {
         <Animated.View style={{ opacity: tabOpacity, transform: [{ translateX: tabTranslate }] }}>
           {activeTab === 'friends' ? (
             <>
-              <Card style={themedStyles.sectionCard}>
-                <View style={themedStyles.onlineHeader}>
-                  <View style={themedStyles.onlineTitleRow}>
-                    <View style={themedStyles.onlineIndicator} />
-                    <Text style={themedStyles.cardTitle}>Online now</Text>
-                  </View>
-                  <Text style={themedStyles.cardMeta}>{uniqueOnlineFriends.length} online</Text>
-                </View>
-                {uniqueOnlineFriends.length === 0 ? (
-                  <Text style={themedStyles.emptyText}>No friends online right now.</Text>
-                ) : (
-                  <View style={themedStyles.onlineRow}>
-                    {uniqueOnlineFriends.map((friend) => (
-                      <View key={friend.id} style={themedStyles.onlineChip}>
-                        {renderAvatar(friend, 44)}
-                        <View style={themedStyles.onlineDot} />
-                        <Text style={themedStyles.onlineChipName} numberOfLines={1}>
-                          {friend.username || friend.name}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </Card>
-
               <Card style={themedStyles.sectionCard}>
                 <View style={themedStyles.cardHeader}>
                   <Text style={themedStyles.cardTitle}>
@@ -737,23 +689,6 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
       borderColor: border,
       ...mutedShadow,
     },
-    onlineHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: spacing.md,
-    },
-    onlineTitleRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.xs,
-    },
-    onlineIndicator: {
-      width: 8,
-      height: 8,
-      borderRadius: borderRadius.full,
-      backgroundColor: colors.success,
-    },
     cardHeader: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -797,32 +732,6 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
       ...typography.bodySmall,
       color: subdued,
     },
-    onlineRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: spacing.md,
-    },
-    onlineChip: {
-      alignItems: 'center',
-      width: 72,
-    },
-    onlineChipName: {
-      ...typography.bodySmall,
-      color: baseText,
-      marginTop: spacing.xs,
-      textAlign: 'center',
-    },
-    onlineDot: {
-      position: 'absolute',
-      right: -2,
-      top: -2,
-      width: 12,
-      height: 12,
-      borderRadius: borderRadius.full,
-      backgroundColor: colors.success,
-      borderWidth: 2,
-      borderColor: surface,
-    },
     friendRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -856,11 +765,6 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
     friendUsername: {
       ...typography.bodySmall,
       color: subdued,
-    },
-    friendStatus: {
-      ...typography.caption,
-      color: subdued,
-      marginTop: 2,
     },
     friendActions: {
       alignItems: 'flex-end',

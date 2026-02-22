@@ -49,10 +49,8 @@ const HomeScreen = () => {
     groceries,
     notes,
     friends,
-    onlineFriends,
     friendRequests,
     taskInvites,
-    isUserOnline,
     getTodayTasks,
     getBestStreak,
     verifyNotePassword,
@@ -231,6 +229,18 @@ const HomeScreen = () => {
     const source = (nameValue || usernameValue || '?').trim();
     return (source[0] || '?').toUpperCase();
   }, []);
+  const displayedFriends = React.useMemo(() => {
+    return (friends || [])
+      .slice()
+      .sort((a, b) => {
+        const aName = (a.username || a.name || '').toLowerCase();
+        const bName = (b.username || b.name || '').toLowerCase();
+        if (aName < bName) return -1;
+        if (aName > bName) return 1;
+        return 0;
+      })
+      .slice(0, 8);
+  }, [friends]);
   const renderWeightManagerBodyType = React.useCallback(() => {
     if (!targetBodyType) {
       return (
@@ -287,21 +297,6 @@ const HomeScreen = () => {
     if (!Number.isFinite(value)) return '--';
     return `${value} g`;
   }, []);
-  const displayedFriends = React.useMemo(() => {
-    const enriched = (friends || []).map((f) => ({
-      ...f,
-      isOnline: isUserOnline ? isUserOnline(f.id) : false,
-    }));
-    enriched.sort((a, b) => {
-      if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
-      const aName = (a.username || a.name || '').toLowerCase();
-      const bName = (b.username || b.name || '').toLowerCase();
-      if (aName < bName) return -1;
-      if (aName > bName) return 1;
-      return 0;
-    });
-    return enriched.slice(0, 20);
-  }, [friends, isUserOnline]);
   const [selectedNote, setSelectedNote] = React.useState(null);
   const [noteToUnlock, setNoteToUnlock] = React.useState(null);
   const [notePasswordInput, setNotePasswordInput] = React.useState('');
@@ -563,12 +558,11 @@ const HomeScreen = () => {
               <View style={styles.middleTextWrap}>
                 <Text style={styles.middleTitle}>Friends</Text>
                 {friends.length === 0 ? (
-                  <>
-                    <Text style={styles.middleSubtitle}>Find friends to see who is online.</Text>
-                    <Text style={styles.middleSubtitle}>Tap to search by username.</Text>
-                  </>
+                  <Text style={styles.middleSubtitle}>Find friends and manage invitations.</Text>
                 ) : (
-                  <Text style={styles.middleSubtitle}>See who is online right now.</Text>
+                  <Text style={styles.middleSubtitle}>
+                    You have {friends.length} friend{friends.length === 1 ? '' : 's'}.
+                  </Text>
                 )}
               </View>
               <Ionicons
@@ -578,27 +572,34 @@ const HomeScreen = () => {
               />
             </View>
             {friends.length > 0 && (
-              <View style={styles.onlineFriendsRow}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.friendsPreviewScroll}
+                contentContainerStyle={styles.friendsPreviewList}
+              >
                 {displayedFriends.map((friend) => (
-                  <View key={friend.id} style={styles.onlineFriendItem}>
-                    <View style={styles.onlineAvatarWrap}>
+                  <View
+                    key={String(friend.id || friend.user_id || friend.username || friend.name)}
+                    style={styles.friendPreviewItem}
+                  >
+                    <View style={styles.friendPreviewAvatarWrap}>
                       {friend.avatarUrl ? (
-                        <Image source={{ uri: friend.avatarUrl }} style={styles.onlineAvatar} />
+                        <Image source={{ uri: friend.avatarUrl }} style={styles.friendPreviewAvatar} />
                       ) : (
-                        <View style={styles.onlineAvatarFallback}>
-                          <Text style={styles.onlineAvatarInitial}>
+                        <View style={styles.friendPreviewAvatarFallback}>
+                          <Text style={styles.friendPreviewInitial}>
                             {getInitial(friend.name, friend.username)}
                           </Text>
                         </View>
                       )}
-                      {friend.isOnline && <View style={styles.onlineDot} />}
                     </View>
-                    <Text style={styles.onlineName} numberOfLines={1}>
-                      {friend.username || friend.name}
+                    <Text style={styles.friendPreviewName} numberOfLines={1}>
+                      {friend.username || friend.name || 'Unknown user'}
                     </Text>
                   </View>
                 ))}
-              </View>
+              </ScrollView>
             )}
           </TouchableOpacity>
         </Card>
@@ -1715,6 +1716,51 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
       color: themeColorsParam?.textSecondary || colors.textSecondary,
       marginTop: 2,
     },
+    friendsPreviewScroll: {
+      marginTop: spacing.md,
+    },
+    friendsPreviewList: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.sm,
+      paddingRight: spacing.sm,
+    },
+    friendPreviewItem: {
+      alignItems: 'center',
+      width: 72,
+    },
+    friendPreviewAvatarWrap: {
+      width: 52,
+      height: 52,
+      borderRadius: borderRadius.full,
+      overflow: 'hidden',
+      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    friendPreviewAvatar: {
+      width: '100%',
+      height: '100%',
+    },
+    friendPreviewAvatarFallback: {
+      width: '100%',
+      height: '100%',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: `${colors.primary}15`,
+    },
+    friendPreviewInitial: {
+      ...typography.body,
+      color: themeColorsParam?.text || colors.text,
+      fontWeight: '700',
+    },
+    friendPreviewName: {
+      ...typography.bodySmall,
+      color: themeColorsParam?.text || colors.text,
+      marginTop: spacing.xs,
+      textAlign: 'center',
+      width: '100%',
+    },
     miniCard: {
       flex: 1,
       borderRadius: borderRadius.lg,
@@ -2258,82 +2304,6 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
       flexDirection: 'row',
       alignItems: 'center',
       minHeight: 72,
-    },
-    onlineFriendsCard: {
-      backgroundColor: sectionCardColor,
-      borderColor: sectionBorderColor,
-      paddingHorizontal: 0,
-    },
-    onlineFriendsTitle: {
-      color: themeColorsParam?.text || colors.text,
-      marginLeft: spacing.md,
-    },
-    onlineFriendsBody: {
-      paddingVertical: spacing.md,
-      paddingHorizontal: spacing.md,
-      gap: spacing.xs,
-    },
-    onlineFriendsText: {
-      ...typography.body,
-      color: themeColorsParam?.textSecondary || colors.textSecondary,
-    },
-    onlineFriendsSubtext: {
-      ...typography.bodySmall,
-      color: themeColorsParam?.textSecondary || colors.textSecondary,
-    },
-    onlineFriendsRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      flexWrap: 'wrap',
-      marginTop: spacing.md,
-      rowGap: spacing.md,
-    },
-    onlineFriendItem: {
-      alignItems: 'center',
-      marginRight: spacing.md,
-      width: 72,
-    },
-    onlineAvatarWrap: {
-      width: 56,
-      height: 56,
-      borderRadius: borderRadius.full,
-      overflow: 'hidden',
-      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
-      alignItems: 'center',
-      justifyContent: 'center',
-      position: 'relative',
-    },
-    onlineAvatar: {
-      width: '100%',
-      height: '100%',
-    },
-    onlineAvatarFallback: {
-      width: '100%',
-      height: '100%',
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: `${colors.primary}15`,
-    },
-    onlineAvatarInitial: {
-      ...typography.h4,
-      color: themeColorsParam?.text || colors.text,
-    },
-    onlineDot: {
-      position: 'absolute',
-      bottom: -4,
-      right: -4,
-      width: 14,
-      height: 14,
-      borderRadius: borderRadius.full,
-      backgroundColor: colors.success,
-      borderWidth: 2,
-      borderColor: sectionCardColor,
-    },
-    onlineName: {
-      ...typography.bodySmall,
-      color: themeColorsParam?.text || colors.text,
-      marginTop: spacing.xs,
-      textAlign: 'center',
     },
     insightsCard: {
       backgroundColor: themeColorsParam?.card || colors.card,

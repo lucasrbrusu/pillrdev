@@ -19,20 +19,6 @@ import { Card, Modal } from '../components';
 import { useApp } from '../context/AppContext';
 import { supabase } from '../utils/supabaseClient';
 
-const formatRelative = (value) => {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  const diffMs = Date.now() - date.getTime();
-  const minutes = Math.max(0, Math.round(diffMs / 60000));
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
-};
-
 const getInitial = (name, username) => {
   const source = (name || username || '?').trim();
   return (source[0] || '?').toUpperCase();
@@ -70,7 +56,6 @@ const FriendProfileScreen = () => {
     blockUser,
     unblockUser,
     submitFriendReport,
-    isUserOnline,
     isUserBlocked,
     isBlockedByUser,
     getUserProfileById,
@@ -356,20 +341,6 @@ const FriendProfileScreen = () => {
     };
   }, [authUser?.id, friendId]);
 
-  const isOnline = !blocked && isUserOnline(friendId);
-  const statusDotColor = blocked
-    ? themeColors?.danger || colors.danger
-    : isOnline
-      ? themeColors?.success || colors.success
-      : themeColors?.textLight || colors.textLight;
-  const statusText = blocked
-    ? 'Blocked'
-    : isOnline
-      ? 'Online'
-      : profileData?.lastSeen
-        ? `Last seen ${formatRelative(profileData.lastSeen)}`
-        : '';
-
   const handleDeleteFriend = () => {
     if (!friendId) return;
     Alert.alert(
@@ -565,32 +536,6 @@ const FriendProfileScreen = () => {
                       {profileData?.username ? `@${profileData.username}` : 'No username'}
                     </Text>
                     <View style={themedStyles.statusRow}>
-                      {statusText ? (
-                        <View
-                          style={[
-                            themedStyles.statusPill,
-                            {
-                              backgroundColor: profileTheme.statusBg,
-                              borderColor: profileTheme.statusBorder,
-                            },
-                          ]}
-                        >
-                          <View
-                            style={[
-                              themedStyles.statusDot,
-                              { backgroundColor: statusDotColor },
-                            ]}
-                          />
-                          <Text
-                            style={[
-                              themedStyles.statusText,
-                              { color: profileTheme.statusText },
-                            ]}
-                          >
-                            {statusText}
-                          </Text>
-                        </View>
-                      ) : null}
                       {mutualGroups.length > 0 ? (
                         <View
                           style={[
@@ -1114,11 +1059,6 @@ const createStyles = (themeColorsParam = colors) => {
       borderWidth: 1,
       paddingVertical: 4,
       paddingHorizontal: spacing.sm,
-    },
-    statusDot: {
-      width: 6,
-      height: 6,
-      borderRadius: 3,
     },
     statusText: {
       ...typography.caption,

@@ -128,7 +128,6 @@ const HEALTH_REMINDER_TIME = { hour: 20, minute: 0 };
 const STREAK_FREEZE_REMINDER_TIME = { hour: 9, minute: 0 };
 const STREAK_FREEZE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const IOS_MAX_SCHEDULED_NOTIFICATIONS = 60;
-const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
 // Poll less frequently to reduce Supabase egress (friend/user status checks).
 const STATUS_POLL_INTERVAL_MS = 5 * 60 * 1000;
 const PRESENCE_WRITE_INTERVAL_MS = 2 * 60 * 1000;
@@ -4048,17 +4047,6 @@ const mapExternalProfile = (row) => ({
     ensureTasksLoaded,
   ]);
 
-  const isUserOnline = useCallback(
-    (userId) => {
-      const lastSeen = userStatuses[userId];
-      if (!lastSeen) return false;
-      const last = new Date(lastSeen).getTime();
-      if (Number.isNaN(last)) return false;
-      return Date.now() - last <= ONLINE_THRESHOLD_MS;
-    },
-    [userStatuses]
-  );
-
   const isUserBlocked = useCallback(
     (userId) => (blockedUsers?.blocked || []).includes(userId),
     [blockedUsers.blocked]
@@ -4445,11 +4433,6 @@ const mapExternalProfile = (row) => ({
       return { ...mapExternalProfile(row), lastSeen };
     },
     [isMissingColumnError]
-  );
-
-  const onlineFriends = useMemo(
-    () => friends.filter((f) => isUserOnline(f.id)),
-    [friends, isUserOnline]
   );
 
 const fetchHabitsFromSupabase = async (userId, _groupListParam) => {
@@ -10048,10 +10031,8 @@ const mapProfileRow = (row) => {
 
     // Friends
     friends,
-    onlineFriends,
     friendRequests,
     blockedUsers,
-    isUserOnline,
     isUserBlocked,
     isBlockedByUser,
     deleteFriend,
