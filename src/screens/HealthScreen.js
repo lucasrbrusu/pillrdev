@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Animated, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Animated, useWindowDimensions, TextInput } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -224,6 +224,7 @@ const HealthScreen = () => {
   const [scannerMessage, setScannerMessage] = useState('');
   const [showMoodModal, setShowMoodModal] = useState(false);
   const [selectedMoodIndex, setSelectedMoodIndex] = useState(null);
+  const [moodThoughtInput, setMoodThoughtInput] = useState('');
   const [showConfetti, setShowConfetti] = useState(false);
   const [plantedMoodKey, setPlantedMoodKey] = useState(null);
   const sunSpin = useRef(new Animated.Value(0)).current;
@@ -519,6 +520,7 @@ const HealthScreen = () => {
   const selectedDateKey = selectedDateISO;
   const emptyDay = {
     mood: null,
+    moodThought: null,
     waterIntake: 0,
     sleepTime: null,
     wakeTime: null,
@@ -535,6 +537,11 @@ const HealthScreen = () => {
     ...emptyDay,
     ...selectedHealthRaw,
     foods: Array.isArray(selectedHealthRaw.foods) ? selectedHealthRaw.foods : [],
+  };
+  const getMoodThoughtValue = (day = {}) => {
+    const rawValue = day?.moodThought ?? day?.mood_thought ?? day?.moodNote ?? '';
+    if (typeof rawValue !== 'string') return '';
+    return rawValue.trim();
   };
   const toPositiveGoalOrNull = (value) => {
     const parsed = Number(value);
@@ -876,7 +883,16 @@ const HealthScreen = () => {
   const openMoodPicker = () => {
     const initialIndex = currentMoodIndex();
     setSelectedMoodIndex(initialIndex);
+    setMoodThoughtInput(getMoodThoughtValue(selectedHealth));
     setShowMoodModal(true);
+  };
+
+  const handleOpenMoodCalendar = () => {
+    setShowMoodModal(false);
+    // Close the modal first so the pushed screen is visible immediately.
+    setTimeout(() => {
+      navigation.navigate('MoodCalendar', { returnToMoodGarden: true });
+    }, 120);
   };
 
   const handleMoodSelect = (idx) => {
@@ -892,7 +908,11 @@ const HealthScreen = () => {
 
   const handleMoodSave = async () => {
     const idx = typeof selectedMoodIndex === 'number' ? selectedMoodIndex : currentMoodIndex();
-    await updateHealthForDate(selectedDateISO, { mood: idx + 1 });
+    const normalizedThought = moodThoughtInput.trim();
+    await updateHealthForDate(selectedDateISO, {
+      mood: idx + 1,
+      moodThought: normalizedThought || null,
+    });
     triggerPlantAnimation(selectedDateISO);
     if (moodOptions[idx]?.tone === 'positive') {
       triggerConfetti();
@@ -2390,11 +2410,13 @@ const HealthScreen = () => {
             </View>
           </View>
 
-          <View
+          <TouchableOpacity
             style={[
               styles.weekCard,
               { backgroundColor: gardenTheme.card, borderColor: gardenTheme.border },
             ]}
+            activeOpacity={0.9}
+            onPress={handleOpenMoodCalendar}
           >
             <View style={styles.weekHeader}>
               <View style={styles.weekHeaderLeft}>
@@ -2403,9 +2425,17 @@ const HealthScreen = () => {
                   This Week
                 </Text>
               </View>
-              <Text style={[styles.weekHeaderMeta, { color: themeColors.primary }]}>
-                {weeklyMoodCount} moods logged
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={[styles.weekHeaderMeta, { color: themeColors.primary }]}>
+                  {weeklyMoodCount} moods logged
+                </Text>
+                <Ionicons
+                  name="chevron-forward"
+                  size={16}
+                  color={themeColors.primary}
+                  style={{ marginLeft: spacing.xs }}
+                />
+              </View>
             </View>
             <View style={styles.weekCalendarRow}>
               {weeklyGarden.map((day) => (
@@ -2422,7 +2452,7 @@ const HealthScreen = () => {
                 </View>
               ))}
             </View>
-          </View>
+          </TouchableOpacity>
 
           <View
             style={[
@@ -2465,6 +2495,28 @@ const HealthScreen = () => {
                     </TouchableOpacity>
                   );
                 })}
+            </View>
+            <View style={styles.moodThoughtSection}>
+              <Text style={[styles.moodThoughtLabel, { color: themeColors.text }]}>
+                Share your thoughts
+              </Text>
+              <TextInput
+                value={moodThoughtInput}
+                onChangeText={setMoodThoughtInput}
+                placeholder="Write how you feel right now..."
+                placeholderTextColor={gardenTheme.muted}
+                style={[
+                  styles.moodThoughtInput,
+                  {
+                    color: themeColors.text,
+                    borderColor: gardenTheme.border,
+                    backgroundColor: gardenTheme.soft,
+                  },
+                ]}
+                multiline
+                maxLength={220}
+                textAlignVertical="top"
+              />
             </View>
             <View style={styles.modalButtons}>
               <Button
@@ -3596,6 +3648,23 @@ const createStyles = (themeColors) => StyleSheet.create({
     ...typography.caption,
     marginTop: spacing.xs,
     textAlign: 'center',
+  },
+  moodThoughtSection: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  moodThoughtLabel: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+    marginBottom: spacing.xs,
+  },
+  moodThoughtInput: {
+    minHeight: 84,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    ...typography.bodySmall,
   },
   insightCard: {
     marginHorizontal: spacing.xl,

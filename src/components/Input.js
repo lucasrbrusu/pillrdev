@@ -15,6 +15,7 @@ const Input = ({
   numberOfLines = 1,
   keyboardType = 'default',
   autoCapitalize = 'sentences',
+  disableFullscreenUI = true,
   icon,
   rightIcon,
   onRightIconPress,
@@ -78,6 +79,7 @@ const Input = ({
           numberOfLines={numberOfLines}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
+          disableFullscreenUI={disableFullscreenUI}
           editable={!disabled}
           onFocus={handleFocus}
           onBlur={handleBlur}

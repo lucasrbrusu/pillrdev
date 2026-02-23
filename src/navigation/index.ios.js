@@ -53,6 +53,7 @@ import WeightManagerScreen from '../screens/WeightManagerScreen';
 import WeightManagerUpdatePlanScreen from '../screens/WeightManagerUpdatePlanScreen';
 import WaterLogScreen from '../screens/WaterLogScreen';
 import SleepLogScreen from '../screens/SleepLogScreen';
+import MoodCalendarScreen from '../screens/MoodCalendarScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -416,6 +417,7 @@ const Navigation = () => {
           <Stack.Screen name="WeightManagerUpdatePlan" component={WeightManagerUpdatePlanScreen} />
           <Stack.Screen name="WaterLog" component={WaterLogScreen} />
           <Stack.Screen name="SleepLog" component={SleepLogScreen} />
+          <Stack.Screen name="MoodCalendar" component={MoodCalendarScreen} />
         </Stack.Navigator>
       ) : (
         <Stack.Navigator

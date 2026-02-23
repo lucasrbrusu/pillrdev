@@ -3,7 +3,8 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
   TouchableOpacity,
   Image,
   Alert,
@@ -15,7 +16,7 @@ import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { useApp } from '../context/AppContext';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Card, Input } from '../components';
+import { Card, Input, PlatformScrollView } from '../components';
 import {
   colors,
   shadows,
@@ -200,10 +201,16 @@ const EditProfileScreen = () => {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <ScrollView
+      <KeyboardAvoidingView
+        style={styles.scrollView}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+      >
+      <PlatformScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         {/* Header */}
         <View style={styles.header}>
@@ -551,7 +558,8 @@ const EditProfileScreen = () => {
             <Ionicons name="chevron-forward" size={20} color={themeColors.textLight} />
           </TouchableOpacity>
         </Card>
-      </ScrollView>
+      </PlatformScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 };

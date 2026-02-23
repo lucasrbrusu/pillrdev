@@ -95,6 +95,7 @@ const defaultProfile = {
 
 const defaultHealthDay = () => ({
   mood: null,
+  moodThought: null,
   waterIntake: 0,
   sleepTime: null,
   wakeTime: null,
@@ -259,6 +260,13 @@ const asNumber = (value, fallback = null) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+const normalizeOptionalText = (value, fallback = null) => {
+  if (value === undefined) return fallback;
+  if (value === null) return null;
+  const text = String(value).trim();
+  return text.length ? text : null;
+};
+
 const normalizeFoodMacro = (value) => {
   if (value === null || value === undefined) return null;
   if (typeof value === 'string' && value.trim() === '') return null;
@@ -287,6 +295,10 @@ const mapHealthRow = (row, fallback = defaultHealthDay()) => {
   return {
     ...fallback,
     mood: asNumber(row.mood, fallback.mood),
+    moodThought: normalizeOptionalText(
+      row.mood_thought ?? row.mood_note ?? row.moodThought,
+      fallback.moodThought ?? null
+    ),
     waterIntake: asNumber(row.water_intake, fallback.waterIntake),
     sleepTime: row.sleep_time ?? fallback.sleepTime,
     wakeTime: row.wake_time ?? fallback.wakeTime,
@@ -5722,18 +5734,24 @@ const fetchHealthFromSupabase = async (userId, cachedFoodLogs = null) => {
     'id, user_id, date, mood, water_intake, sleep_time, wake_time, sleep_quality, calories, foods, created_at, updated_at';
   const selectWithGoal =
     `${baseSelectFields}, calorie_goal, protein_goal, carbs_goal, fat_goal`;
-  let { data, error } = await supabase
-    .from('health_daily')
-    .select(selectWithGoal)
-    .eq('user_id', userId)
-    .order('date', { ascending: true });
+  const selectWithMoodThought = `${baseSelectFields}, mood_thought`;
+  const selectWithGoalAndMoodThought = `${selectWithGoal}, mood_thought`;
+  let data = null;
+  let error = null;
+  const selectCandidates = [
+    selectWithGoalAndMoodThought,
+    selectWithGoal,
+    selectWithMoodThought,
+    baseSelectFields,
+  ];
 
-  if (error && /calorie_goal|protein_goal|carbs_goal|fat_goal/i.test(error.message || '')) {
+  for (const selectFields of selectCandidates) {
     ({ data, error } = await supabase
       .from('health_daily')
-      .select(baseSelectFields)
+      .select(selectFields)
       .eq('user_id', userId)
       .order('date', { ascending: true }));
+    if (!error) break;
   }
 
   let { data: foodEntries, error: foodError } = await supabase
@@ -5982,49 +6000,66 @@ const fetchWeightManagerLogsFromSupabase = async (userId) => {
 const upsertHealthDayRecord = async (dateISO, healthDay) => {
   const nowISO = new Date().toISOString();
   const createdAt = healthDay?.createdAt || nowISO;
-    const payload = {
-      user_id: authUser.id,
-      date: dateISO,
-      mood: healthDay?.mood,
-      water_intake: healthDay?.waterIntake,
-      sleep_time: healthDay?.sleepTime,
-      wake_time: healthDay?.wakeTime,
-      sleep_quality: healthDay?.sleepQuality,
-      calorie_goal: healthDay?.calorieGoal,
-      protein_goal: healthDay?.proteinGoal,
-      carbs_goal: healthDay?.carbsGoal,
-      fat_goal: healthDay?.fatGoal,
-      calories: healthDay?.calories,
-      foods: healthDay?.foods,
-      created_at: createdAt,
-      updated_at: nowISO,
-    };
+  const payload = {
+    user_id: authUser.id,
+    date: dateISO,
+    mood: healthDay?.mood,
+    mood_thought: normalizeOptionalText(healthDay?.moodThought, null),
+    water_intake: healthDay?.waterIntake,
+    sleep_time: healthDay?.sleepTime,
+    wake_time: healthDay?.wakeTime,
+    sleep_quality: healthDay?.sleepQuality,
+    calorie_goal: healthDay?.calorieGoal,
+    protein_goal: healthDay?.proteinGoal,
+    carbs_goal: healthDay?.carbsGoal,
+    fat_goal: healthDay?.fatGoal,
+    calories: healthDay?.calories,
+    foods: healthDay?.foods,
+    created_at: createdAt,
+    updated_at: nowISO,
+  };
 
   // Only include primary key when we actually have one; sending null violates NOT NULL.
   if (healthDay?.healthDayId) {
     payload.id = healthDay.healthDayId;
   }
 
-    let { data, error } = await supabase
-      .from('health_daily')
-      .upsert(payload, { onConflict: 'user_id,date' })
-      .select()
-      .single();
+  const {
+    calorie_goal: _ignoredCalorie,
+    protein_goal: _ignoredProtein,
+    carbs_goal: _ignoredCarbs,
+    fat_goal: _ignoredFat,
+    ...payloadWithoutGoals
+  } = payload;
+  const {
+    mood_thought: _ignoredMoodThought,
+    ...payloadWithoutMoodThought
+  } = payload;
+  const {
+    calorie_goal: _ignoredCalorieFallback,
+    protein_goal: _ignoredProteinFallback,
+    carbs_goal: _ignoredCarbsFallback,
+    fat_goal: _ignoredFatFallback,
+    mood_thought: _ignoredMoodThoughtFallback,
+    ...payloadWithoutGoalsAndMoodThought
+  } = payload;
+  const payloadAttempts = [
+    payload,
+    payloadWithoutGoals,
+    payloadWithoutMoodThought,
+    payloadWithoutGoalsAndMoodThought,
+  ];
 
-    if (error && /calorie_goal|protein_goal|carbs_goal|fat_goal/i.test(error.message || '')) {
-      const {
-        calorie_goal: _ignoredCalorie,
-        protein_goal: _ignoredProtein,
-        carbs_goal: _ignoredCarbs,
-        fat_goal: _ignoredFat,
-        ...fallbackPayload
-      } = payload;
-      ({ data, error } = await supabase
-        .from('health_daily')
-        .upsert(fallbackPayload, { onConflict: 'user_id,date' })
-        .select()
-        .single());
-    }
+  let data = null;
+  let error = null;
+  for (const payloadAttempt of payloadAttempts) {
+    ({ data, error } = await supabase
+      .from('health_daily')
+      .upsert(payloadAttempt, { onConflict: 'user_id,date' })
+      .select()
+      .single());
+    if (!error) break;
+  }
 
   if (error) {
     console.log('Error saving health data:', error);
@@ -6142,10 +6177,17 @@ const upsertHealthDayRecord = async (dateISO, healthDay) => {
       const nextProteinGoal = coerceGoal('proteinGoal', baseWithoutEnergy.proteinGoal);
       const nextCarbsGoal = coerceGoal('carbsGoal', baseWithoutEnergy.carbsGoal);
       const nextFatGoal = coerceGoal('fatGoal', baseWithoutEnergy.fatGoal);
+      const nextMoodThought = Object.prototype.hasOwnProperty.call(
+        updatesWithoutEnergy,
+        'moodThought'
+      )
+        ? normalizeOptionalText(updatesWithoutEnergy.moodThought, baseWithoutEnergy.moodThought ?? null)
+        : normalizeOptionalText(baseWithoutEnergy.moodThought, null);
 
       newHealth = {
         ...merged,
         mood: asNumber(updatesWithoutEnergy.mood, baseWithoutEnergy.mood),
+        moodThought: nextMoodThought,
         waterIntake: Math.max(0, newWaterIntake),
         calorieGoal: nextCalorieGoal,
         proteinGoal: nextProteinGoal,

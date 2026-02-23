@@ -11,6 +11,8 @@ import {
   Platform,
   ScrollView,
   PanResponder,
+  Dimensions,
+  TextInput,
 } from 'react-native';
 import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,11 +38,64 @@ const Modal = ({
   const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
   const insets = useSafeAreaInsets();
   const bottomInset = insets.bottom > 0 ? insets.bottom : spacing.lg;
-  const contentBottomPadding = bottomInset + spacing.xl;
+  const scrollRef = React.useRef(null);
+  const scrollYRef = React.useRef(0);
+  const [keyboardHeight, setKeyboardHeight] = React.useState(0);
+  const keyboardExtraPadding = Platform.OS === 'android' ? keyboardHeight : 0;
+  const contentBottomPadding = bottomInset + spacing.xl + keyboardExtraPadding;
   const headerTopOffset = fullScreen ? Math.max(insets.top, spacing.lg) : 0;
-  const keyboardBehavior =
-    Platform.OS === 'ios' ? 'padding' : fullScreen ? 'padding' : 'height';
+  const keyboardBehavior = Platform.OS === 'ios' ? 'padding' : undefined;
   const contentTopPadding = 0;
+  const scrollFocusedInputIntoView = React.useCallback((nextKeyboardHeight) => {
+    if (!nextKeyboardHeight || !scrollRef.current) return;
+    const focusedInput = TextInput.State?.currentlyFocusedInput?.();
+    if (!focusedInput) return;
+
+    requestAnimationFrame(() => {
+      try {
+        focusedInput.measureInWindow((x, y, width, height) => {
+          if (!Number.isFinite(y) || !Number.isFinite(height)) return;
+          const keyboardTop = Dimensions.get('window').height - nextKeyboardHeight;
+          const inputBottom = y + height;
+          const overlap = inputBottom - keyboardTop + spacing.md;
+          if (overlap > 0) {
+            scrollRef.current?.scrollTo({
+              y: Math.max(0, scrollYRef.current + overlap),
+              animated: true,
+            });
+          }
+        });
+      } catch (error) {
+        // Ignore measure errors from transient/unmounted inputs.
+      }
+    });
+  }, []);
+
+  React.useEffect(() => {
+    if (!visible) return undefined;
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      const nextHeight = event?.endCoordinates?.height || 0;
+      setKeyboardHeight(nextHeight);
+      scrollFocusedInputIntoView(nextHeight);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [scrollFocusedInputIntoView, visible]);
+
+  React.useEffect(() => {
+    if (!visible) {
+      setKeyboardHeight(0);
+    }
+  }, [visible]);
   const panResponder = React.useMemo(() => {
     if (!swipeToCloseEnabled || !onClose) return null;
     return PanResponder.create({
@@ -78,12 +133,12 @@ const Modal = ({
 
         <KeyboardAvoidingView
           behavior={keyboardBehavior}
-          keyboardVerticalOffset={fullScreen ? insets.top : 0}
+          keyboardVerticalOffset={Platform.OS === 'ios' && fullScreen ? insets.top : 0}
           style={[
             styles.modalContainer,
             fullScreen && styles.fullScreen,
             {
-              paddingBottom: bottomInset,
+              paddingBottom: Platform.OS === 'ios' ? bottomInset : 0,
               backgroundColor: themeColors.background,
             },
             containerStyle,
@@ -111,6 +166,7 @@ const Modal = ({
           )}
           {fullScreen ? (
             <ScrollView
+              ref={scrollRef}
               style={[styles.content, styles.fullScreenContent, contentStyle]}
               contentContainerStyle={[
                 styles.fullScreenContentContainer,
@@ -118,17 +174,22 @@ const Modal = ({
                 contentContainerStyle,
               ]}
               showsVerticalScrollIndicator
-              keyboardShouldPersistTaps="always"
-              keyboardDismissMode="on-drag"
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+              automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
               nestedScrollEnabled
               overScrollMode="always"
               scrollEventThrottle={16}
+              onScroll={(event) => {
+                scrollYRef.current = event?.nativeEvent?.contentOffset?.y || 0;
+              }}
               scrollEnabled={scrollEnabled}
             >
               {children}
             </ScrollView>
           ) : (
             <ScrollView
+              ref={scrollRef}
               style={[styles.content, contentStyle]}
               contentContainerStyle={[
                 {
@@ -139,6 +200,12 @@ const Modal = ({
               ]}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+              automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+              scrollEventThrottle={16}
+              onScroll={(event) => {
+                scrollYRef.current = event?.nativeEvent?.contentOffset?.y || 0;
+              }}
               scrollEnabled={scrollEnabled}
             >
               {children}
