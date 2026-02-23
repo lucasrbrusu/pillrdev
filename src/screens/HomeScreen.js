@@ -1148,6 +1148,82 @@ const HomeScreen = () => {
           </LinearGradient>
         </Card>
 
+        {/* Mood Garden Overview */}
+        <Card
+          style={[styles.sectionCard, styles.sectionCardGradient]}
+          onPress={() => navigation.navigate('Health')}
+        >
+          <LinearGradient
+            colors={sectionListTheme.health.gradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.sectionGradient, { borderColor: sectionListTheme.health.border }]}
+          >
+            <View style={styles.sectionContent}>
+              <View style={styles.moodOverviewHeader}>
+                <View style={styles.moodOverviewHeaderLeft}>
+                  <View
+                    style={[
+                      styles.sectionListIcon,
+                      { backgroundColor: sectionListTheme.health.iconBg },
+                    ]}
+                  >
+                    <Ionicons name="flower" size={16} color={sectionListTheme.health.iconColor} />
+                  </View>
+                  <View>
+                    <Text style={[styles.sectionListTitle, { color: sectionListTheme.health.text }]}>
+                      Mood Garden
+                    </Text>
+                    <Text style={[styles.moodOverviewSubtitle, { color: sectionListTheme.health.meta }]}>
+                      How are you feeling?
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.moodOverviewPreview}>
+                <LinearGradient
+                  colors={['rgba(255,255,255,0.55)', 'rgba(255,255,255,0.25)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.moodOverviewPreviewGradient}
+                >
+                  {miniGardenFlowers.length ? (
+                    <View style={styles.moodOverviewRow}>
+                      {miniGardenFlowers.map((flower, idx) => (
+                        <View key={`${flower.key}-${idx}`} style={styles.moodOverviewFlower}>
+                          <View
+                            style={[
+                              styles.moodOverviewHead,
+                              { backgroundColor: flower.color },
+                            ]}
+                          >
+                            <Text style={styles.moodOverviewEmoji}>{flower.emoji}</Text>
+                          </View>
+                          <View style={styles.moodOverviewStem} />
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={[styles.moodOverviewPlaceholder, { color: sectionListTheme.health.meta }]}>
+                      Tap to plant your first flower.
+                    </Text>
+                  )}
+                </LinearGradient>
+              </View>
+
+              <View style={styles.moodOverviewFooter}>
+                <Text style={[styles.moodOverviewHint, { color: sectionListTheme.health.meta }]}>
+                  Tap to plant today's mood
+                </Text>
+                <Text style={styles.moodOverviewCount}>
+                  {totalMoodCount} flowers planted
+                </Text>
+              </View>
+            </View>
+          </LinearGradient>
+        </Card>
+
         {/* Lists Overview */}
         <Card
           style={[styles.sectionCard, styles.sectionCardGradient]}
@@ -1438,85 +1514,6 @@ const HomeScreen = () => {
             </View>
           </View>
         </Modal>
-
-        {/* Today's Health */}
-        <Card
-          style={[styles.sectionCard, styles.sectionCardGradient]}
-          onPress={() => navigation.navigate('Health')}
-        >
-          <LinearGradient
-            colors={sectionListTheme.health.gradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={[styles.sectionGradient, { borderColor: sectionListTheme.health.border }]}
-          >
-            <View style={styles.sectionContent}>
-              <View style={styles.moodOverviewHeader}>
-                <View style={styles.moodOverviewHeaderLeft}>
-                  <View
-                    style={[
-                      styles.sectionListIcon,
-                      { backgroundColor: sectionListTheme.health.iconBg },
-                    ]}
-                  >
-                    <Ionicons name="flower" size={16} color={sectionListTheme.health.iconColor} />
-                  </View>
-                  <View>
-                    <Text style={[styles.sectionListTitle, { color: sectionListTheme.health.text }]}>
-                      Mood Garden
-                    </Text>
-                    <Text style={[styles.moodOverviewSubtitle, { color: sectionListTheme.health.meta }]}>
-                      How are you feeling?
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.moodOverviewSparkle}>
-                  <Ionicons name="sparkles" size={16} color="#FDE68A" />
-                </View>
-              </View>
-
-              <View style={styles.moodOverviewPreview}>
-                <LinearGradient
-                  colors={['rgba(255,255,255,0.55)', 'rgba(255,255,255,0.25)']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.moodOverviewPreviewGradient}
-                >
-                  {miniGardenFlowers.length ? (
-                    <View style={styles.moodOverviewRow}>
-                      {miniGardenFlowers.map((flower, idx) => (
-                        <View key={`${flower.key}-${idx}`} style={styles.moodOverviewFlower}>
-                          <View
-                            style={[
-                              styles.moodOverviewHead,
-                              { backgroundColor: flower.color },
-                            ]}
-                          >
-                            <Text style={styles.moodOverviewEmoji}>{flower.emoji}</Text>
-                          </View>
-                          <View style={styles.moodOverviewStem} />
-                        </View>
-                      ))}
-                    </View>
-                  ) : (
-                    <Text style={[styles.moodOverviewPlaceholder, { color: sectionListTheme.health.meta }]}>
-                      Tap to plant your first flower.
-                    </Text>
-                  )}
-                </LinearGradient>
-              </View>
-
-              <View style={styles.moodOverviewFooter}>
-                <Text style={[styles.moodOverviewHint, { color: sectionListTheme.health.meta }]}>
-                  Tap to plant today's mood
-                </Text>
-                <Text style={styles.moodOverviewCount}>
-                  {totalMoodCount} flowers planted
-                </Text>
-              </View>
-            </View>
-          </LinearGradient>
-        </Card>
 
         <Card
           style={[styles.sectionCard, styles.sectionCardGradient]}

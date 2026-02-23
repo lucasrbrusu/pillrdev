@@ -1623,14 +1623,6 @@ const HealthScreen = () => {
                   </Text>
                 </View>
               </View>
-              <View
-                style={[
-                  styles.moodOverviewSparkle,
-                  { backgroundColor: healthTheme.mood.sparkleBg },
-                ]}
-              >
-                <Ionicons name="sparkles" size={16} color={healthTheme.mood.sparkle} />
-              </View>
             </View>
 
             <View
