@@ -8,9 +8,7 @@ import {
   Image,
   Alert,
   ActivityIndicator,
-  Linking,
 } from 'react-native';
-import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -41,7 +39,6 @@ const EditProfileScreen = () => {
   const {
     profile,
     updateProfile,
-    deleteAccount,
     themeColors,
     themeName,
     tasks,
@@ -88,21 +85,52 @@ const EditProfileScreen = () => {
   const completedTasks = tasks?.filter((task) => task.completed).length || 0;
   const successRate = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
-  const [name, setName] = useState(profile.name);
-  const [email, setEmail] = useState(profile.email);
-  const [photo, setPhoto] = useState(profile.photo);
-  const [calorieGoal, setCalorieGoal] = useState(String(profile.dailyCalorieGoal));
-  const [waterGoal, setWaterGoal] = useState(String(profile.dailyWaterGoal));
-  const [sleepGoal, setSleepGoal] = useState(String(profile.dailySleepGoal));
-  const [deleting, setDeleting] = useState(false);
+  const [name, setName] = useState(profile?.name || '');
+  const [email, setEmail] = useState(profile?.email || '');
+  const [photo, setPhoto] = useState(profile?.photo || null);
+  const [calorieGoal, setCalorieGoal] = useState(String(profile?.dailyCalorieGoal ?? 2000));
+  const [waterGoal, setWaterGoal] = useState(String(profile?.dailyWaterGoal ?? 2));
+  const [sleepGoal, setSleepGoal] = useState(String(profile?.dailySleepGoal ?? 8));
+  const [isEditing, setIsEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  React.useEffect(() => {
+    if (isEditing) return;
+    setName(profile?.name || '');
+    setEmail(profile?.email || '');
+    setPhoto(profile?.photo || null);
+    setCalorieGoal(String(profile?.dailyCalorieGoal ?? 2000));
+    setWaterGoal(String(profile?.dailyWaterGoal ?? 2));
+    setSleepGoal(String(profile?.dailySleepGoal ?? 8));
+  }, [
+    isEditing,
+    profile?.dailyCalorieGoal,
+    profile?.dailySleepGoal,
+    profile?.dailyWaterGoal,
+    profile?.email,
+    profile?.name,
+    profile?.photo,
+  ]);
 
   const currentCurrency =
     defaultCurrencies.find(
       (currency) => currency.code === userSettings?.defaultCurrencyCode
     ) || defaultCurrencies[0];
 
+  const handleStartEditing = () => {
+    setName(profile?.name || '');
+    setEmail(profile?.email || '');
+    setPhoto(profile?.photo || null);
+    setCalorieGoal(String(profile?.dailyCalorieGoal ?? 2000));
+    setWaterGoal(String(profile?.dailyWaterGoal ?? 2));
+    setSleepGoal(String(profile?.dailySleepGoal ?? 8));
+    setIsEditing(true);
+  };
+
   const handleSave = async () => {
+    if (saving) return;
     try {
+      setSaving(true);
       await updateProfile({
         name: name.trim(),
         email: email.trim(),
@@ -111,13 +139,15 @@ const EditProfileScreen = () => {
         dailyWaterGoal: parseFloat(waterGoal) || 2,
         dailySleepGoal: parseInt(sleepGoal) || 8,
       });
-      navigation.goBack();
+      setIsEditing(false);
     } catch (error) {
       Alert.alert('Save failed', error?.message || 'Unable to save your changes.');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleChangePhoto = async () => {
+  const handleChoosePhoto = async () => {
     const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!granted) {
       Alert.alert('Permission needed', 'Please allow photo library access to change your profile picture.');
@@ -136,41 +166,36 @@ const EditProfileScreen = () => {
     }
   };
 
+  const handlePhotoPress = () => {
+    const options = [
+      {
+        text: 'Choose profile picture',
+        onPress: handleChoosePhoto,
+      },
+    ];
+
+    if (photo) {
+      options.push({
+        text: 'Remove profile picture',
+        style: 'destructive',
+        onPress: () => setPhoto(null),
+      });
+    }
+
+    options.push({
+      text: 'Cancel',
+      style: 'cancel',
+    });
+
+    Alert.alert('Profile picture', 'Choose an option', options);
+  };
+
   const handleChangePassword = () => {
     navigation.navigate('ChangePassword');
   };
 
-  const handleExportData = () => {
-    Alert.alert('Export Data', 'Your data export would be prepared here');
-  };
-
   const handleOpenCurrency = () => {
     navigation.navigate('Currency');
-  };
-
-  const handleDeleteAccount = () => {
-    Alert.alert(
-      'Delete Account',
-      'Are you sure you want to delete your account? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            if (deleting) return;
-            try {
-              setDeleting(true);
-              await deleteAccount();
-            } catch (error) {
-              Alert.alert('Delete failed', error?.message || 'Unable to delete your account.');
-            } finally {
-              setDeleting(false);
-            }
-          },
-        },
-      ]
-    );
   };
 
   return (
@@ -188,16 +213,34 @@ const EditProfileScreen = () => {
           >
             <Ionicons name="arrow-back" size={24} color={themeColors.text} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Edit Profile</Text>
+          <Text style={styles.headerTitle}>Profile Details</Text>
           <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-              <LinearGradient
-                colors={profileTheme.buttonGradient}
-                style={styles.saveButtonInner}
+            {isEditing ? (
+              <TouchableOpacity
+                style={styles.saveButton}
+                onPress={handleSave}
+                disabled={saving}
               >
-                <Text style={styles.saveText}>Save</Text>
-              </LinearGradient>
-            </TouchableOpacity>
+                <LinearGradient
+                  colors={profileTheme.buttonGradient}
+                  style={styles.saveButtonInner}
+                >
+                  {saving ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.saveText}>Save</Text>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.editButton}
+                onPress={handleStartEditing}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.editButtonText}>Edit</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -207,24 +250,30 @@ const EditProfileScreen = () => {
           style={[styles.heroCard, { borderColor: profileTheme.cardBorder }]}
         >
           <View style={styles.heroContent}>
-            <TouchableOpacity onPress={handleChangePhoto} style={styles.avatarTap}>
+            <TouchableOpacity
+              onPress={isEditing ? handlePhotoPress : undefined}
+              style={styles.avatarTap}
+              activeOpacity={isEditing ? 0.8 : 1}
+            >
               <LinearGradient colors={profileTheme.avatarRing} style={styles.avatarRing}>
                 {photo ? (
                   <Image source={{ uri: photo }} style={styles.avatar} />
                 ) : (
                   <View style={styles.avatarPlaceholder}>
                     <Text style={styles.avatarInitial}>
-                      {getInitials(profile.name, profile.email)}
+                      {getInitials(name, email)}
                     </Text>
                   </View>
                 )}
               </LinearGradient>
-              <View style={styles.cameraIcon}>
-                <Ionicons name="camera" size={16} color="#FFFFFF" />
-              </View>
+              {isEditing && (
+                <View style={styles.cameraIcon}>
+                  <Ionicons name="camera" size={16} color="#FFFFFF" />
+                </View>
+              )}
             </TouchableOpacity>
             <View style={styles.nameRow}>
-              <Text style={styles.profileName}>{profile.name}</Text>
+              <Text style={styles.profileName}>{name || 'User'}</Text>
               {isPremium && (
                 <View style={styles.premiumBadge}>
                   <LinearGradient
@@ -246,7 +295,7 @@ const EditProfileScreen = () => {
               )}
             </View>
             {!!profile.username && <Text style={styles.profileHandle}>@{profile.username}</Text>}
-            <Text style={styles.profileEmail}>{profile.email}</Text>
+            <Text style={styles.profileEmail}>{email}</Text>
           </View>
           <View style={[styles.statsDivider, { backgroundColor: profileTheme.statDivider }]} />
           <View style={styles.statsRow}>
@@ -306,38 +355,53 @@ const EditProfileScreen = () => {
           ]}
         >
           <Text style={styles.sectionTitle}>Personal Information</Text>
-          <Input
-            label="Name"
-            value={name}
-            onChangeText={setName}
-            placeholder="Your name"
-            containerStyle={styles.formInputContainer}
-            style={styles.formInput}
-            inputStyle={styles.formInputText}
-          />
-          <Input
-            label="Email"
-            value={email}
-            onChangeText={setEmail}
-            placeholder="your@email.com"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            containerStyle={styles.formInputContainer}
-            style={styles.formInput}
-            inputStyle={styles.formInputText}
-          />
-          <TouchableOpacity
-            style={styles.changePasswordButton}
-            onPress={handleChangePassword}
-          >
-            <LinearGradient
-              colors={profileTheme.buttonGradient}
-              style={styles.changePasswordInner}
-            >
-              <Ionicons name="lock-closed-outline" size={18} color="#FFFFFF" />
-              <Text style={styles.changePasswordText}>Change Password</Text>
-            </LinearGradient>
-          </TouchableOpacity>
+          {isEditing ? (
+            <>
+              <Input
+                label="Name"
+                value={name}
+                onChangeText={setName}
+                placeholder="Your name"
+                containerStyle={styles.formInputContainer}
+                style={styles.formInput}
+                inputStyle={styles.formInputText}
+              />
+              <Input
+                label="Email"
+                value={email}
+                onChangeText={setEmail}
+                placeholder="your@email.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                containerStyle={styles.formInputContainer}
+                style={styles.formInput}
+                inputStyle={styles.formInputText}
+              />
+              <TouchableOpacity
+                style={styles.changePasswordButton}
+                onPress={handleChangePassword}
+              >
+                <LinearGradient
+                  colors={profileTheme.buttonGradient}
+                  style={styles.changePasswordInner}
+                >
+                  <Ionicons name="lock-closed-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.changePasswordText}>Change Password</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <View style={styles.detailsList}>
+              <View style={[styles.detailRow, styles.detailRowDivider]}>
+                <Text style={styles.detailLabel}>Name</Text>
+                <Text style={styles.detailValue}>{name || '-'}</Text>
+              </View>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Email</Text>
+                <Text style={styles.detailValue}>{email || '-'}</Text>
+              </View>
+            </View>
+          )}
         </Card>
 
         {/* Currency */}
@@ -353,7 +417,9 @@ const EditProfileScreen = () => {
           </Text>
           <TouchableOpacity
             style={styles.settingsRow}
-            onPress={handleOpenCurrency}
+            onPress={isEditing ? handleOpenCurrency : undefined}
+            activeOpacity={isEditing ? 0.8 : 1}
+            disabled={!isEditing}
           >
             <View style={styles.settingsLeft}>
               <View style={styles.settingsIcon}>
@@ -368,11 +434,13 @@ const EditProfileScreen = () => {
             </View>
             <View style={styles.settingsRight}>
               <Text style={styles.settingsCode}>{currentCurrency.symbol}</Text>
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={themeColors.textLight}
-              />
+              {isEditing && (
+                <Ionicons
+                  name="chevron-forward"
+                  size={20}
+                  color={themeColors.textLight}
+                />
+              )}
             </View>
           </TouchableOpacity>
         </Card>
@@ -385,57 +453,76 @@ const EditProfileScreen = () => {
           ]}
         >
           <Text style={styles.sectionTitle}>Health Goals</Text>
-          <Input
-            label="Daily Calorie Goal"
-            value={calorieGoal}
-            onChangeText={setCalorieGoal}
-            placeholder="2000"
-            keyboardType="numeric"
-            icon="nutrition-outline"
-            containerStyle={styles.formInputContainer}
-            style={[
-              styles.formInput,
-              {
-                backgroundColor: profileTheme.goalTints.calorie.bg,
-                borderColor: profileTheme.goalTints.calorie.border,
-              },
-            ]}
-            inputStyle={styles.formInputText}
-          />
-          <Input
-            label="Daily Water Goal (L)"
-            value={waterGoal}
-            onChangeText={setWaterGoal}
-            placeholder="2.0"
-            keyboardType="decimal-pad"
-            icon="water-outline"
-            containerStyle={styles.formInputContainer}
-            style={[
-              styles.formInput,
-              {
-                backgroundColor: profileTheme.goalTints.water.bg,
-                borderColor: profileTheme.goalTints.water.border,
-              },
-            ]}
-            inputStyle={styles.formInputText}
-          />
-          <Input
-            label="Daily Sleep Goal (hours)"
-            value={sleepGoal}
-            onChangeText={setSleepGoal}
-            placeholder="8"
-            keyboardType="numeric"
-            icon="moon-outline"
-            containerStyle={styles.formInputContainer}
-            style={[
-              styles.formInput,
-              {
-                backgroundColor: profileTheme.goalTints.sleep.bg,
-                borderColor: profileTheme.goalTints.sleep.border,
-              },
-            ]}
-            inputStyle={styles.formInputText}
-          />
+          {isEditing ? (
+            <>
+              <Input
+                label="Daily Calorie Goal"
+                value={calorieGoal}
+                onChangeText={setCalorieGoal}
+                placeholder="2000"
+                keyboardType="numeric"
+                icon="nutrition-outline"
+                containerStyle={styles.formInputContainer}
+                style={[
+                  styles.formInput,
+                  {
+                    backgroundColor: profileTheme.goalTints.calorie.bg,
+                    borderColor: profileTheme.goalTints.calorie.border,
+                  },
+                ]}
+                inputStyle={styles.formInputText}
+              />
+              <Input
+                label="Daily Water Goal (L)"
+                value={waterGoal}
+                onChangeText={setWaterGoal}
+                placeholder="2.0"
+                keyboardType="decimal-pad"
+                icon="water-outline"
+                containerStyle={styles.formInputContainer}
+                style={[
+                  styles.formInput,
+                  {
+                    backgroundColor: profileTheme.goalTints.water.bg,
+                    borderColor: profileTheme.goalTints.water.border,
+                  },
+                ]}
+                inputStyle={styles.formInputText}
+              />
+              <Input
+                label="Daily Sleep Goal (hours)"
+                value={sleepGoal}
+                onChangeText={setSleepGoal}
+                placeholder="8"
+                keyboardType="numeric"
+                icon="moon-outline"
+                containerStyle={styles.formInputContainer}
+                style={[
+                  styles.formInput,
+                  {
+                    backgroundColor: profileTheme.goalTints.sleep.bg,
+                    borderColor: profileTheme.goalTints.sleep.border,
+                  },
+                ]}
+                inputStyle={styles.formInputText}
+              />
+            </>
+          ) : (
+            <View style={styles.detailsList}>
+              <View style={[styles.detailRow, styles.detailRowDivider]}>
+                <Text style={styles.detailLabel}>Daily Calorie Goal</Text>
+                <Text style={styles.detailValue}>{calorieGoal || '-'} kcal</Text>
+              </View>
+              <View style={[styles.detailRow, styles.detailRowDivider]}>
+                <Text style={styles.detailLabel}>Daily Water Goal</Text>
+                <Text style={styles.detailValue}>{waterGoal || '-'} L</Text>
+              </View>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Daily Sleep Goal</Text>
+                <Text style={styles.detailValue}>{sleepGoal || '-'} hours</Text>
+              </View>
+            </View>
+          )}
         </Card>
 
         {/* Data & Account */}
@@ -447,40 +534,21 @@ const EditProfileScreen = () => {
         >
           <Text style={styles.sectionTitle}>Data & Account</Text>
           <TouchableOpacity
-            style={styles.actionItem}
-            onPress={handleExportData}
+            style={styles.settingsRow}
+            onPress={() => navigation.navigate('DataAccount')}
           >
-            <Ionicons name="download-outline" size={20} color={themeColors.text} />
-            <Text style={styles.actionText}>Export My Data</Text>
-            <Ionicons name="chevron-forward" size={20} color={themeColors.textLight} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionItem}
-            onPress={() => Linking.openURL('https://pillaflow.net/account-deletion.html')}
-          >
-            <Ionicons name="document-text-outline" size={20} color={themeColors.text} />
-            <Text style={styles.actionText}>Account & Data Deletion Terms</Text>
-            <Ionicons name="chevron-forward" size={20} color={themeColors.textLight} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionItem, styles.dangerItem]}
-            onPress={handleDeleteAccount}
-            disabled={deleting}
-          >
-            <Ionicons name="trash-outline" size={20} color={themeColors.danger} />
-            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-              <Text style={[styles.actionText, styles.dangerText]}>
-                {deleting ? 'Deleting...' : 'Delete Account'}
-              </Text>
-              {deleting && (
-                <ActivityIndicator
-                  size="small"
-                  color={themeColors.danger}
-                  style={{ marginLeft: spacing.sm }}
-                />
-              )}
+            <View style={styles.settingsLeft}>
+              <View style={styles.settingsIcon}>
+                <Ionicons name="shield-checkmark-outline" size={18} color={themeColors.text} />
+              </View>
+              <View>
+                <Text style={styles.settingsLabel}>Manage data and account</Text>
+                <Text style={styles.settingsValue}>
+                  Export data, review terms, and account deletion.
+                </Text>
+              </View>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={themeColors.danger} />
+            <Ionicons name="chevron-forward" size={20} color={themeColors.textLight} />
           </TouchableOpacity>
         </Card>
       </ScrollView>
@@ -530,6 +598,21 @@ const createStyles = (themeColorsParam = colors) => {
     saveButton: {
       borderRadius: borderRadius.full,
       overflow: 'hidden',
+    },
+    editButton: {
+      borderRadius: borderRadius.full,
+      borderWidth: 1,
+      borderColor: themeColorsParam?.border || colors.border,
+      backgroundColor: themeColorsParam?.card || colors.card,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.lg,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    editButtonText: {
+      ...typography.bodySmall,
+      color: baseText,
+      fontWeight: '700',
     },
     saveButtonInner: {
       paddingVertical: spacing.sm,
@@ -663,6 +746,30 @@ const createStyles = (themeColorsParam = colors) => {
       color: mutedText,
       marginBottom: spacing.md,
     },
+    detailsList: {
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: themeColorsParam?.border || colors.border,
+      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
+      paddingHorizontal: spacing.md,
+    },
+    detailRow: {
+      paddingVertical: spacing.md,
+    },
+    detailRowDivider: {
+      borderBottomWidth: 1,
+      borderBottomColor: themeColorsParam?.divider || colors.divider,
+    },
+    detailLabel: {
+      ...typography.caption,
+      color: mutedText,
+      marginBottom: 2,
+    },
+    detailValue: {
+      ...typography.body,
+      color: baseText,
+      fontWeight: '600',
+    },
     formInputContainer: {
       marginBottom: spacing.md,
     },
@@ -740,25 +847,6 @@ const createStyles = (themeColorsParam = colors) => {
       ...typography.body,
       color: baseText,
       fontWeight: '700',
-    },
-    actionItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: themeColorsParam?.divider || colors.divider,
-    },
-    actionText: {
-      flex: 1,
-      ...typography.body,
-      marginLeft: spacing.md,
-      color: baseText,
-    },
-    dangerItem: {
-      borderBottomWidth: 0,
-    },
-    dangerText: {
-      color: themeColorsParam?.danger || colors.danger,
     },
     premiumBadge: {
       flexDirection: 'row',

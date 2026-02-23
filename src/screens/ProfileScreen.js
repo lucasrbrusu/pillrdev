@@ -8,7 +8,6 @@ import {
   Image,
   Alert,
 } from 'react-native';
-import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -38,15 +37,6 @@ const ProfileScreen = () => {
   const isDark = themeName === 'dark';
   const profileTheme = React.useMemo(
     () => ({
-      heroGradient: isDark ? ['#1F1B2F', '#0B1020'] : ['#F7E8FF', '#FDF4FF'],
-      cardBg: isDark ? '#0F172A' : '#FFFFFF',
-      cardBorder: isDark ? '#1F2937' : '#E7E5F0',
-      avatarRing: isDark ? ['#8B5CF6', '#F97316'] : ['#C084FC', '#F97316'],
-      buttonGradient: isDark ? ['#8B5CF6', '#EC4899'] : ['#A855F7', '#EC4899'],
-      buttonText: '#FFFFFF',
-      chipBg: isDark ? 'rgba(148,163,184,0.2)' : '#F3E8FF',
-      chipBorder: isDark ? 'rgba(148,163,184,0.35)' : '#E7D5FF',
-      chipText: isDark ? '#E2E8F0' : '#6B21A8',
       settingsBg: isDark ? '#0F172A' : '#FFFFFF',
       settingsBorder: isDark ? '#1F2937' : '#E7E5F0',
       signOutBg: isDark ? '#111827' : '#F9FAFB',
@@ -54,7 +44,7 @@ const ProfileScreen = () => {
     }),
     [isDark]
   );
-  const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
+  const styles = React.useMemo(() => createStyles(themeColors, isDark), [themeColors, isDark]);
   const isPremium = !!profile?.isPremium;
   const bestStreak = getBestStreak ? getBestStreak() : 0;
   const totalTasks = tasks?.length || 0;
@@ -182,23 +172,24 @@ const ProfileScreen = () => {
       >
         {/* Header */}
         <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Ionicons name="arrow-back" size={24} color={themeColors.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>{t('Profile')}</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Ionicons name="arrow-back" size={24} color={themeColors.text} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>{t('Profile')}</Text>
+          <View style={styles.headerSpacer} />
+        </View>
 
         {/* Profile Info */}
-        <LinearGradient
-          colors={profileTheme.heroGradient}
-          style={[styles.heroCard, { borderColor: profileTheme.cardBorder }]}
-        >
-          <View style={styles.heroContent}>
-            <LinearGradient colors={profileTheme.avatarRing} style={styles.avatarRing}>
+        <Card style={styles.profileInfoCard}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={styles.profileInfoRow}
+            onPress={() => navigation.navigate('EditProfile')}
+          >
+            <View style={styles.profileAvatarWrap}>
               {profile.photo ? (
                 <Image source={{ uri: profile.photo }} style={styles.avatar} />
               ) : (
@@ -208,47 +199,32 @@ const ProfileScreen = () => {
                   </Text>
                 </View>
               )}
-            </LinearGradient>
-            <View style={styles.nameRow}>
-              <Text style={styles.profileName}>{profile.name}</Text>
-              {isPremium && (
-                <View style={styles.premiumBadge}>
-                  <LinearGradient
-                    colors={[
-                      'rgba(255,255,255,0.6)',
-                      'rgba(255,255,255,0.12)',
-                      'rgba(255,255,255,0)',
-                    ]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.premiumBadgeShine}
-                    pointerEvents="none"
-                  />
-                  <View style={styles.premiumBadgeContent}>
-                    <Ionicons name="star" size={13} color="#FFFFFF" style={styles.premiumIcon} />
-                    <Text style={styles.premiumText}>{t('Premium')}</Text>
-                  </View>
-                </View>
-              )}
             </View>
-            {!!profile.username && (
-              <Text style={styles.profileUsername}>@{profile.username}</Text>
-            )}
-            <Text style={styles.profileEmail}>{profile.email}</Text>
-            <TouchableOpacity
-              activeOpacity={0.85}
-              style={styles.editProfileButtonWrap}
-              onPress={() => navigation.navigate('EditProfile')}
-            >
-              <LinearGradient
-                colors={profileTheme.buttonGradient}
-                style={styles.editProfileButton}
-              >
-                <Text style={styles.editProfileText}>{t('Edit Profile')}</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.statsDivider} />
+            <View style={styles.profileTextWrap}>
+              <View style={styles.profileTitleRow}>
+                <Text style={styles.profileUsername} numberOfLines={1}>
+                  {profile.username ? `@${profile.username}` : profile.name || t('Profile')}
+                </Text>
+                {isPremium && (
+                  <View style={styles.premiumChip}>
+                    <Ionicons name="star" size={11} color="#FFFFFF" style={styles.premiumChipIcon} />
+                    <Text style={styles.premiumChipText}>{t('Premium')}</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.profileEmail} numberOfLines={1}>
+                {profile.email}
+              </Text>
+            </View>
+            <Ionicons
+              name="chevron-forward"
+              size={20}
+              color={themeColors?.textSecondary || colors.textSecondary}
+            />
+          </TouchableOpacity>
+        </Card>
+
+        <Card style={styles.profileStatsCard}>
           <View style={styles.statsRow}>
             {stats.map((stat) => (
               <View key={stat.id} style={styles.statItem}>
@@ -265,7 +241,7 @@ const ProfileScreen = () => {
               </View>
             ))}
           </View>
-        </LinearGradient>
+        </Card>
 
         {!isPremium && (
           <TouchableOpacity
@@ -290,6 +266,28 @@ const ProfileScreen = () => {
             </LinearGradient>
           </TouchableOpacity>
         )}
+
+        {/* Insights */}
+        <Card style={styles.insightsCard}>
+          <TouchableOpacity
+            style={styles.insightsRow}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('Insights')}
+          >
+            <View style={styles.insightsIconWrap}>
+              <Ionicons name="bar-chart-outline" size={18} color="#FFFFFF" />
+            </View>
+            <View style={styles.insightsTextWrap}>
+              <Text style={styles.insightsTitle}>View Insights</Text>
+              <Text style={styles.insightsSubtitle}>Weekly & monthly reports</Text>
+            </View>
+            <Ionicons
+              name="chevron-forward"
+              size={20}
+              color={themeColors?.textSecondary || colors.textSecondary}
+            />
+          </TouchableOpacity>
+        </Card>
 
         {/* Settings */}
         <Card
@@ -348,10 +346,14 @@ const ProfileScreen = () => {
   );
 };
 
-const createStyles = (themeColorsParam = colors) => {
+const createStyles = (themeColorsParam = colors, isDark = false) => {
   const baseText = themeColorsParam?.text || colors.text;
   const mutedText = themeColorsParam?.textSecondary || colors.textSecondary;
   const lightText = themeColorsParam?.textLight || colors.textLight;
+  const mutedBorder = isDark ? '#272A35' : '#EEE6FF';
+  const flatShadow = isDark
+    ? { shadowOpacity: 0, shadowRadius: 0, shadowOffset: { width: 0, height: 0 }, elevation: 0 }
+    : shadows.small;
   return StyleSheet.create({
     container: {
       flex: 1,
@@ -387,87 +389,74 @@ const createStyles = (themeColorsParam = colors) => {
     headerSpacer: {
       width: 40,
     },
-    heroCard: {
+    profileInfoCard: {
       borderRadius: borderRadius.xl,
       borderWidth: 1,
-      overflow: 'hidden',
-      marginBottom: spacing.lg,
-      ...shadows.medium,
+      borderColor: mutedBorder,
+      backgroundColor: themeColorsParam?.card || colors.card,
+      marginBottom: spacing.md,
+      ...flatShadow,
     },
-    heroContent: {
+    profileInfoRow: {
+      flexDirection: 'row',
       alignItems: 'center',
-      paddingVertical: spacing.xl,
-      paddingHorizontal: spacing.lg,
+      gap: spacing.md,
     },
-    avatarRing: {
-      width: 110,
-      height: 110,
-      borderRadius: 55,
+    profileAvatarWrap: {
+      width: 52,
+      height: 52,
+      borderRadius: borderRadius.full,
+      overflow: 'hidden',
+      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
       alignItems: 'center',
       justifyContent: 'center',
-      marginBottom: spacing.md,
     },
     avatar: {
-      width: 96,
-      height: 96,
-      borderRadius: 48,
+      width: '100%',
+      height: '100%',
+      borderRadius: borderRadius.full,
     },
     avatarPlaceholder: {
-      width: 96,
-      height: 96,
-      borderRadius: 48,
-      backgroundColor: themeColorsParam?.card || colors.card,
+      width: '100%',
+      height: '100%',
+      borderRadius: borderRadius.full,
+      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
       alignItems: 'center',
       justifyContent: 'center',
     },
     avatarInitial: {
-      ...typography.h2,
+      ...typography.body,
       color: baseText,
+      fontWeight: '700',
     },
-    nameRow: {
+    profileTextWrap: {
+      flex: 1,
+    },
+    profileTitleRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
       gap: spacing.sm,
-      marginBottom: spacing.xs,
-    },
-    profileName: {
-      ...typography.h2,
-      color: baseText,
+      marginBottom: 2,
     },
     profileUsername: {
-      ...typography.bodySmall,
-      color: mutedText,
-      marginBottom: spacing.xs,
+      ...typography.body,
+      color: baseText,
+      fontWeight: '700',
+      flexShrink: 1,
     },
     profileEmail: {
       ...typography.bodySmall,
       color: mutedText,
+    },
+    profileStatsCard: {
+      borderRadius: borderRadius.xl,
+      borderWidth: 1,
+      borderColor: themeColorsParam?.border || colors.border,
+      backgroundColor: themeColorsParam?.card || colors.card,
       marginBottom: spacing.lg,
-    },
-    editProfileButtonWrap: {
-      width: '100%',
-      alignItems: 'center',
-      marginTop: spacing.xs,
-    },
-    editProfileButton: {
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.xl,
-      borderRadius: borderRadius.full,
-      minWidth: 160,
-      alignItems: 'center',
-      justifyContent: 'center',
-      ...shadows.small,
-    },
-    editProfileText: {
-      ...typography.body,
-      color: '#FFFFFF',
-      fontWeight: '600',
-    },
-    statsDivider: {
-      height: 1,
-      width: '100%',
-      backgroundColor: themeColorsParam?.divider || colors.divider,
+      padding: 0,
+      overflow: 'hidden',
+      ...flatShadow,
     },
     statsRow: {
       flexDirection: 'row',
@@ -547,41 +536,58 @@ const createStyles = (themeColorsParam = colors) => {
       color: '#000000',
       marginTop: 2,
     },
-    premiumBadge: {
+    premiumChip: {
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: '#F59E0B',
       borderRadius: borderRadius.full,
-      paddingHorizontal: spacing.md,
-      paddingVertical: 6,
-      position: 'relative',
-      overflow: 'hidden',
-      ...shadows.small,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 3,
     },
-    premiumBadgeContent: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      zIndex: 1,
-    },
-    premiumBadgeShine: {
-      position: 'absolute',
-      top: -6,
-      left: -18,
-      width: '70%',
-      height: '140%',
-      transform: [{ rotate: '-12deg' }],
-      opacity: 0.75,
-    },
-    premiumIcon: {
+    premiumChipIcon: {
       marginRight: spacing.xs,
     },
-    premiumText: {
+    premiumChipText: {
       ...typography.caption,
       color: '#FFFFFF',
       fontWeight: '700',
     },
-    settingsCard: {
+    insightsCard: {
+      borderRadius: borderRadius.xl,
+      borderWidth: 1,
+      borderColor: mutedBorder,
+      backgroundColor: themeColorsParam?.card || colors.card,
       marginTop: spacing.lg,
+      ...flatShadow,
+    },
+    insightsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+    },
+    insightsIconWrap: {
+      width: 36,
+      height: 36,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? '#6D28D9' : '#7C3AED',
+    },
+    insightsTextWrap: {
+      flex: 1,
+    },
+    insightsTitle: {
+      ...typography.body,
+      color: baseText,
+      fontWeight: '700',
+    },
+    insightsSubtitle: {
+      ...typography.bodySmall,
+      color: mutedText,
+      marginTop: 2,
+    },
+    settingsCard: {
+      marginTop: spacing.md,
       marginBottom: spacing.xl,
       borderRadius: borderRadius.xl,
     },

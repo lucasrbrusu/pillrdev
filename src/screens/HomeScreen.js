@@ -217,7 +217,6 @@ const HomeScreen = () => {
   };
   const middleIconColors = {
     friends: isDark ? '#1D4ED8' : '#2563EB',
-    insights: isDark ? '#6D28D9' : '#7C3AED',
     focusBg: isDark ? 'rgba(59, 130, 246, 0.2)' : '#EAF1FF',
     focusIcon: isDark ? '#93C5FD' : '#2563EB',
     countdownBg: isDark ? 'rgba(245, 158, 11, 0.2)' : '#FFF1DD',
@@ -604,28 +603,6 @@ const HomeScreen = () => {
           </TouchableOpacity>
         </Card>
 
-        {/* Insights */}
-        <Card style={[styles.sectionCard, styles.middleCard]}>
-          <TouchableOpacity
-            style={styles.middleRow}
-            activeOpacity={0.85}
-            onPress={() => navigation.navigate('Insights')}
-          >
-            <View style={[styles.middleIconWrap, { backgroundColor: middleIconColors.insights }]}>
-              <Ionicons name="bar-chart-outline" size={18} color="#FFFFFF" />
-            </View>
-            <View style={styles.middleTextWrap}>
-              <Text style={styles.middleTitle}>View Insights</Text>
-              <Text style={styles.middleSubtitle}>Weekly & monthly reports</Text>
-            </View>
-            <Ionicons
-              name="chevron-forward"
-              size={20}
-              color={themeColors?.textSecondary || colors.textSecondary}
-            />
-          </TouchableOpacity>
-        </Card>
-
         {/* Focus Mode + Countdown */}
         <View style={styles.topStatsRow}>
           <Card style={[styles.sectionCard, styles.miniCard]}>
@@ -690,6 +667,69 @@ const HomeScreen = () => {
             </LinearGradient>
           </TouchableOpacity>
         )}
+
+        {/* Today's Overview */}
+        <Card
+          style={[styles.sectionCard, styles.sectionCardGradient, styles.overviewCard]}
+          onPress={() => navigation.navigate('Tasks')}
+        >
+          <LinearGradient
+            colors={sectionListTheme.overview.gradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[
+              styles.sectionGradient,
+              styles.overviewGradient,
+              { borderColor: sectionListTheme.overview.border },
+            ]}
+          >
+            <View style={styles.sectionContent}>
+          <View style={styles.sectionListHeader}>
+            <View style={styles.sectionListTitleRow}>
+              <View
+                style={[
+                  styles.sectionListIcon,
+                  { backgroundColor: sectionListTheme.overview.iconBg },
+                ]}
+              >
+                <Ionicons name="calendar" size={16} color={sectionListTheme.overview.iconColor} />
+              </View>
+              <Text style={[styles.sectionListTitle, { color: sectionListTheme.overview.text }]}>
+                Today's Overview
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={sectionListTheme.overview.text} />
+          </View>
+          <Text style={[styles.overviewDate, { color: sectionListTheme.overview.meta }]}>
+            {formattedDate}
+          </Text>
+          {todayTasks.length > 0 ? (
+            <View style={styles.tasksList}>
+              {todayTasks.slice(0, 3).map((task) => (
+                <View key={task.id} style={styles.taskItem}>
+                  <View
+                    style={[
+                      styles.taskDot,
+                      { backgroundColor: sectionListTheme.overview.dot },
+                    ]}
+                  />
+                  <Text style={[styles.taskText, { color: sectionListTheme.overview.text }]} numberOfLines={1}>
+                    {task.title}
+                  </Text>
+                  {task.time && (
+                    <Text style={[styles.taskTime, { color: sectionListTheme.overview.meta }]}>{task.time}</Text>
+                  )}
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={[styles.overviewEmpty, { color: sectionListTheme.overview.text }]}>
+              No tasks scheduled for today
+            </Text>
+          )}
+            </View>
+          </LinearGradient>
+        </Card>
 
         {/* Habits Overview */}
         <Card
@@ -828,69 +868,6 @@ const HomeScreen = () => {
                 </View>
               ))}
             </View>
-          )}
-            </View>
-          </LinearGradient>
-        </Card>
-
-        {/* Today's Overview */}
-        <Card
-          style={[styles.sectionCard, styles.sectionCardGradient, styles.overviewCard]}
-          onPress={() => navigation.navigate('Tasks')}
-        >
-          <LinearGradient
-            colors={sectionListTheme.overview.gradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={[
-              styles.sectionGradient,
-              styles.overviewGradient,
-              { borderColor: sectionListTheme.overview.border },
-            ]}
-          >
-            <View style={styles.sectionContent}>
-          <View style={styles.sectionListHeader}>
-            <View style={styles.sectionListTitleRow}>
-              <View
-                style={[
-                  styles.sectionListIcon,
-                  { backgroundColor: sectionListTheme.overview.iconBg },
-                ]}
-              >
-                <Ionicons name="calendar" size={16} color={sectionListTheme.overview.iconColor} />
-              </View>
-              <Text style={[styles.sectionListTitle, { color: sectionListTheme.overview.text }]}>
-                Today's Overview
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={sectionListTheme.overview.text} />
-          </View>
-          <Text style={[styles.overviewDate, { color: sectionListTheme.overview.meta }]}>
-            {formattedDate}
-          </Text>
-          {todayTasks.length > 0 ? (
-            <View style={styles.tasksList}>
-              {todayTasks.slice(0, 3).map((task) => (
-                <View key={task.id} style={styles.taskItem}>
-                  <View
-                    style={[
-                      styles.taskDot,
-                      { backgroundColor: sectionListTheme.overview.dot },
-                    ]}
-                  />
-                  <Text style={[styles.taskText, { color: sectionListTheme.overview.text }]} numberOfLines={1}>
-                    {task.title}
-                  </Text>
-                  {task.time && (
-                    <Text style={[styles.taskTime, { color: sectionListTheme.overview.meta }]}>{task.time}</Text>
-                  )}
-                </View>
-              ))}
-            </View>
-          ) : (
-            <Text style={[styles.overviewEmpty, { color: sectionListTheme.overview.text }]}>
-              No tasks scheduled for today
-            </Text>
           )}
             </View>
           </LinearGradient>
