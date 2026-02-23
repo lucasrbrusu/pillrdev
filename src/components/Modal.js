@@ -7,7 +7,6 @@ import {
   TouchableWithoutFeedback,
   Text,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   PanResponder,
@@ -40,14 +39,33 @@ const Modal = ({
   const bottomInset = insets.bottom > 0 ? insets.bottom : spacing.lg;
   const scrollRef = React.useRef(null);
   const scrollYRef = React.useRef(0);
-  const [keyboardHeight, setKeyboardHeight] = React.useState(0);
-  const keyboardExtraPadding = Platform.OS === 'android' ? keyboardHeight : 0;
-  const contentBottomPadding = bottomInset + spacing.xl + keyboardExtraPadding;
+  const keyboardHeightRef = React.useRef(0);
+  const focusedInputTimeoutRef = React.useRef(null);
+  const viewportHeightRef = React.useRef(0);
+  const contentHeightRef = React.useRef(0);
+  const contentBottomPadding = bottomInset + spacing.xl;
   const headerTopOffset = fullScreen ? Math.max(insets.top, spacing.lg) : 0;
-  const keyboardBehavior = Platform.OS === 'ios' ? 'padding' : undefined;
   const contentTopPadding = 0;
+
+  const clampScrollOffset = React.useCallback((value) => {
+    const maxOffset = Math.max(
+      0,
+      (contentHeightRef.current || 0) - (viewportHeightRef.current || 0)
+    );
+    if (!Number.isFinite(value)) return 0;
+    return Math.min(Math.max(0, value), maxOffset);
+  }, []);
+
+  const clearPendingFocusScroll = React.useCallback(() => {
+    if (focusedInputTimeoutRef.current) {
+      clearTimeout(focusedInputTimeoutRef.current);
+      focusedInputTimeoutRef.current = null;
+    }
+  }, []);
+
   const scrollFocusedInputIntoView = React.useCallback((nextKeyboardHeight) => {
-    if (!nextKeyboardHeight || !scrollRef.current) return;
+    const resolvedKeyboardHeight = nextKeyboardHeight || keyboardHeightRef.current;
+    if (!resolvedKeyboardHeight || !scrollRef.current) return;
     const focusedInput = TextInput.State?.currentlyFocusedInput?.();
     if (!focusedInput) return;
 
@@ -55,12 +73,22 @@ const Modal = ({
       try {
         focusedInput.measureInWindow((x, y, width, height) => {
           if (!Number.isFinite(y) || !Number.isFinite(height)) return;
-          const keyboardTop = Dimensions.get('window').height - nextKeyboardHeight;
+          const inputTop = y;
+          const keyboardTop = Dimensions.get('window').height - resolvedKeyboardHeight;
           const inputBottom = y + height;
-          const overlap = inputBottom - keyboardTop + spacing.md;
-          if (overlap > 0) {
+          const bottomOverlap = inputBottom - keyboardTop + spacing.md;
+          const topOverlap = spacing.md - inputTop;
+          let nextOffset = scrollYRef.current;
+
+          if (bottomOverlap > 0) {
+            nextOffset += bottomOverlap;
+          } else if (topOverlap > 0) {
+            nextOffset -= topOverlap;
+          }
+
+          if (Math.abs(nextOffset - scrollYRef.current) > 1) {
             scrollRef.current?.scrollTo({
-              y: Math.max(0, scrollYRef.current + overlap),
+              y: clampScrollOffset(nextOffset),
               animated: true,
             });
           }
@@ -69,33 +97,61 @@ const Modal = ({
         // Ignore measure errors from transient/unmounted inputs.
       }
     });
+  }, [clampScrollOffset]);
+
+  const scheduleFocusedInputScroll = React.useCallback(() => {
+    if (!keyboardHeightRef.current) return;
+    clearPendingFocusScroll();
+    focusedInputTimeoutRef.current = setTimeout(() => {
+      focusedInputTimeoutRef.current = null;
+      scrollFocusedInputIntoView(keyboardHeightRef.current);
+    }, 60);
+  }, [clearPendingFocusScroll, scrollFocusedInputIntoView]);
+
+  const handleScroll = React.useCallback((event) => {
+    scrollYRef.current = event?.nativeEvent?.contentOffset?.y || 0;
   }, []);
+
+  const handleLayout = React.useCallback((event) => {
+    viewportHeightRef.current = event?.nativeEvent?.layout?.height || 0;
+  }, []);
+
+  const handleContentSizeChange = React.useCallback((width, height) => {
+    contentHeightRef.current = height || 0;
+  }, []);
+
+  const handleTouchEndCapture = React.useCallback(() => {
+    scheduleFocusedInputScroll();
+  }, [scheduleFocusedInputScroll]);
 
   React.useEffect(() => {
     if (!visible) return undefined;
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const showSub = Keyboard.addListener(showEvent, (event) => {
+    const handleKeyboardShow = (event) => {
       const nextHeight = event?.endCoordinates?.height || 0;
-      setKeyboardHeight(nextHeight);
+      keyboardHeightRef.current = nextHeight;
       scrollFocusedInputIntoView(nextHeight);
-    });
-    const hideSub = Keyboard.addListener(hideEvent, () => {
-      setKeyboardHeight(0);
-    });
+    };
+    const handleKeyboardHide = () => {
+      keyboardHeightRef.current = 0;
+      clearPendingFocusScroll();
+    };
+
+    const showSub = Keyboard.addListener(showEvent, handleKeyboardShow);
+    const hideSub = Keyboard.addListener(hideEvent, handleKeyboardHide);
+    const frameSub =
+      Platform.OS === 'ios'
+        ? Keyboard.addListener('keyboardWillChangeFrame', handleKeyboardShow)
+        : null;
 
     return () => {
+      clearPendingFocusScroll();
       showSub.remove();
       hideSub.remove();
+      frameSub?.remove();
     };
-  }, [scrollFocusedInputIntoView, visible]);
-
-  React.useEffect(() => {
-    if (!visible) {
-      setKeyboardHeight(0);
-    }
-  }, [visible]);
+  }, [clearPendingFocusScroll, scrollFocusedInputIntoView, visible]);
   const panResponder = React.useMemo(() => {
     if (!swipeToCloseEnabled || !onClose) return null;
     return PanResponder.create({
@@ -131,9 +187,7 @@ const Modal = ({
           <View style={styles.backdrop} />
         </TouchableWithoutFeedback>
 
-        <KeyboardAvoidingView
-          behavior={keyboardBehavior}
-          keyboardVerticalOffset={Platform.OS === 'ios' && fullScreen ? insets.top : 0}
+        <View
           style={[
             styles.modalContainer,
             fullScreen && styles.fullScreen,
@@ -174,15 +228,17 @@ const Modal = ({
                 contentContainerStyle,
               ]}
               showsVerticalScrollIndicator
+              bounces={false}
+              alwaysBounceVertical={false}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-              automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
               nestedScrollEnabled
-              overScrollMode="always"
+              overScrollMode="never"
               scrollEventThrottle={16}
-              onScroll={(event) => {
-                scrollYRef.current = event?.nativeEvent?.contentOffset?.y || 0;
-              }}
+              onScroll={handleScroll}
+              onLayout={handleLayout}
+              onContentSizeChange={handleContentSizeChange}
+              onTouchEndCapture={handleTouchEndCapture}
               scrollEnabled={scrollEnabled}
             >
               {children}
@@ -199,19 +255,22 @@ const Modal = ({
                 contentContainerStyle,
               ]}
               showsVerticalScrollIndicator={false}
+              bounces={false}
+              alwaysBounceVertical={false}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-              automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+              overScrollMode="never"
               scrollEventThrottle={16}
-              onScroll={(event) => {
-                scrollYRef.current = event?.nativeEvent?.contentOffset?.y || 0;
-              }}
+              onScroll={handleScroll}
+              onLayout={handleLayout}
+              onContentSizeChange={handleContentSizeChange}
+              onTouchEndCapture={handleTouchEndCapture}
               scrollEnabled={scrollEnabled}
             >
               {children}
             </ScrollView>
           )}
-        </KeyboardAvoidingView>
+        </View>
       </View>
     </RNModal>
   );

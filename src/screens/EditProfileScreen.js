@@ -3,8 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
   TouchableOpacity,
   Image,
   Alert,
@@ -201,11 +199,6 @@ const EditProfileScreen = () => {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <KeyboardAvoidingView
-        style={styles.scrollView}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
-      >
       <PlatformScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -559,7 +552,6 @@ const EditProfileScreen = () => {
           </TouchableOpacity>
         </Card>
       </PlatformScrollView>
-      </KeyboardAvoidingView>
     </View>
   );
 };

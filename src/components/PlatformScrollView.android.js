@@ -2,15 +2,47 @@ import React from 'react';
 import { ScrollView, Keyboard, Dimensions, TextInput } from 'react-native';
 
 const PlatformScrollView = React.forwardRef(
-  ({ children, contentContainerStyle, scrollEnabled, onScroll, ...rest }, ref) => {
+  (
+    {
+      children,
+      contentContainerStyle,
+      scrollEnabled,
+      onScroll,
+      onLayout,
+      onContentSizeChange,
+      onTouchEndCapture,
+      ...rest
+    },
+    ref
+  ) => {
     const scrollRef = React.useRef(null);
     const scrollYRef = React.useRef(0);
-    const [keyboardHeight, setKeyboardHeight] = React.useState(0);
+    const keyboardHeightRef = React.useRef(0);
+    const focusedInputTimeoutRef = React.useRef(null);
+    const viewportHeightRef = React.useRef(0);
+    const contentHeightRef = React.useRef(0);
 
     React.useImperativeHandle(ref, () => scrollRef.current);
 
+    const clampScrollOffset = React.useCallback((value) => {
+      const maxOffset = Math.max(
+        0,
+        (contentHeightRef.current || 0) - (viewportHeightRef.current || 0)
+      );
+      if (!Number.isFinite(value)) return 0;
+      return Math.min(Math.max(0, value), maxOffset);
+    }, []);
+
+    const clearPendingFocusScroll = React.useCallback(() => {
+      if (focusedInputTimeoutRef.current) {
+        clearTimeout(focusedInputTimeoutRef.current);
+        focusedInputTimeoutRef.current = null;
+      }
+    }, []);
+
     const scrollFocusedInputIntoView = React.useCallback((nextKeyboardHeight) => {
-      if (!nextKeyboardHeight || !scrollRef.current) return;
+      const resolvedKeyboardHeight = nextKeyboardHeight || keyboardHeightRef.current;
+      if (!resolvedKeyboardHeight || !scrollRef.current) return;
       const focusedInput = TextInput.State?.currentlyFocusedInput?.();
       if (!focusedInput) return;
 
@@ -18,12 +50,22 @@ const PlatformScrollView = React.forwardRef(
         try {
           focusedInput.measureInWindow((x, y, width, height) => {
             if (!Number.isFinite(y) || !Number.isFinite(height)) return;
-            const keyboardTop = Dimensions.get('window').height - nextKeyboardHeight;
+            const inputTop = y;
+            const keyboardTop = Dimensions.get('window').height - resolvedKeyboardHeight;
             const inputBottom = y + height;
-            const overlap = inputBottom - keyboardTop + 16;
-            if (overlap > 0) {
+            const bottomOverlap = inputBottom - keyboardTop + 16;
+            const topOverlap = 16 - inputTop;
+            let nextOffset = scrollYRef.current;
+
+            if (bottomOverlap > 0) {
+              nextOffset += bottomOverlap;
+            } else if (topOverlap > 0) {
+              nextOffset -= topOverlap;
+            }
+
+            if (Math.abs(nextOffset - scrollYRef.current) > 1) {
               scrollRef.current?.scrollTo({
-                y: Math.max(0, scrollYRef.current + overlap),
+                y: clampScrollOffset(nextOffset),
                 animated: true,
               });
             }
@@ -32,38 +74,64 @@ const PlatformScrollView = React.forwardRef(
           // Ignore transient measurement errors.
         }
       });
-    }, []);
+    }, [clampScrollOffset]);
+
+    const scheduleFocusedInputScroll = React.useCallback(() => {
+      if (!keyboardHeightRef.current) return;
+      clearPendingFocusScroll();
+      focusedInputTimeoutRef.current = setTimeout(() => {
+        focusedInputTimeoutRef.current = null;
+        scrollFocusedInputIntoView(keyboardHeightRef.current);
+      }, 60);
+    }, [clearPendingFocusScroll, scrollFocusedInputIntoView]);
 
     React.useEffect(() => {
-      const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
+      const handleKeyboardShow = (event) => {
         const nextHeight = event?.endCoordinates?.height || 0;
-        setKeyboardHeight(nextHeight);
+        keyboardHeightRef.current = nextHeight;
         scrollFocusedInputIntoView(nextHeight);
-      });
-      const hideSub = Keyboard.addListener('keyboardDidHide', () => {
-        setKeyboardHeight(0);
-      });
+      };
+      const handleKeyboardHide = () => {
+        keyboardHeightRef.current = 0;
+        clearPendingFocusScroll();
+      };
+
+      const showSub = Keyboard.addListener('keyboardDidShow', handleKeyboardShow);
+      const hideSub = Keyboard.addListener('keyboardDidHide', handleKeyboardHide);
       return () => {
+        clearPendingFocusScroll();
         showSub.remove();
         hideSub.remove();
       };
-    }, [scrollFocusedInputIntoView]);
+    }, [clearPendingFocusScroll, scrollFocusedInputIntoView]);
 
     return (
       <ScrollView
         ref={scrollRef}
-        overScrollMode="always"
+        overScrollMode="never"
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         scrollEnabled={scrollEnabled !== false}
         contentContainerStyle={[
-          { paddingBottom: 24 + keyboardHeight, paddingTop: 8 },
+          { paddingBottom: 24, paddingTop: 8 },
           contentContainerStyle,
         ]}
         onScroll={(event) => {
           scrollYRef.current = event?.nativeEvent?.contentOffset?.y || 0;
           onScroll?.(event);
+        }}
+        onLayout={(event) => {
+          viewportHeightRef.current = event?.nativeEvent?.layout?.height || 0;
+          onLayout?.(event);
+        }}
+        onContentSizeChange={(width, height) => {
+          contentHeightRef.current = height || 0;
+          onContentSizeChange?.(width, height);
+        }}
+        onTouchEndCapture={(event) => {
+          onTouchEndCapture?.(event);
+          scheduleFocusedInputScroll();
         }}
         scrollEventThrottle={16}
         {...rest}
