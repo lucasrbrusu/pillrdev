@@ -14,6 +14,13 @@ import { Ionicons, Feather } from '@expo/vector-icons';
 import { colors, spacing, typography, borderRadius, shadows } from '../utils/theme';
 import { useNavigation } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
+import { buildDateWithTime, formatFriendlyDateTime } from '../utils/notifications';
+import {
+  ROUTINE_REPEAT,
+  getRoutineScheduleLabel,
+  normalizeRoutineDays,
+  normalizeRoutineSchedule,
+} from '../utils/routineSchedule';
 
 const formatTimeAgo = (value) => {
   if (!value) return '';
@@ -75,6 +82,268 @@ const groupNotifications = (items) => {
   return ordered;
 };
 
+const DAY_INDEX_TO_LABEL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const WEEKDAY_INDEX_BY_LABEL = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+};
+const DEFAULT_EVENT_TIME = { hour: 9, minute: 0 };
+
+const toStartOfDay = (value) => {
+  const date = value instanceof Date ? value : new Date(value || Date.now());
+  if (Number.isNaN(date.getTime())) return null;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+};
+
+const toUtcDayNumber = (value) => {
+  const date = toStartOfDay(value);
+  if (!date) return null;
+  return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
+};
+
+const parseDateOnly = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      const year = Number(isoMatch[1]);
+      const month = Number(isoMatch[2]) - 1;
+      const day = Number(isoMatch[3]);
+      const parsed = new Date(year, month, day);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return toStartOfDay(parsed);
+};
+
+const normalizeWeekdayToken = (value) => {
+  const token = String(value || '')
+    .trim()
+    .slice(0, 3)
+    .toLowerCase();
+  const map = {
+    sun: 'Sun',
+    mon: 'Mon',
+    tue: 'Tue',
+    wed: 'Wed',
+    thu: 'Thu',
+    fri: 'Fri',
+    sat: 'Sat',
+  };
+  return map[token] || null;
+};
+
+const extractWeekdaySet = (values = []) => {
+  const set = new Set();
+  (values || []).forEach((value) => {
+    const weekday = normalizeWeekdayToken(value);
+    if (weekday) set.add(weekday);
+  });
+  return set;
+};
+
+const extractMonthDaySet = (habit = {}) => {
+  const values = [
+    ...(Array.isArray(habit?.monthDays) ? habit.monthDays : []),
+    ...(Array.isArray(habit?.days) ? habit.days : []),
+  ];
+  const set = new Set();
+  values.forEach((value) => {
+    const day = Math.trunc(Number(value));
+    if (Number.isFinite(day) && day >= 1 && day <= 31) set.add(day);
+  });
+  return set;
+};
+
+const isHabitScheduledForDate = (habit, dateValue = new Date()) => {
+  if (!habit) return false;
+  const targetDate = toStartOfDay(dateValue);
+  if (!targetDate) return false;
+  const targetDayNumber = toUtcDayNumber(targetDate);
+  if (!Number.isFinite(targetDayNumber)) return false;
+
+  const startDate = parseDateOnly(habit.startDate) || parseDateOnly(habit.createdAt);
+  const endDate = parseDateOnly(habit.endDate);
+  const startDayNumber = toUtcDayNumber(startDate);
+  const endDayNumber = toUtcDayNumber(endDate);
+  if (Number.isFinite(startDayNumber) && targetDayNumber < startDayNumber) return false;
+  if (Number.isFinite(endDayNumber) && targetDayNumber > endDayNumber) return false;
+
+  const taskDaysMode = habit.taskDaysMode || 'every_day';
+  if (taskDaysMode === 'specific_weekdays') {
+    const weekdaySet = extractWeekdaySet(habit.days || []);
+    if (!weekdaySet.size) return true;
+    return weekdaySet.has(DAY_INDEX_TO_LABEL[targetDate.getDay()]);
+  }
+  if (taskDaysMode === 'specific_month_days') {
+    const monthDaySet = extractMonthDaySet(habit);
+    if (!monthDaySet.size) return true;
+    return monthDaySet.has(targetDate.getDate());
+  }
+
+  const repeat = String(habit.repeat || '').toLowerCase();
+  if (repeat === 'weekly') {
+    const weekdaySet = extractWeekdaySet(habit.days || []);
+    if (weekdaySet.size) return weekdaySet.has(DAY_INDEX_TO_LABEL[targetDate.getDay()]);
+    if (startDate) return startDate.getDay() === targetDate.getDay();
+  }
+  if (repeat === 'monthly') {
+    const monthDaySet = extractMonthDaySet(habit);
+    if (monthDaySet.size) return monthDaySet.has(targetDate.getDate());
+    if (startDate) return startDate.getDate() === targetDate.getDate();
+  }
+
+  return true;
+};
+
+const parseClockMinutes = (value) => {
+  if (!value || typeof value !== 'string') return null;
+  const match = value.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+  if (!match) return null;
+
+  let hour = Number(match[1]);
+  const minute = Number(match[2] || '0');
+  const suffix = (match[3] || '').toUpperCase();
+  const hasSuffix = suffix === 'AM' || suffix === 'PM';
+
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+  if (minute < 0 || minute > 59) return null;
+
+  if (hasSuffix) {
+    if (hour < 1 || hour > 12) return null;
+    if (suffix === 'PM' && hour < 12) hour += 12;
+    if (suffix === 'AM' && hour === 12) hour = 0;
+  } else if (hour < 0 || hour > 23) {
+    return null;
+  }
+
+  return hour * 60 + minute;
+};
+
+const getNextDailyOccurrence = (hour, minute, now = new Date()) => {
+  const next = new Date(now);
+  next.setHours(hour, minute, 0, 0);
+  if (next.getTime() <= now.getTime()) {
+    next.setDate(next.getDate() + 1);
+  }
+  return next;
+};
+
+const getNextWeeklyOccurrence = (weekday, hour, minute, now = new Date()) => {
+  const currentWeekday = now.getDay();
+  let daysAhead = weekday - currentWeekday;
+  if (daysAhead < 0) daysAhead += 7;
+  const next = new Date(now);
+  next.setDate(next.getDate() + daysAhead);
+  next.setHours(hour, minute, 0, 0);
+  if (next.getTime() <= now.getTime()) {
+    next.setDate(next.getDate() + 7);
+  }
+  return next;
+};
+
+const getNextMonthlyOccurrence = (day, hour, minute, now = new Date()) => {
+  const normalizedDay = Math.min(31, Math.max(1, Number(day) || 1));
+  const next = new Date(now);
+  next.setDate(1);
+  next.setHours(hour, minute, 0, 0);
+
+  const currentMonthDays = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+  next.setDate(Math.min(normalizedDay, currentMonthDays));
+
+  if (next.getTime() <= now.getTime()) {
+    next.setMonth(next.getMonth() + 1);
+    const nextMonthDays = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+    next.setDate(Math.min(normalizedDay, nextMonthDays));
+  }
+
+  return next;
+};
+
+const getRoutineNextOccurrence = (routine, now = new Date()) => {
+  if (!routine) return null;
+  const startValue =
+    routine?.startTime ||
+    routine?.start_time ||
+    (Array.isArray(routine?.scheduledTimes) ? routine.scheduledTimes[0] : null) ||
+    (Array.isArray(routine?.scheduled_times) ? routine.scheduled_times[0] : null);
+  const startMinutes = parseClockMinutes(startValue);
+  if (!Number.isFinite(startMinutes)) return null;
+
+  const hour = Math.floor(startMinutes / 60);
+  const minute = startMinutes % 60;
+  const schedule = normalizeRoutineSchedule(routine);
+
+  if (schedule.repeat === ROUTINE_REPEAT.WEEKLY) {
+    const weekdayLabels = normalizeRoutineDays(schedule.days, ROUTINE_REPEAT.WEEKLY);
+    const weekdayIndexes = weekdayLabels
+      .map((label) => WEEKDAY_INDEX_BY_LABEL[label])
+      .filter((value) => Number.isInteger(value));
+    if (!weekdayIndexes.length) return getNextDailyOccurrence(hour, minute, now);
+    const nextDates = weekdayIndexes.map((weekday) =>
+      getNextWeeklyOccurrence(weekday, hour, minute, now)
+    );
+    nextDates.sort((a, b) => a.getTime() - b.getTime());
+    return nextDates[0] || null;
+  }
+
+  if (schedule.repeat === ROUTINE_REPEAT.MONTHLY) {
+    const monthDays = normalizeRoutineDays(schedule.days, ROUTINE_REPEAT.MONTHLY)
+      .map((day) => Number(day))
+      .filter((day) => Number.isInteger(day) && day >= 1 && day <= 31);
+    if (!monthDays.length) return getNextDailyOccurrence(hour, minute, now);
+    const nextDates = monthDays.map((day) =>
+      getNextMonthlyOccurrence(day, hour, minute, now)
+    );
+    nextDates.sort((a, b) => a.getTime() - b.getTime());
+    return nextDates[0] || null;
+  }
+
+  return getNextDailyOccurrence(hour, minute, now);
+};
+
+const groupUpcomingNotifications = (items = []) => {
+  const now = new Date();
+  const today = toStartOfDay(now);
+  const buckets = {
+    today: [],
+    tomorrow: [],
+    thisWeek: [],
+    later: [],
+  };
+
+  const sorted = [...(items || [])]
+    .filter((item) => Number.isFinite(item?.sortTimeMs))
+    .sort((a, b) => a.sortTimeMs - b.sortTimeMs);
+
+  sorted.forEach((item) => {
+    const date = item?.timestamp ? new Date(item.timestamp) : null;
+    const dateStart = toStartOfDay(date);
+    if (!dateStart || !today) return;
+    const diffDays = Math.floor((dateStart.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+
+    if (diffDays <= 0) buckets.today.push(item);
+    else if (diffDays === 1) buckets.tomorrow.push(item);
+    else if (diffDays <= 7) buckets.thisWeek.push(item);
+    else buckets.later.push(item);
+  });
+
+  const ordered = [];
+  if (buckets.today.length) ordered.push({ label: 'Today', data: buckets.today });
+  if (buckets.tomorrow.length) ordered.push({ label: 'Tomorrow', data: buckets.tomorrow });
+  if (buckets.thisWeek.length) ordered.push({ label: 'This Week', data: buckets.thisWeek });
+  if (buckets.later.length) ordered.push({ label: 'Later', data: buckets.later });
+  return ordered;
+};
+
 const CLEAR_NOTIFICATIONS_KEY = '@pillaflow_notification_center_cleared_at';
 
 const isAfterClearCutoff = (timestamp, cutoff) => {
@@ -90,12 +359,21 @@ const NotificationCenterScreen = () => {
   const navigation = useNavigation();
   const {
     themeColors,
+    tasks,
+    routines,
+    reminders,
+    habits,
+    isHabitCompletedToday,
     friendRequests,
     taskInvites,
     groupInvites,
     respondToFriendRequest,
     respondToTaskInvite,
     respondToGroupInvite,
+    ensureTasksLoaded,
+    ensureRoutinesLoaded,
+    ensureRemindersLoaded,
+    ensureHabitsLoaded,
     ensureFriendDataLoaded,
     ensureTaskInvitesLoaded,
     ensureGroupInvitesLoaded,
@@ -144,10 +422,22 @@ const NotificationCenterScreen = () => {
   }, [storageKey]);
 
   React.useEffect(() => {
+    ensureTasksLoaded();
+    ensureRoutinesLoaded();
+    ensureRemindersLoaded();
+    ensureHabitsLoaded();
     ensureFriendDataLoaded();
     ensureTaskInvitesLoaded();
     ensureGroupInvitesLoaded();
-  }, [ensureFriendDataLoaded, ensureGroupInvitesLoaded, ensureTaskInvitesLoaded]);
+  }, [
+    ensureFriendDataLoaded,
+    ensureGroupInvitesLoaded,
+    ensureHabitsLoaded,
+    ensureRemindersLoaded,
+    ensureRoutinesLoaded,
+    ensureTaskInvitesLoaded,
+    ensureTasksLoaded,
+  ]);
 
   const handleRespond = async (requestId, status) => {
     setRespondingMap((prev) => ({ ...prev, [requestId]: status }));
@@ -172,6 +462,9 @@ const NotificationCenterScreen = () => {
   };
 
   const themedStyles = React.useMemo(() => createStyles(themeColors || colors), [themeColors]);
+  const routineColor = themeColors?.routine || colors.routine || colors.warning;
+  const reminderColor = themeColors?.health || colors.info;
+  const habitColor = themeColors?.habits || colors.habits;
 
   const handleRespondGroup = async (inviteId, status) => {
     setRespondingGroupMap((prev) => ({ ...prev, [inviteId]: status }));
@@ -217,6 +510,144 @@ const NotificationCenterScreen = () => {
       ),
     [groupInviteResponses, clearCutoff]
   );
+
+  const groupedUpcoming = React.useMemo(() => {
+    const now = new Date();
+    const nowMs = now.getTime();
+    const items = [];
+
+    (tasks || []).forEach((task) => {
+      if (!task || task.completed || !task.date) return;
+      const dueAt = buildDateWithTime(task.date, task.time, 23, 59);
+      if (!(dueAt instanceof Date) || Number.isNaN(dueAt.getTime())) return;
+      if (dueAt.getTime() < nowMs) return;
+
+      const title = task.title || 'Task';
+      const priorityText = task.priority ? ` - ${String(task.priority).toLowerCase()} priority` : '';
+      const key = `upcoming-task-${task.id || `${title}-${dueAt.getTime()}`}`;
+      items.push({
+        key,
+        sortTimeMs: dueAt.getTime(),
+        timestamp: dueAt.toISOString(),
+        component: (
+          <View key={key} style={themedStyles.card}>
+            <View style={[themedStyles.iconWrap, { backgroundColor: `${colors.tasks}15` }]}>
+              <Feather name="clipboard" size={20} color={colors.tasks} />
+            </View>
+            <View style={themedStyles.textWrap}>
+              <Text style={themedStyles.cardTitle}>Upcoming task</Text>
+              <Text style={themedStyles.cardBody}>
+                {title} - {formatFriendlyDateTime(dueAt)}
+                {priorityText}
+              </Text>
+            </View>
+          </View>
+        ),
+      });
+    });
+
+    (routines || []).forEach((routine) => {
+      if (!routine) return;
+      const nextAt = getRoutineNextOccurrence(routine, now);
+      if (!(nextAt instanceof Date) || Number.isNaN(nextAt.getTime())) return;
+      if (nextAt.getTime() < nowMs) return;
+
+      const title = routine.name || 'Routine';
+      const scheduleLabel = getRoutineScheduleLabel(routine?.repeat, routine?.days);
+      const key = `upcoming-routine-${routine.id || `${title}-${nextAt.getTime()}`}`;
+      items.push({
+        key,
+        sortTimeMs: nextAt.getTime(),
+        timestamp: nextAt.toISOString(),
+        component: (
+          <View key={key} style={themedStyles.card}>
+            <View style={[themedStyles.iconWrap, { backgroundColor: `${routineColor}15` }]}>
+              <Ionicons name="repeat" size={20} color={routineColor} />
+            </View>
+            <View style={themedStyles.textWrap}>
+              <Text style={themedStyles.cardTitle}>Upcoming routine</Text>
+              <Text style={themedStyles.cardBody}>
+                {title} - {formatFriendlyDateTime(nextAt)} - {scheduleLabel}
+              </Text>
+            </View>
+          </View>
+        ),
+      });
+    });
+
+    (reminders || []).forEach((reminder) => {
+      if (!reminder) return;
+      const reminderAt = buildDateWithTime(
+        reminder.date || reminder.dateTime,
+        reminder.time,
+        DEFAULT_EVENT_TIME.hour,
+        DEFAULT_EVENT_TIME.minute
+      );
+      if (!(reminderAt instanceof Date) || Number.isNaN(reminderAt.getTime())) return;
+      if (reminderAt.getTime() < nowMs) return;
+
+      const title = reminder.title || 'Reminder';
+      const key = `upcoming-reminder-${reminder.id || `${title}-${reminderAt.getTime()}`}`;
+      items.push({
+        key,
+        sortTimeMs: reminderAt.getTime(),
+        timestamp: reminderAt.toISOString(),
+        component: (
+          <View key={key} style={themedStyles.card}>
+            <View style={[themedStyles.iconWrap, { backgroundColor: `${reminderColor}15` }]}>
+              <Ionicons name="notifications-outline" size={20} color={reminderColor} />
+            </View>
+            <View style={themedStyles.textWrap}>
+              <Text style={themedStyles.cardTitle}>Upcoming reminder</Text>
+              <Text style={themedStyles.cardBody}>
+                {title} - {formatFriendlyDateTime(reminderAt)}
+              </Text>
+            </View>
+          </View>
+        ),
+      });
+    });
+
+    const habitsDueToday = (habits || [])
+      .filter((habit) => habit?.id)
+      .filter((habit) => isHabitScheduledForDate(habit, now))
+      .filter((habit) => !isHabitCompletedToday(habit.id))
+      .sort((a, b) => String(a?.title || '').localeCompare(String(b?.title || '')));
+
+    habitsDueToday.forEach((habit, index) => {
+      const title = habit.title || 'Habit';
+      const itemTimestamp = new Date(nowMs + index * 1000);
+      const key = `habit-due-${habit.id || `${title}-${index}`}`;
+      items.push({
+        key,
+        sortTimeMs: itemTimestamp.getTime(),
+        timestamp: itemTimestamp.toISOString(),
+        component: (
+          <View key={key} style={themedStyles.card}>
+            <View style={[themedStyles.iconWrap, { backgroundColor: `${habitColor}15` }]}>
+              <Feather name="check-square" size={20} color={habitColor} />
+            </View>
+            <View style={themedStyles.textWrap}>
+              <Text style={themedStyles.cardTitle}>Habit to complete</Text>
+              <Text style={themedStyles.cardBody}>{title} still needs to be completed today.</Text>
+            </View>
+          </View>
+        ),
+      });
+    });
+
+    return groupUpcomingNotifications(items);
+  }, [
+    tasks,
+    routines,
+    reminders,
+    habits,
+    isHabitCompletedToday,
+    themedStyles,
+    routineColor,
+    reminderColor,
+    habitColor,
+  ]);
 
   const totalNotifications =
     filteredPendingRequests.length +
@@ -491,6 +922,23 @@ const NotificationCenterScreen = () => {
         contentContainerStyle={themedStyles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        <Text style={themedStyles.sectionLabel}>Upcoming</Text>
+        {groupedUpcoming.length === 0 ? (
+          <View style={themedStyles.placeholderBox}>
+            <Ionicons name="notifications-outline" size={20} color={themedStyles.subduedText} />
+            <Text style={themedStyles.placeholderText}>
+              Upcoming tasks, routines, reminders, and habit prompts will appear here.
+            </Text>
+          </View>
+        ) : (
+          groupedUpcoming.map((group) => (
+            <View key={group.label}>
+              <Text style={themedStyles.groupLabel}>{group.label}</Text>
+              {group.data.map((n) => n.component)}
+            </View>
+          ))
+        )}
+
         <Text style={themedStyles.sectionLabel}>Friend requests</Text>
         {filteredPendingRequests.length === 0 ? (
           <View style={themedStyles.placeholderBox}>
