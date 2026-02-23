@@ -44,7 +44,7 @@ const HomeScreen = () => {
     habits,
     tasks,
     todayHealth,
-    reminders,
+    routines,
     groceryLists,
     groceries,
     notes,
@@ -60,6 +60,7 @@ const HomeScreen = () => {
     ensureHomeDataLoaded,
     ensureFriendDataLoaded,
     ensureTaskInvitesLoaded,
+    ensureRoutinesLoaded,
     ensureHealthLoaded,
     healthData,
     themeName,
@@ -135,17 +136,17 @@ const HomeScreen = () => {
         meta: 'rgba(255,255,255,0.85)',
       },
       lists: {
-        gradient: isDark ? ['#0F8B62', '#13654B'] : ['#22C55E', '#16A34A'],
-        border: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.24)',
-        card: isDark ? '#111A14' : '#FFFFFF',
-        flatBorder: isDark ? '#213528' : '#DFF4E7',
-        iconBg: isDark ? '#1B2B21' : '#E3F7EA',
-        iconColor: '#FFFFFF',
-        bulletBg: 'rgba(255,255,255,0.2)',
-        bulletColor: '#FFFFFF',
-        chipBg: 'rgba(255,255,255,0.2)',
-        text: '#FFFFFF',
-        meta: 'rgba(255,255,255,0.85)',
+        gradient: ['#FFFFFF', '#FFFFFF'],
+        border: '#E5E7EB',
+        card: '#FFFFFF',
+        flatBorder: '#E5E7EB',
+        iconBg: '#F3F4F6',
+        iconColor: '#111827',
+        bulletBg: '#F3F4F6',
+        bulletColor: '#16A34A',
+        chipBg: '#F3F4F6',
+        text: '#111827',
+        meta: '#6B7280',
       },
     }),
     [isDark, themeColors]
@@ -159,19 +160,273 @@ const HomeScreen = () => {
   });
 
   const todayTasks = getTodayTasks();
-  const recentHabits = habits.slice(-5).reverse();
-  const getReminderDate = (reminder) => {
-    if (!reminder?.date) return new Date(reminder?.createdAt || Date.now());
-    const dateString = reminder.time
-      ? `${reminder.date}T${reminder.time}`
-      : reminder.date;
-    return new Date(dateString);
-  };
+  const toStartOfDay = React.useCallback((value) => {
+    const date = value instanceof Date ? value : new Date(value || Date.now());
+    if (Number.isNaN(date.getTime())) return new Date(new Date().toDateString());
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  }, []);
+  const toUtcDayNumber = React.useCallback(
+    (value) => {
+      const date = toStartOfDay(value);
+      return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
+    },
+    [toStartOfDay]
+  );
+  const parseDateOnly = React.useCallback(
+    (value) => {
+      if (!value) return null;
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (isoMatch) {
+          const year = Number(isoMatch[1]);
+          const month = Number(isoMatch[2]) - 1;
+          const day = Number(isoMatch[3]);
+          const parsed = new Date(year, month, day);
+          return Number.isNaN(parsed.getTime()) ? null : parsed;
+        }
+      }
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return null;
+      return toStartOfDay(parsed);
+    },
+    [toStartOfDay]
+  );
+  const hasHabitReachedEndDate = React.useCallback(
+    (habit, referenceDateValue = new Date()) => {
+      if (!habit?.endDate) return false;
+      const endDate = parseDateOnly(habit.endDate);
+      const referenceDate = parseDateOnly(referenceDateValue);
+      if (!endDate || !referenceDate) return false;
+      return toUtcDayNumber(referenceDate) >= toUtcDayNumber(endDate);
+    },
+    [parseDateOnly, toUtcDayNumber]
+  );
+  const todayDateKey = React.useMemo(() => new Date().toDateString(), []);
+  const getGoalValue = React.useCallback((habit) => {
+    const rawValue = Number(habit?.goalValue);
+    return Number.isFinite(rawValue) && rawValue > 0 ? rawValue : 1;
+  }, []);
+  const getHabitProgressForDate = React.useCallback(
+    (habit, dateKey) => {
+      const progressFromMap = Number(habit?.progressByDate?.[dateKey]);
+      if (Number.isFinite(progressFromMap) && progressFromMap >= 0) {
+        return progressFromMap;
+      }
+      if (Array.isArray(habit?.completedDates) && habit.completedDates.includes(dateKey)) {
+        return getGoalValue(habit);
+      }
+      return 0;
+    },
+    [getGoalValue]
+  );
+  const normalizeStreakGoalPeriod = React.useCallback((value) => {
+    const normalized = String(value || 'day').toLowerCase();
+    if (normalized === 'week' || normalized === 'month') return normalized;
+    return 'day';
+  }, []);
+  const getStreakPeriodIndex = React.useCallback(
+    (value, goalPeriod = 'day') => {
+      const period = normalizeStreakGoalPeriod(goalPeriod);
+      const date = toStartOfDay(value);
+      if (Number.isNaN(date.getTime())) return null;
+      if (period === 'month') return date.getFullYear() * 12 + date.getMonth();
+      const dayNumber = toUtcDayNumber(date);
+      if (!Number.isFinite(dayNumber)) return null;
+      if (period === 'week') return Math.floor((dayNumber + 3) / 7);
+      return dayNumber;
+    },
+    [normalizeStreakGoalPeriod, toStartOfDay, toUtcDayNumber]
+  );
+  const computeBestStreakFromDateKeys = React.useCallback(
+    (dateKeys = [], goalPeriod = 'day') => {
+      const indices = Array.from(
+        new Set(
+          (dateKeys || [])
+            .map((value) => getStreakPeriodIndex(value, goalPeriod))
+            .filter((index) => Number.isFinite(index))
+        )
+      ).sort((a, b) => a - b);
 
-  const upcomingReminders = reminders
-    .slice()
-    .sort((a, b) => getReminderDate(a) - getReminderDate(b))
-    .slice(0, 3);
+      if (!indices.length) return 0;
+
+      let best = 1;
+      let current = 1;
+      for (let index = 1; index < indices.length; index += 1) {
+        if (indices[index] - indices[index - 1] === 1) {
+          current += 1;
+          if (current > best) best = current;
+        } else {
+          current = 1;
+        }
+      }
+      return best;
+    },
+    [getStreakPeriodIndex]
+  );
+  const getStreakUnit = React.useCallback((goalPeriod = 'day', plural = false) => {
+    const normalized = String(goalPeriod || 'day').toLowerCase();
+    if (normalized === 'week') return plural ? 'weeks' : 'week';
+    if (normalized === 'month') return plural ? 'months' : 'month';
+    if (normalized === 'year') return plural ? 'years' : 'year';
+    return plural ? 'days' : 'day';
+  }, []);
+  const getHabitBestStreak = React.useCallback(
+    (habit) => {
+      const completedDatesBest = computeBestStreakFromDateKeys(
+        habit?.completedDates || [],
+        habit?.goalPeriod || 'day'
+      );
+      const currentStreak = Number(habit?.streak) || 0;
+      return Math.max(currentStreak, completedDatesBest);
+    },
+    [computeBestStreakFromDateKeys]
+  );
+  const activeHabits = React.useMemo(
+    () => (habits || []).filter((habit) => !hasHabitReachedEndDate(habit, new Date())),
+    [habits, hasHabitReachedEndDate]
+  );
+  const achievedHabits = React.useMemo(
+    () => (habits || []).filter((habit) => hasHabitReachedEndDate(habit, new Date())),
+    [habits, hasHabitReachedEndDate]
+  );
+  const topStreakHabit = React.useMemo(() => {
+    const candidateHabits = activeHabits.length ? activeHabits : achievedHabits;
+    if (!candidateHabits.length) return null;
+    return candidateHabits.reduce((currentTop, habit) => {
+      if (!currentTop) return habit;
+      const topValue = getHabitBestStreak(currentTop);
+      const habitValue = getHabitBestStreak(habit);
+      return habitValue > topValue ? habit : currentTop;
+    }, null);
+  }, [activeHabits, achievedHabits, getHabitBestStreak]);
+  const topHabitIsAchieved = React.useMemo(
+    () => (topStreakHabit ? hasHabitReachedEndDate(topStreakHabit, new Date()) : false),
+    [topStreakHabit, hasHabitReachedEndDate]
+  );
+  const topHabitReferenceDateKey = React.useMemo(() => {
+    if (!topStreakHabit) return todayDateKey;
+    if (!topHabitIsAchieved) return todayDateKey;
+    const endDate = parseDateOnly(topStreakHabit.endDate);
+    if (endDate) return endDate.toDateString();
+    const completedDates = Array.isArray(topStreakHabit.completedDates) ? topStreakHabit.completedDates : [];
+    return completedDates.length ? completedDates[completedDates.length - 1] : todayDateKey;
+  }, [parseDateOnly, todayDateKey, topHabitIsAchieved, topStreakHabit]);
+  const topHabitGoalValue = topStreakHabit ? getGoalValue(topStreakHabit) : 0;
+  const topHabitProgressValue = topStreakHabit
+    ? Math.round(getHabitProgressForDate(topStreakHabit, topHabitReferenceDateKey))
+    : 0;
+  const topHabitProgressPercent = topStreakHabit && topHabitGoalValue > 0
+    ? Math.min(100, Math.round((topHabitProgressValue / topHabitGoalValue) * 100))
+    : 0;
+  const topHabitStreakValue = topStreakHabit ? getHabitBestStreak(topStreakHabit) : 0;
+  const topHabitStreakLabel = topStreakHabit
+    ? `${topHabitIsAchieved ? 'Final streak: ' : ''}${topHabitStreakValue} ${getStreakUnit(topStreakHabit.goalPeriod, topHabitStreakValue !== 1)} streak`
+    : '';
+  const parseClockMinutes = React.useCallback((value) => {
+    if (!value || typeof value !== 'string') return null;
+    const match = value
+      .trim()
+      .match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+    if (!match) return null;
+
+    let hour = Number(match[1]);
+    const minute = Number(match[2] ?? '0');
+    const suffix = (match[3] || '').toUpperCase();
+    const hasSuffix = suffix === 'AM' || suffix === 'PM';
+
+    if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+    if (minute < 0 || minute > 59) return null;
+
+    if (hasSuffix) {
+      if (hour < 1 || hour > 12) return null;
+      if (suffix === 'PM' && hour < 12) hour += 12;
+      if (suffix === 'AM' && hour === 12) hour = 0;
+    } else if (hour < 0 || hour > 23) {
+      return null;
+    }
+
+    return hour * 60 + minute;
+  }, []);
+  const getRoutineStartTime = React.useCallback((routine) => {
+    const legacyTimes = Array.isArray(routine?.scheduledTimes)
+      ? routine.scheduledTimes
+      : Array.isArray(routine?.scheduled_times)
+      ? routine.scheduled_times
+      : [];
+    return routine?.startTime || routine?.start_time || legacyTimes[0] || '';
+  }, []);
+  const getRoutineEndTime = React.useCallback((routine) => {
+    const legacyTimes = Array.isArray(routine?.scheduledTimes)
+      ? routine.scheduledTimes
+      : Array.isArray(routine?.scheduled_times)
+      ? routine.scheduled_times
+      : [];
+    return routine?.endTime || routine?.end_time || legacyTimes[1] || '';
+  }, []);
+  const getNextRoutineOccurrence = React.useCallback(
+    (routine, referenceDate = new Date()) => {
+      const startMinutes = parseClockMinutes(getRoutineStartTime(routine));
+      if (!Number.isFinite(startMinutes)) return null;
+      const nextDate = new Date(referenceDate);
+      nextDate.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
+      if (nextDate <= referenceDate) {
+        nextDate.setDate(nextDate.getDate() + 1);
+      }
+      return nextDate;
+    },
+    [getRoutineStartTime, parseClockMinutes]
+  );
+  const nextUpcomingRoutine = React.useMemo(() => {
+    const now = new Date();
+    const candidates = (routines || [])
+      .map((routine) => {
+        const nextAt = getNextRoutineOccurrence(routine, now);
+        if (!nextAt) return null;
+        return { routine, nextAt };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.nextAt - b.nextAt);
+
+    if (candidates.length) return candidates[0];
+
+    const fallbackRoutine = (routines || [])[0];
+    return fallbackRoutine ? { routine: fallbackRoutine, nextAt: null } : null;
+  }, [getNextRoutineOccurrence, routines]);
+  const nextRoutineScheduleSummary = React.useMemo(() => {
+    const routine = nextUpcomingRoutine?.routine;
+    if (!routine) return '';
+    const startTime = getRoutineStartTime(routine);
+    const endTime = getRoutineEndTime(routine);
+    if (startTime && endTime) return `${startTime} - ${endTime}`;
+    if (startTime) return `Starts ${startTime}`;
+    if (endTime) return `Ends ${endTime}`;
+    return 'No range set';
+  }, [getRoutineEndTime, getRoutineStartTime, nextUpcomingRoutine]);
+  const nextRoutineOccurrenceLabel = React.useMemo(() => {
+    if (!nextUpcomingRoutine) return '';
+    if (!nextUpcomingRoutine.nextAt) return 'Add a start time to schedule this routine';
+
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrowStart = new Date(todayStart);
+    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+    const targetStart = new Date(
+      nextUpcomingRoutine.nextAt.getFullYear(),
+      nextUpcomingRoutine.nextAt.getMonth(),
+      nextUpcomingRoutine.nextAt.getDate()
+    );
+
+    let dayLabel = nextUpcomingRoutine.nextAt.toLocaleDateString('en-US', { weekday: 'short' });
+    if (targetStart.getTime() === todayStart.getTime()) dayLabel = 'Today';
+    if (targetStart.getTime() === tomorrowStart.getTime()) dayLabel = 'Tomorrow';
+
+    const timeLabel = nextUpcomingRoutine.nextAt.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+    return `${dayLabel} at ${timeLabel}`;
+  }, [nextUpcomingRoutine]);
   const groceryPreview = groceries.filter((g) => !g.completed).slice(0, 3);
   const totalListCount = (groceryLists || []).length;
   const totalOpenListItems = groceries.filter((item) => !item.completed).length;
@@ -310,11 +565,13 @@ const HomeScreen = () => {
     ensureHomeDataLoaded();
     ensureFriendDataLoaded();
     ensureTaskInvitesLoaded();
+    ensureRoutinesLoaded();
     ensureHealthLoaded();
   }, [
     ensureFriendDataLoaded,
     ensureHomeDataLoaded,
     ensureHealthLoaded,
+    ensureRoutinesLoaded,
     ensureTaskInvitesLoaded,
   ]);
 
@@ -759,30 +1016,51 @@ const HomeScreen = () => {
                 </View>
                 <Ionicons name="chevron-forward" size={20} color={sectionListTheme.habits.text} />
               </View>
-              {recentHabits.length > 0 ? (
-                <View style={styles.habitsOverviewList}>
-                  {recentHabits.slice(0, 4).map((habit) => (
-                    <View
-                      key={habit.id}
-                      style={[
-                        styles.habitsOverviewItem,
-                        { backgroundColor: sectionListTheme.habits.chipBg },
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.habitsOverviewDot,
-                          { backgroundColor: sectionListTheme.habits.bullet },
-                        ]}
-                      />
-                      <Text
-                        style={[styles.habitsOverviewText, { color: sectionListTheme.habits.text }]}
-                        numberOfLines={1}
-                      >
-                        {habit.title}
+              {topStreakHabit ? (
+                <View
+                  style={[
+                    styles.habitsTopCard,
+                    { backgroundColor: sectionListTheme.habits.chipBg },
+                  ]}
+                >
+                  <View style={styles.habitsTopRow}>
+                    <View style={styles.habitsTopAvatar}>
+                      <Text style={styles.habitsTopAvatarText}>
+                        {topStreakHabit.emoji || topStreakHabit.title?.slice(0, 1)?.toUpperCase() || 'H'}
                       </Text>
                     </View>
-                  ))}
+                    <View style={styles.habitsTopInfo}>
+                      <Text
+                        style={[styles.habitsTopTitle, { color: sectionListTheme.habits.text }]}
+                        numberOfLines={1}
+                      >
+                        {topStreakHabit.title || 'Untitled habit'}
+                      </Text>
+                      <Text
+                        style={[styles.habitsTopMeta, { color: sectionListTheme.habits.meta }]}
+                        numberOfLines={1}
+                      >
+                        {topHabitIsAchieved
+                          ? 'This habit has been achieved'
+                          : `${topHabitProgressValue} / ${topHabitGoalValue} ${topStreakHabit.goalUnit || 'times'}`}
+                      </Text>
+                    </View>
+                    {!topHabitIsAchieved ? (
+                      <Text style={[styles.habitsTopPercent, { color: sectionListTheme.habits.text }]}>
+                        {topHabitProgressPercent}%
+                      </Text>
+                    ) : null}
+                  </View>
+
+                  <View style={styles.habitsTopStreakRow}>
+                    <Ionicons name={topHabitIsAchieved ? 'flag' : 'flame'} size={14} color="#FDBA74" />
+                    <Text
+                      style={[styles.habitsTopStreakText, { color: sectionListTheme.habits.text }]}
+                      numberOfLines={1}
+                    >
+                      {topHabitStreakLabel}
+                    </Text>
+                  </View>
                 </View>
               ) : (
                 <Text style={[styles.emptyText, { color: sectionListTheme.habits.meta }]}>
@@ -793,7 +1071,7 @@ const HomeScreen = () => {
           </LinearGradient>
         </Card>
 
-        {/* Upcoming Reminders */}
+        {/* Routines Overview */}
         <Card
           style={[styles.sectionCard, styles.sectionCardGradient]}
           onPress={() => navigation.navigate('Routine')}
@@ -814,59 +1092,56 @@ const HomeScreen = () => {
                 ]}
               >
                 <Ionicons
-                  name="notifications-outline"
+                  name="sunny"
                   size={16}
                   color={sectionListTheme.reminders.iconColor}
                 />
               </View>
               <Text style={[styles.sectionListTitle, { color: sectionListTheme.reminders.text }]}>
-                Reminders
+                Routines
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={sectionListTheme.reminders.text} />
           </View>
-          {upcomingReminders.length === 0 ? (
+          {nextUpcomingRoutine === null ? (
             <Text style={[styles.emptyText, { color: sectionListTheme.reminders.meta }]}>
-              No reminders available
+              No routines available
             </Text>
           ) : (
             <View style={styles.reminderList}>
-              {upcomingReminders.map((reminder) => (
+              <View
+                style={[
+                  styles.reminderPill,
+                  { backgroundColor: sectionListTheme.reminders.itemBg },
+                ]}
+              >
                 <View
-                  key={reminder.id}
                   style={[
-                    styles.reminderPill,
-                    { backgroundColor: sectionListTheme.reminders.itemBg },
+                    styles.reminderPillIcon,
+                    { backgroundColor: sectionListTheme.reminders.iconBg },
                   ]}
                 >
-                  <View
-                    style={[
-                      styles.reminderPillIcon,
-                      { backgroundColor: sectionListTheme.reminders.iconBg },
-                    ]}
-                  >
-                    <Ionicons
-                      name="notifications"
-                      size={14}
-                      color={sectionListTheme.reminders.iconColor}
-                    />
-                  </View>
-                  <View style={styles.reminderContent}>
-                    <Text
-                      style={[styles.reminderTitle, { color: sectionListTheme.reminders.text }]}
-                      numberOfLines={1}
-                    >
-                      {reminder.title}
-                    </Text>
-                    {(reminder.date || reminder.time) && (
-                      <Text style={[styles.reminderMeta, { color: sectionListTheme.reminders.meta }]}>
-                        {reminder.date}
-                        {reminder.time ? ` - ${reminder.time}` : ''}
-                      </Text>
-                    )}
-                  </View>
+                  <Ionicons
+                    name="sunny"
+                    size={14}
+                    color={sectionListTheme.reminders.iconColor}
+                  />
                 </View>
-              ))}
+                <View style={styles.reminderContent}>
+                  <Text
+                    style={[styles.reminderTitle, { color: sectionListTheme.reminders.text }]}
+                    numberOfLines={1}
+                  >
+                    {nextUpcomingRoutine.routine?.name || 'Untitled routine'}
+                  </Text>
+                  <Text style={[styles.reminderMeta, { color: sectionListTheme.reminders.meta }]}>
+                    {nextRoutineScheduleSummary}
+                  </Text>
+                  <Text style={[styles.reminderMeta, { color: sectionListTheme.reminders.meta }]}>
+                    {nextRoutineOccurrenceLabel}
+                  </Text>
+                </View>
+              </View>
             </View>
           )}
             </View>
@@ -1573,6 +1848,57 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
       marginRight: spacing.sm,
     },
     habitsOverviewText: {
+      ...typography.bodySmall,
+      fontWeight: '600',
+      flex: 1,
+    },
+    habitsTopCard: {
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.26)',
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
+      gap: spacing.sm,
+    },
+    habitsTopRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    habitsTopAvatar: {
+      width: 40,
+      height: 40,
+      borderRadius: borderRadius.md,
+      backgroundColor: 'rgba(255,255,255,0.2)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.sm,
+    },
+    habitsTopAvatarText: {
+      fontSize: 20,
+    },
+    habitsTopInfo: {
+      flex: 1,
+      marginRight: spacing.sm,
+    },
+    habitsTopTitle: {
+      ...typography.body,
+      fontWeight: '700',
+    },
+    habitsTopMeta: {
+      ...typography.caption,
+      marginTop: 2,
+      fontWeight: '600',
+    },
+    habitsTopPercent: {
+      ...typography.body,
+      fontWeight: '800',
+    },
+    habitsTopStreakRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+    },
+    habitsTopStreakText: {
       ...typography.bodySmall,
       fontWeight: '600',
       flex: 1,
