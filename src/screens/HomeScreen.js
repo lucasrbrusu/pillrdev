@@ -773,18 +773,24 @@ const HomeScreen = () => {
 
         {/* Current Streak + Calories */}
         <View style={styles.topStatsRow}>
-          <LinearGradient
-            colors={statGradients.streak}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.statCard}
+          <TouchableOpacity
+            style={styles.statCardPressable}
+            activeOpacity={0.88}
+            onPress={() => navigation.navigate('Streak')}
           >
-            <View style={styles.statIconWrap}>
-              <Ionicons name="flame" size={20} color="#FFFFFF" />
-            </View>
-            <Text style={styles.statLabel}>Current streak</Text>
-            <Text style={styles.statValue}>{currentStreak} day{currentStreak === 1 ? '' : 's'}</Text>
-          </LinearGradient>
+            <LinearGradient
+              colors={statGradients.streak}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.statCard}
+            >
+              <View style={styles.statIconWrap}>
+                <Ionicons name="flame" size={20} color="#FFFFFF" />
+              </View>
+              <Text style={styles.statLabel}>Current streak</Text>
+              <Text style={styles.statValue}>{currentStreak} day{currentStreak === 1 ? '' : 's'}</Text>
+            </LinearGradient>
+          </TouchableOpacity>
 
           <LinearGradient
             colors={statGradients.calories}
@@ -1957,6 +1963,9 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.35)',
       ...statShadow,
+    },
+    statCardPressable: {
+      flex: 1,
     },
     statIconWrap: {
       width: 34,

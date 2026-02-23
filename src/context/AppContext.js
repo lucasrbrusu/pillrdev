@@ -476,6 +476,16 @@ const resolveHabitStartDate = (habit = {}, referenceDate = new Date()) => {
   return toStartOfLocalDay(referenceDate);
 };
 
+const hasHabitLifecycleCompleted = (habit = {}, referenceDate = new Date()) => {
+  const endDate = toStartOfLocalDay(habit?.endDate || habit?.end_date);
+  const referenceDay = toStartOfLocalDay(referenceDate);
+  if (!endDate || !referenceDay) return false;
+  const endDayNumber = toUtcDayNumberFromLocalDay(endDate);
+  const referenceDayNumber = toUtcDayNumberFromLocalDay(referenceDay);
+  if (!Number.isFinite(endDayNumber) || !Number.isFinite(referenceDayNumber)) return false;
+  return referenceDayNumber >= endDayNumber;
+};
+
 const computeQuitHabitStreak = (habit = {}, options = {}) => {
   const goalValue = getHabitGoalValue(habit);
   const goalPeriod = habit?.goalPeriod || habit?.goal_period || 'day';
@@ -512,6 +522,11 @@ const computeHabitStreak = (habit = {}, options = {}) => {
   const progressByDate = options?.progressByDate || habit?.progressByDate || {};
   const goalPeriod = habit?.goalPeriod || habit?.goal_period || 'day';
   const referenceDate = options?.referenceDate || new Date();
+
+  // Ended/achieved habits should not carry an active current streak.
+  if (hasHabitLifecycleCompleted(habit, referenceDate)) {
+    return 0;
+  }
 
   if (isQuitHabit(habit)) {
     return computeQuitHabitStreak(habit, { progressByDate, referenceDate });
@@ -4953,6 +4968,7 @@ const fetchHabitsFromSupabase = async (userId, _groupListParam) => {
     progressByHabit[key][dateString] = Number(row.amount) || 0;
   });
 
+  const streakCorrections = [];
   const mappedHabits = (habitRows || []).map((h) => {
     const goalValue = Number(h.goal_value) || 1;
     const goalPeriod = h.goal_period || 'day';
@@ -5000,15 +5016,41 @@ const fetchHabitsFromSupabase = async (userId, _groupListParam) => {
       color: h.color || colors.habits,
       emoji: h.emoji || '',
     };
-    if (quitHabit) {
-      mappedHabit.streak = computeHabitStreak(mappedHabit, {
-        progressByDate: habitProgressByDate,
-      });
+    const computedStreak = computeHabitStreak(mappedHabit, {
+      completedDates,
+      progressByDate: habitProgressByDate,
+    });
+    mappedHabit.streak = computedStreak;
+    if (
+      h.user_id === userId &&
+      (Number(h.streak) || 0) !== computedStreak
+    ) {
+      streakCorrections.push({ id: h.id, streak: computedStreak });
     }
     return mappedHabit;
   });
 
   setHabits(mappedHabits);
+
+  if (streakCorrections.length) {
+    const correctionResults = await Promise.all(
+      streakCorrections.map(({ id, streak }) =>
+        supabase
+          .from('habits')
+          .update({ streak })
+          .eq('id', id)
+          .eq('user_id', userId)
+      )
+    );
+    correctionResults.forEach(({ error }, index) => {
+      if (error) {
+        console.log('Error correcting stored habit streak:', {
+          habitId: streakCorrections[index]?.id,
+          error,
+        });
+      }
+    });
+  }
 };
 
   const resetHabitStreaksByIds = useCallback(
@@ -5178,7 +5220,16 @@ const updateHabit = async (habitId, updates) => {
   const existingHabitType = existingHabit?.habitType || 'build';
   const nextHabitType = localUpdates.habitType || existingHabitType;
   const habitTypeChanged = localUpdates.habitType !== undefined && nextHabitType !== existingHabitType;
-  if ((goalPeriodChanged || habitTypeChanged) && localUpdates.streak === undefined) {
+  const startDateChanged =
+    localUpdates.startDate !== undefined &&
+    String(localUpdates.startDate || '') !== String(existingHabit?.startDate || '');
+  const endDateChanged =
+    localUpdates.endDate !== undefined &&
+    String(localUpdates.endDate || '') !== String(existingHabit?.endDate || '');
+  if (
+    (goalPeriodChanged || habitTypeChanged || startDateChanged || endDateChanged) &&
+    localUpdates.streak === undefined
+  ) {
     const mergedHabit = { ...(existingHabit || {}), ...localUpdates };
     localUpdates.streak = computeHabitStreak(mergedHabit, {
       completedDates: existingHabit?.completedDates || [],
@@ -5430,6 +5481,7 @@ const setHabitProgress = async (habitId, amount = 0, dateISO = null, options = {
   const shouldComplete = quitHabit
     ? isQuitAmountCompleted(numericAmount, goalValue)
     : numericAmount >= goalValue;
+  const lifecycleCompletedAtTargetDate = hasHabitLifecycleCompleted(habit, dateValue);
   const isTargetToday = dateKey === todayKey;
   const existingAmountOnDate = Number((habit.progressByDate || {})[dateKey]) || 0;
   const wasCompletedOnTargetDate = quitHabit
@@ -5479,7 +5531,12 @@ const setHabitProgress = async (habitId, amount = 0, dateISO = null, options = {
     [dateKey]: numericAmount,
   };
   const shouldPreserveFrozenStreak =
-    !quitHabit && streakFrozen && isTargetToday && shouldComplete && !wasCompletedOnTargetDate;
+    !quitHabit &&
+    !lifecycleCompletedAtTargetDate &&
+    streakFrozen &&
+    isTargetToday &&
+    shouldComplete &&
+    !wasCompletedOnTargetDate;
   const computedNextStreak = computeHabitStreak(
     {
       ...habit,
