@@ -116,7 +116,7 @@ const stepContent = [
   {
     key: 'password',
     title: 'Create a password',
-    subtitle: 'Must be at least 6 characters',
+    subtitle: 'Use 6+ chars, 1 uppercase, and 1 symbol',
   },
   {
     key: 'terms',
@@ -180,7 +180,7 @@ const getPasswordError = (password) => {
     return 'Password must include at least one uppercase letter.';
   }
 
-  if (!/[^A-Za-z0-9]/.test(password)) {
+  if (!/[^A-Za-z0-9\s]/.test(password)) {
     return 'Password must include at least one symbol.';
   }
 

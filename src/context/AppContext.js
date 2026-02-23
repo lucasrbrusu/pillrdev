@@ -25,6 +25,12 @@ import {
   formatTimeFromDate,
   getExpoPushTokenAsync,
 } from '../utils/notifications';
+import {
+  ROUTINE_REPEAT,
+  normalizeRoutineSchedule,
+  normalizeRoutineDays,
+  isRoutineScheduleValid,
+} from '../utils/routineSchedule';
 import uuid from 'react-native-uuid';
 import { getPremiumEntitlementStatus, setRevenueCatUserId } from '../../RevenueCat';
 
@@ -768,6 +774,25 @@ const getNextWeeklyOccurrence = (weekday, hour, minute) => {
   return next;
 };
 
+const getNextMonthlyOccurrence = (day, hour, minute) => {
+  const now = new Date();
+  const normalizedDay = Math.min(31, Math.max(1, Number(day) || 1));
+  const next = new Date(now);
+  next.setDate(1);
+  next.setHours(hour, minute, 0, 0);
+
+  const currentMonthDays = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+  next.setDate(Math.min(normalizedDay, currentMonthDays));
+
+  if (next.getTime() <= now.getTime()) {
+    next.setMonth(next.getMonth() + 1);
+    const nextMonthDays = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+    next.setDate(Math.min(normalizedDay, nextMonthDays));
+  }
+
+  return next;
+};
+
 const getAvatarPublicUrl = (path) => {
   if (!path) return null;
   if (typeof path !== 'string') return null;
@@ -1133,6 +1158,7 @@ const friendSearchAbortControllerRef = useRef(null);
             parsedRoutines.map((routine) => ({
               ...routine,
               ...normalizeRoutineTimeRange(routine),
+              ...normalizeRoutineSchedule(routine),
             }))
           );
         } else {
@@ -3244,7 +3270,14 @@ const mapExternalProfile = (row) => ({
       }
 
       const requiredColumns = ['id', 'group_id', 'name', 'created_at', 'created_by'];
-      const optionalColumns = ['start_time', 'end_time', 'scheduled_times'];
+      const optionalColumns = [
+        'start_time',
+        'end_time',
+        'scheduled_times',
+        'repeat',
+        'days',
+        'month_days',
+      ];
       const fetchGroupRoutineRows = async (columnList = []) =>
         supabase
           .from('group_routines')
@@ -3319,6 +3352,7 @@ const mapExternalProfile = (row) => ({
       }
 
       const mapped = (data || []).map((row) => ({
+        ...normalizeRoutineSchedule(row),
         id: row.id,
         groupId: row.group_id,
         name: row.name,
@@ -3335,7 +3369,7 @@ const mapExternalProfile = (row) => ({
   );
 
   const addGroupRoutine = useCallback(
-    async ({ groupId, name, startTime, endTime, scheduledTimes }) => {
+    async ({ groupId, name, startTime, endTime, scheduledTimes, repeat, days, monthDays }) => {
       if (!authUser?.id) throw new Error('You must be logged in to create a group routine.');
       if (!groupId) throw new Error('Select a group for this routine.');
       const trimmedName = (name || '').trim();
@@ -3348,11 +3382,31 @@ const mapExternalProfile = (row) => ({
       if (!normalizedRange.startTime || !normalizedRange.endTime) {
         throw new Error('Routine start and end times are required.');
       }
+      const normalizedSchedule = normalizeRoutineSchedule({
+        repeat,
+        days,
+        monthDays,
+      });
+      if (!isRoutineScheduleValid(normalizedSchedule.repeat, normalizedSchedule.days)) {
+        if (normalizedSchedule.repeat === ROUTINE_REPEAT.WEEKLY) {
+          throw new Error('Select at least one weekday for this routine.');
+        }
+        if (normalizedSchedule.repeat === ROUTINE_REPEAT.MONTHLY) {
+          throw new Error('Select at least one day of the month for this routine.');
+        }
+        throw new Error('Select a valid routine schedule.');
+      }
 
       const insertData = {
         group_id: groupId,
         name: trimmedName,
         created_by: authUser.id,
+        repeat: normalizedSchedule.repeat,
+        days: normalizedSchedule.days,
+        month_days:
+          normalizedSchedule.repeat === ROUTINE_REPEAT.MONTHLY
+            ? normalizedSchedule.days.map((day) => Number(day))
+            : [],
       };
       if (normalizedRange.startTime) {
         insertData.start_time = normalizedRange.startTime;
@@ -3361,25 +3415,50 @@ const mapExternalProfile = (row) => ({
         insertData.end_time = normalizedRange.endTime;
       }
 
-      let { data, error } = await supabase
-        .from('group_routines')
-        .insert(insertData)
-        .select()
-        .single();
+      const requiredColumns = new Set(['group_id', 'name', 'created_by']);
+      const optionalDropOrder = [
+        'month_days',
+        'days',
+        'repeat',
+        'scheduled_times',
+        'end_time',
+        'start_time',
+      ];
+      let payload = { ...insertData };
+      let data = null;
+      let error = null;
 
-      if (
-        error &&
-        (insertData.start_time || insertData.end_time) &&
-        (isMissingColumnError(error, 'start_time') || isMissingColumnError(error, 'end_time'))
+      for (
+        let attemptIndex = 0;
+        attemptIndex <= optionalDropOrder.length + 1;
+        attemptIndex += 1
       ) {
-        const fallbackData = { ...insertData };
-        delete fallbackData.start_time;
-        delete fallbackData.end_time;
         ({ data, error } = await supabase
           .from('group_routines')
-          .insert(fallbackData)
+          .insert(payload)
           .select()
           .single());
+        if (!error) break;
+        if (!isMissingColumnError(error)) break;
+
+        const missingColumn = extractMissingColumnName(error);
+        let removedColumn = null;
+        if (
+          missingColumn &&
+          Object.prototype.hasOwnProperty.call(payload, missingColumn) &&
+          !requiredColumns.has(missingColumn)
+        ) {
+          removedColumn = missingColumn;
+        } else {
+          removedColumn = optionalDropOrder.find(
+            (columnName) =>
+              Object.prototype.hasOwnProperty.call(payload, columnName) &&
+              !requiredColumns.has(columnName)
+          );
+        }
+
+        if (!removedColumn) break;
+        delete payload[removedColumn];
       }
 
       if (error) {
@@ -3410,6 +3489,13 @@ const mapExternalProfile = (row) => ({
         updates.end_time !== undefined ||
         updates.scheduledTimes !== undefined ||
         updates.scheduled_times !== undefined;
+      const hasScheduleUpdate =
+        updates.repeat !== undefined ||
+        updates.days !== undefined ||
+        updates.monthDays !== undefined ||
+        updates.month_days !== undefined ||
+        updates.scheduleType !== undefined ||
+        updates.schedule_type !== undefined;
       const nextTimeRange = hasTimeRangeUpdate
         ? normalizeRoutineTimeRange({
             ...current,
@@ -3419,30 +3505,71 @@ const mapExternalProfile = (row) => ({
       if (hasTimeRangeUpdate && (!nextTimeRange.startTime || !nextTimeRange.endTime)) {
         throw new Error('Routine start and end times are required.');
       }
+      const nextSchedule = hasScheduleUpdate
+        ? normalizeRoutineSchedule({
+            ...current,
+            ...updates,
+          })
+        : normalizeRoutineSchedule(current);
+      if (hasScheduleUpdate && !isRoutineScheduleValid(nextSchedule.repeat, nextSchedule.days)) {
+        if (nextSchedule.repeat === ROUTINE_REPEAT.WEEKLY) {
+          throw new Error('Select at least one weekday for this routine.');
+        }
+        if (nextSchedule.repeat === ROUTINE_REPEAT.MONTHLY) {
+          throw new Error('Select at least one day of the month for this routine.');
+        }
+        throw new Error('Select a valid routine schedule.');
+      }
 
       const updateData = { name: nextName };
       if (hasTimeRangeUpdate) {
         updateData.start_time = nextTimeRange.startTime || null;
         updateData.end_time = nextTimeRange.endTime || null;
       }
+      if (hasScheduleUpdate) {
+        updateData.repeat = nextSchedule.repeat;
+        updateData.days = nextSchedule.days;
+        updateData.month_days =
+          nextSchedule.repeat === ROUTINE_REPEAT.MONTHLY
+            ? nextSchedule.days.map((day) => Number(day))
+            : [];
+      }
 
-      let { error } = await supabase
-        .from('group_routines')
-        .update(updateData)
-        .eq('id', routineId);
+      const optionalDropOrder = [
+        'month_days',
+        'days',
+        'repeat',
+        'scheduled_times',
+        'end_time',
+        'start_time',
+      ];
+      let payload = { ...updateData };
+      let error = null;
 
-      if (
-        error &&
-        (hasTimeRangeUpdate || updateData.start_time || updateData.end_time) &&
-        (isMissingColumnError(error, 'start_time') || isMissingColumnError(error, 'end_time'))
+      for (
+        let attemptIndex = 0;
+        attemptIndex <= optionalDropOrder.length + 1;
+        attemptIndex += 1
       ) {
-        const fallbackData = { ...updateData };
-        delete fallbackData.start_time;
-        delete fallbackData.end_time;
         ({ error } = await supabase
           .from('group_routines')
-          .update(fallbackData)
+          .update(payload)
           .eq('id', routineId));
+        if (!error) break;
+        if (!isMissingColumnError(error)) break;
+
+        const missingColumn = extractMissingColumnName(error);
+        let removedColumn = null;
+        if (missingColumn && Object.prototype.hasOwnProperty.call(payload, missingColumn)) {
+          removedColumn = missingColumn;
+        } else {
+          removedColumn = optionalDropOrder.find((columnName) =>
+            Object.prototype.hasOwnProperty.call(payload, columnName)
+          );
+        }
+
+        if (!removedColumn) break;
+        delete payload[removedColumn];
       }
 
       if (error && !isMissingRelationError(error, 'group_routines')) {
@@ -3454,6 +3581,7 @@ const mapExternalProfile = (row) => ({
         ...current,
         name: nextName,
         ...nextTimeRange,
+        ...nextSchedule,
       };
 
       setGroupRoutines((prev) =>
@@ -6517,7 +6645,15 @@ const ROUTINE_TASKS_TABLE = 'routine_tasks';
 
 const fetchRoutinesFromSupabase = async (userId) => {
   const requiredColumns = ['id', 'name', 'created_at'];
-  const optionalColumns = ['start_time', 'end_time', 'scheduled_times', 'notification_ids'];
+  const optionalColumns = [
+    'start_time',
+    'end_time',
+    'scheduled_times',
+    'repeat',
+    'days',
+    'month_days',
+    'notification_ids',
+  ];
   const fetchRoutineRows = async (columnList = []) =>
     supabase
       .from('routines')
@@ -6558,6 +6694,7 @@ const fetchRoutinesFromSupabase = async (userId) => {
   }
 
   const routinesMap = (routineRows || []).map((r) => ({
+    ...normalizeRoutineSchedule(r),
     id: r.id,
     name: r.name,
     createdAt: r.created_at,
@@ -6608,63 +6745,111 @@ const fetchRoutinesFromSupabase = async (userId) => {
 
   // ROUTINE FUNCTIONS
   const addRoutine = async (routine) => {
-  if (!authUser?.id) {
-    throw new Error('You must be logged in to create a routine.');
-  }
-  const normalizedRange = normalizeRoutineTimeRange({
-    startTime: routine?.startTime,
-    endTime: routine?.endTime,
-    start_time: routine?.start_time,
-    end_time: routine?.end_time,
-    scheduledTimes: routine?.scheduledTimes,
-    scheduled_times: routine?.scheduled_times,
-  });
-  if (!normalizedRange.startTime || !normalizedRange.endTime) {
-    throw new Error('Routine start and end times are required.');
-  }
-  const insertData = {
-    user_id: authUser.id,
-    name: routine.name,
-  };
-  if (normalizedRange.startTime) {
-    insertData.start_time = normalizedRange.startTime;
-  }
-  if (normalizedRange.endTime) {
-    insertData.end_time = normalizedRange.endTime;
-  }
+    if (!authUser?.id) {
+      throw new Error('You must be logged in to create a routine.');
+    }
 
-  let { data, error } = await supabase
-    .from('routines')
-    .insert(insertData)
-    .select()
-    .single();
+    const normalizedRange = normalizeRoutineTimeRange({
+      startTime: routine?.startTime,
+      endTime: routine?.endTime,
+      start_time: routine?.start_time,
+      end_time: routine?.end_time,
+      scheduledTimes: routine?.scheduledTimes,
+      scheduled_times: routine?.scheduled_times,
+    });
+    if (!normalizedRange.startTime || !normalizedRange.endTime) {
+      throw new Error('Routine start and end times are required.');
+    }
 
-  if (
-    error &&
-    (insertData.start_time || insertData.end_time) &&
-    (isMissingColumnError(error, 'start_time') || isMissingColumnError(error, 'end_time'))
-  ) {
-    const fallbackInsertData = { ...insertData };
-    delete fallbackInsertData.start_time;
-    delete fallbackInsertData.end_time;
-    ({ data, error } = await supabase
-      .from('routines')
-      .insert(fallbackInsertData)
-      .select()
-      .single());
-  }
+    const normalizedSchedule = normalizeRoutineSchedule(routine);
+    if (!isRoutineScheduleValid(normalizedSchedule.repeat, normalizedSchedule.days)) {
+      if (normalizedSchedule.repeat === ROUTINE_REPEAT.WEEKLY) {
+        throw new Error('Select at least one weekday for this routine.');
+      }
+      if (normalizedSchedule.repeat === ROUTINE_REPEAT.MONTHLY) {
+        throw new Error('Select at least one day of the month for this routine.');
+      }
+      throw new Error('Select a valid routine schedule.');
+    }
 
-  if (error) {
-    console.log('Error adding routine:', error);
-    throw error;
-  }
+    const trimmedName = String(routine?.name || '').trim();
+    if (!trimmedName) {
+      throw new Error('Routine name is required.');
+    }
 
-  const newRoutine = {
-    id: data.id,
-    name: data.name,
-    createdAt: data.created_at,
-    ...normalizedRange,
-    tasks: [],
+    const insertData = {
+      user_id: authUser.id,
+      name: trimmedName,
+      repeat: normalizedSchedule.repeat,
+      days: normalizedSchedule.days,
+      start_time: normalizedRange.startTime,
+      end_time: normalizedRange.endTime,
+    };
+    if (normalizedSchedule.repeat === ROUTINE_REPEAT.MONTHLY) {
+      insertData.month_days = normalizedSchedule.days.map((day) => Number(day));
+    }
+
+    const requiredColumns = new Set(['user_id', 'name']);
+    const optionalDropOrder = [
+      'month_days',
+      'days',
+      'repeat',
+      'scheduled_times',
+      'end_time',
+      'start_time',
+    ];
+
+    let payload = { ...insertData };
+    let data = null;
+    let error = null;
+
+    for (
+      let attemptIndex = 0;
+      attemptIndex <= optionalDropOrder.length + 1;
+      attemptIndex += 1
+    ) {
+      ({ data, error } = await supabase.from('routines').insert(payload).select().single());
+      if (!error) break;
+      if (!isMissingColumnError(error)) break;
+
+      const missingColumn = extractMissingColumnName(error);
+      let removedColumn = null;
+      if (
+        missingColumn &&
+        Object.prototype.hasOwnProperty.call(payload, missingColumn) &&
+        !requiredColumns.has(missingColumn)
+      ) {
+        removedColumn = missingColumn;
+      } else {
+        removedColumn = optionalDropOrder.find(
+          (columnName) =>
+            Object.prototype.hasOwnProperty.call(payload, columnName) &&
+            !requiredColumns.has(columnName)
+        );
+      }
+
+      if (!removedColumn) break;
+      delete payload[removedColumn];
+    }
+
+    if (error) {
+      console.log('Error adding routine:', error);
+      throw error;
+    }
+
+    const persistedSchedule = normalizeRoutineSchedule({
+      repeat: data?.repeat ?? normalizedSchedule.repeat,
+      days: data?.days ?? normalizedSchedule.days,
+      month_days: data?.month_days,
+    });
+
+    const newRoutine = {
+      id: data.id,
+      name: data.name,
+      createdAt: data.created_at,
+      ...normalizedRange,
+      ...persistedSchedule,
+      tasks: [],
     };
 
     setRoutines((prev) => {
@@ -6688,16 +6873,36 @@ const fetchRoutinesFromSupabase = async (userId) => {
       updates?.end_time !== undefined ||
       updates?.scheduledTimes !== undefined ||
       updates?.scheduled_times !== undefined;
+    const hasScheduleUpdate =
+      updates?.repeat !== undefined ||
+      updates?.days !== undefined ||
+      updates?.monthDays !== undefined ||
+      updates?.month_days !== undefined ||
+      updates?.scheduleType !== undefined ||
+      updates?.schedule_type !== undefined;
     const normalizedRange = hasTimeRangeUpdate
       ? normalizeRoutineTimeRange({ ...routine, ...updates })
       : normalizeRoutineTimeRange(routine);
     if (hasTimeRangeUpdate && (!normalizedRange.startTime || !normalizedRange.endTime)) {
       throw new Error('Routine start and end times are required.');
     }
+    const normalizedSchedule = hasScheduleUpdate
+      ? normalizeRoutineSchedule({ ...routine, ...updates })
+      : normalizeRoutineSchedule(routine);
+    if (hasScheduleUpdate && !isRoutineScheduleValid(normalizedSchedule.repeat, normalizedSchedule.days)) {
+      if (normalizedSchedule.repeat === ROUTINE_REPEAT.WEEKLY) {
+        throw new Error('Select at least one weekday for this routine.');
+      }
+      if (normalizedSchedule.repeat === ROUTINE_REPEAT.MONTHLY) {
+        throw new Error('Select at least one day of the month for this routine.');
+      }
+      throw new Error('Select a valid routine schedule.');
+    }
     const updated = {
       ...routine,
       ...updates,
       ...normalizedRange,
+      ...normalizedSchedule,
       name: updates?.name !== undefined ? String(updates.name || '').trim() : routine.name,
     };
 
@@ -6712,26 +6917,51 @@ const fetchRoutinesFromSupabase = async (userId) => {
       updateData.start_time = normalizedRange.startTime || null;
       updateData.end_time = normalizedRange.endTime || null;
     }
+    if (hasScheduleUpdate) {
+      updateData.repeat = normalizedSchedule.repeat;
+      updateData.days = normalizedSchedule.days;
+      updateData.month_days =
+        normalizedSchedule.repeat === ROUTINE_REPEAT.MONTHLY
+          ? normalizedSchedule.days.map((day) => Number(day))
+          : [];
+    }
 
-    let { error } = await supabase
-      .from('routines')
-      .update(updateData)
-      .eq('id', routineId)
-      .eq('user_id', authUser.id);
+    const optionalDropOrder = [
+      'month_days',
+      'days',
+      'repeat',
+      'end_time',
+      'start_time',
+      'scheduled_times',
+    ];
+    let payload = { ...updateData };
+    let error = null;
 
-    if (
-      error &&
-      hasTimeRangeUpdate &&
-      (isMissingColumnError(error, 'start_time') || isMissingColumnError(error, 'end_time'))
+    for (
+      let attemptIndex = 0;
+      attemptIndex <= optionalDropOrder.length + 1;
+      attemptIndex += 1
     ) {
-      const fallbackUpdateData = { ...updateData };
-      delete fallbackUpdateData.start_time;
-      delete fallbackUpdateData.end_time;
       ({ error } = await supabase
         .from('routines')
-        .update(fallbackUpdateData)
+        .update(payload)
         .eq('id', routineId)
         .eq('user_id', authUser.id));
+      if (!error) break;
+      if (!isMissingColumnError(error)) break;
+
+      const missingColumn = extractMissingColumnName(error);
+      let removedColumn = null;
+      if (missingColumn && Object.prototype.hasOwnProperty.call(payload, missingColumn)) {
+        removedColumn = missingColumn;
+      } else {
+        removedColumn = optionalDropOrder.find((columnName) =>
+          Object.prototype.hasOwnProperty.call(payload, columnName)
+        );
+      }
+
+      if (!removedColumn) break;
+      delete payload[removedColumn];
     }
 
     if (error) {
@@ -8901,7 +9131,7 @@ const mapProfileRow = (row) => {
       return 'Password must include at least one uppercase letter.';
     }
 
-    if (!/[^A-Za-z0-9]/.test(password)) {
+    if (!/[^A-Za-z0-9\s]/.test(password)) {
       return 'Password must include at least one symbol.';
     }
 
@@ -9519,53 +9749,132 @@ const mapProfileRow = (row) => {
       return { ...normalized, hour, minute };
     };
 
-    for (const routine of routines || []) {
+    const appendRoutineCandidates = ({
+      routine,
+      itemType,
+      kind,
+      title,
+      fallbackName,
+      dataType,
+    }) => {
+      if (!routine?.id) return;
       const parsed = parseRoutineStart(routine);
-      if (!parsed) continue;
-      const nextTime = getNextDailyOccurrence(parsed.hour, parsed.minute);
-      const routineTitle = routine.name || 'Routine';
+      if (!parsed) return;
+
+      const routineTitle = routine.name || fallbackName;
       const body = parsed.endTime
         ? `${routineTitle} starts at ${parsed.startTime} and ends at ${parsed.endTime}.`
         : `${routineTitle} starts at ${parsed.startTime}.`;
-      candidates.push({
+      const schedule = normalizeRoutineSchedule(routine);
+
+      const pushDaily = () => {
+        const nextTime = getNextDailyOccurrence(parsed.hour, parsed.minute);
+        candidates.push({
+          itemType,
+          itemId: routine.id,
+          kind,
+          priority: 3,
+          sortTimeMs: nextTime.getTime(),
+          title,
+          body,
+          data: { type: dataType, id: routine.id },
+          trigger: {
+            type: 'daily',
+            hour: parsed.hour,
+            minute: parsed.minute,
+          },
+        });
+      };
+
+      if (schedule.repeat === ROUTINE_REPEAT.WEEKLY) {
+        const weekdays = normalizeRoutineDays(schedule.days, ROUTINE_REPEAT.WEEKLY);
+        const weekdaysToSchedule = new Set();
+        weekdays.forEach((dayLabel) => {
+          const weekday = weekdayMap[dayLabel];
+          if (weekday) weekdaysToSchedule.add(weekday);
+        });
+
+        if (!weekdaysToSchedule.size) {
+          pushDaily();
+          return;
+        }
+
+        for (const weekday of weekdaysToSchedule) {
+          const nextTime = getNextWeeklyOccurrence(weekday, parsed.hour, parsed.minute);
+          candidates.push({
+            itemType,
+            itemId: routine.id,
+            kind,
+            priority: 3,
+            sortTimeMs: nextTime.getTime(),
+            title,
+            body,
+            data: { type: dataType, id: routine.id },
+            trigger: {
+              type: 'weekly',
+              weekday,
+              hour: parsed.hour,
+              minute: parsed.minute,
+            },
+          });
+        }
+        return;
+      }
+
+      if (schedule.repeat === ROUTINE_REPEAT.MONTHLY) {
+        const monthDays = normalizeRoutineDays(schedule.days, ROUTINE_REPEAT.MONTHLY)
+          .map((day) => Number(day))
+          .filter((day) => Number.isInteger(day) && day >= 1 && day <= 31);
+
+        if (!monthDays.length) {
+          pushDaily();
+          return;
+        }
+
+        monthDays.forEach((day) => {
+          const nextTime = getNextMonthlyOccurrence(day, parsed.hour, parsed.minute);
+          candidates.push({
+            itemType,
+            itemId: routine.id,
+            kind,
+            priority: 3,
+            sortTimeMs: nextTime.getTime(),
+            title,
+            body,
+            data: { type: dataType, id: routine.id },
+            trigger: {
+              type: 'monthly',
+              day,
+              hour: parsed.hour,
+              minute: parsed.minute,
+            },
+          });
+        });
+        return;
+      }
+
+      pushDaily();
+    };
+
+    for (const routine of routines || []) {
+      appendRoutineCandidates({
+        routine,
         itemType: 'routine',
-        itemId: routine.id,
         kind: 'routine',
-        priority: 3,
-        sortTimeMs: nextTime.getTime(),
         title: 'Routine reminder',
-        body,
-        data: { type: 'routine', id: routine.id },
-        trigger: {
-          type: 'daily',
-          hour: parsed.hour,
-          minute: parsed.minute,
-        },
+        fallbackName: 'Routine',
+        dataType: 'routine',
       });
     }
 
     for (const groupRoutine of groupRoutines || []) {
-      const parsed = parseRoutineStart(groupRoutine);
-      if (!parsed) continue;
-      const nextTime = getNextDailyOccurrence(parsed.hour, parsed.minute);
-      const routineTitle = groupRoutine.name || 'Group routine';
-      const body = parsed.endTime
-        ? `${routineTitle} starts at ${parsed.startTime} and ends at ${parsed.endTime}.`
-        : `${routineTitle} starts at ${parsed.startTime}.`;
-      candidates.push({
+      appendRoutineCandidates({
+        routine: groupRoutine,
         itemType: 'group_routine',
-        itemId: groupRoutine.id,
         kind: 'group_routine',
-        priority: 3,
-        sortTimeMs: nextTime.getTime(),
         title: 'Group routine reminder',
-        body,
-        data: { type: 'group_routine', id: groupRoutine.id },
-        trigger: {
-          type: 'daily',
-          hour: parsed.hour,
-          minute: parsed.minute,
-        },
+        fallbackName: 'Group routine',
+        dataType: 'group_routine',
       });
     }
 

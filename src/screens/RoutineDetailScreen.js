@@ -9,13 +9,26 @@ import {
   Modal,
   Button,
   Input,
+  ChipGroup,
   PlatformScrollView,
   PlatformTimePicker,
 } from '../components';
 import { borderRadius, spacing, typography } from '../utils/theme';
 import { formatTimeFromDate } from '../utils/notifications';
+import {
+  ROUTINE_REPEAT,
+  ROUTINE_REPEAT_OPTIONS,
+  ROUTINE_WEEKDAY_LABELS,
+  normalizeRoutineDays,
+  normalizeRoutineRepeat,
+  normalizeRoutineSchedule,
+  getRoutineDaysForRepeat,
+  isRoutineScheduleValid,
+  getRoutineScheduleLabel,
+} from '../utils/routineSchedule';
 
 const QUICK_ROUTINE_TIMES = ['06:00', '09:00', '12:00', '18:00', '21:00'];
+const ROUTINE_MONTH_DAY_OPTIONS = Array.from({ length: 31 }).map((_, index) => index + 1);
 
 const parseClockMinutes = (value) => {
   if (!value || typeof value !== 'string') return null;
@@ -90,7 +103,7 @@ const getRoutineDurationLabel = (startTime, endTime) => {
   return `${minutes}m`;
 };
 
-const formatRoutineScheduleSummary = (routine) => {
+const formatRoutineTimeRangeSummary = (routine) => {
   const { startTime, endTime } = normalizeRoutineTimeRange(routine);
   if (!startTime && !endTime) return 'No range set';
   if (!startTime) return `Ends ${endTime}`;
@@ -99,6 +112,13 @@ const formatRoutineScheduleSummary = (routine) => {
   return duration
     ? `${startTime} - ${endTime} (${duration})`
     : `${startTime} - ${endTime}`;
+};
+
+const formatRoutineScheduleSummary = (routine) => {
+  const scheduleLabel = getRoutineScheduleLabel(routine?.repeat, routine?.days);
+  const timeLabel = formatRoutineTimeRangeSummary(routine);
+  if (!timeLabel) return scheduleLabel;
+  return `${scheduleLabel} - ${timeLabel}`;
 };
 
 const RoutineDetailScreen = () => {
@@ -198,18 +218,36 @@ const RoutineDetailScreen = () => {
   const [editRoutineName, setEditRoutineName] = useState('');
   const [editRoutineStartTime, setEditRoutineStartTime] = useState('');
   const [editRoutineEndTime, setEditRoutineEndTime] = useState('');
+  const [editRoutineRepeat, setEditRoutineRepeat] = useState(ROUTINE_REPEAT.DAILY);
+  const [editRoutineWeekDays, setEditRoutineWeekDays] = useState([]);
+  const [editRoutineMonthDays, setEditRoutineMonthDays] = useState([]);
 
   useEffect(() => {
     if (!routine) {
       setEditRoutineName('');
       setEditRoutineStartTime('');
       setEditRoutineEndTime('');
+      setEditRoutineRepeat(ROUTINE_REPEAT.DAILY);
+      setEditRoutineWeekDays([]);
+      setEditRoutineMonthDays([]);
       return;
     }
     const range = normalizeRoutineTimeRange(routine);
+    const schedule = normalizeRoutineSchedule(routine);
+    const normalizedWeekDays =
+      schedule.repeat === ROUTINE_REPEAT.WEEKLY
+        ? normalizeRoutineDays(schedule.days, ROUTINE_REPEAT.WEEKLY)
+        : [];
+    const normalizedMonthDays =
+      schedule.repeat === ROUTINE_REPEAT.MONTHLY
+        ? normalizeRoutineDays(schedule.days, ROUTINE_REPEAT.MONTHLY).map((day) => Number(day))
+        : [];
     setEditRoutineName(routine.name || '');
     setEditRoutineStartTime(range.startTime);
     setEditRoutineEndTime(range.endTime);
+    setEditRoutineRepeat(schedule.repeat);
+    setEditRoutineWeekDays(normalizedWeekDays);
+    setEditRoutineMonthDays(normalizedMonthDays);
   }, [routine]);
 
   const handleAddTask = async () => {
@@ -253,24 +291,76 @@ const RoutineDetailScreen = () => {
     }
   };
 
+  const handleEditRoutineRepeatSelect = (value) => {
+    setEditRoutineRepeat(normalizeRoutineRepeat(value));
+  };
+
+  const toggleEditRoutineWeekDay = (dayLabel) => {
+    setEditRoutineWeekDays((prev) => {
+      const next = prev.includes(dayLabel)
+        ? prev.filter((value) => value !== dayLabel)
+        : [...prev, dayLabel];
+      return normalizeRoutineDays(next, ROUTINE_REPEAT.WEEKLY);
+    });
+  };
+
+  const toggleEditRoutineMonthDay = (day) => {
+    const dayLabel = String(day);
+    setEditRoutineMonthDays((prev) => {
+      const next = prev.map((value) => String(value));
+      const updated = next.includes(dayLabel)
+        ? next.filter((value) => value !== dayLabel)
+        : [...next, dayLabel];
+      return normalizeRoutineDays(updated, ROUTINE_REPEAT.MONTHLY).map((value) => Number(value));
+    });
+  };
+
   const closeEditModal = () => {
     setShowEditModal(false);
     setShowRoutineTimePicker(false);
     setRoutineTimePickerTarget(null);
     const range = normalizeRoutineTimeRange(routine);
+    const schedule = normalizeRoutineSchedule(routine);
+    const normalizedWeekDays =
+      schedule.repeat === ROUTINE_REPEAT.WEEKLY
+        ? normalizeRoutineDays(schedule.days, ROUTINE_REPEAT.WEEKLY)
+        : [];
+    const normalizedMonthDays =
+      schedule.repeat === ROUTINE_REPEAT.MONTHLY
+        ? normalizeRoutineDays(schedule.days, ROUTINE_REPEAT.MONTHLY).map((day) => Number(day))
+        : [];
     setEditRoutineName(routine?.name || '');
     setEditRoutineStartTime(range.startTime);
     setEditRoutineEndTime(range.endTime);
+    setEditRoutineRepeat(schedule.repeat);
+    setEditRoutineWeekDays(normalizedWeekDays);
+    setEditRoutineMonthDays(normalizedMonthDays);
   };
 
   const handleSaveRoutine = async () => {
     if (!routine || !editRoutineName.trim() || !editRoutineStartTime || !editRoutineEndTime) {
       return;
     }
+    const routineDays = getRoutineDaysForRepeat({
+      repeat: editRoutineRepeat,
+      weekDays: editRoutineWeekDays,
+      monthDays: editRoutineMonthDays,
+    });
+    if (!isRoutineScheduleValid(editRoutineRepeat, routineDays)) {
+      Alert.alert(
+        'Select routine days',
+        editRoutineRepeat === ROUTINE_REPEAT.MONTHLY
+          ? 'Choose at least one day of the month for this routine.'
+          : 'Choose at least one weekday for this routine.'
+      );
+      return;
+    }
     const updates = {
       name: editRoutineName.trim(),
       startTime: editRoutineStartTime,
       endTime: editRoutineEndTime,
+      repeat: normalizeRoutineRepeat(editRoutineRepeat),
+      days: routineDays,
     };
 
     try {
@@ -340,6 +430,15 @@ const RoutineDetailScreen = () => {
         year: 'numeric',
       })
     : null;
+  const editRoutineSelectedDays = getRoutineDaysForRepeat({
+    repeat: editRoutineRepeat,
+    weekDays: editRoutineWeekDays,
+    monthDays: editRoutineMonthDays,
+  });
+  const isEditRoutineScheduleSelectionValid = isRoutineScheduleValid(
+    editRoutineRepeat,
+    editRoutineSelectedDays
+  );
   const scheduleSummary = formatRoutineScheduleSummary(routine);
 
   if (!routine) {
@@ -373,9 +472,23 @@ const RoutineDetailScreen = () => {
               style={[styles.navButton, { borderColor: detailTheme.itemBorder }]}
               onPress={() => {
                 const range = normalizeRoutineTimeRange(routine);
+                const schedule = normalizeRoutineSchedule(routine);
                 setEditRoutineName(routine?.name || '');
                 setEditRoutineStartTime(range.startTime);
                 setEditRoutineEndTime(range.endTime);
+                setEditRoutineRepeat(schedule.repeat);
+                setEditRoutineWeekDays(
+                  schedule.repeat === ROUTINE_REPEAT.WEEKLY
+                    ? normalizeRoutineDays(schedule.days, ROUTINE_REPEAT.WEEKLY)
+                    : []
+                );
+                setEditRoutineMonthDays(
+                  schedule.repeat === ROUTINE_REPEAT.MONTHLY
+                    ? normalizeRoutineDays(schedule.days, ROUTINE_REPEAT.MONTHLY).map((day) =>
+                        Number(day)
+                      )
+                    : []
+                );
                 setRoutineTimePickerTarget(null);
                 setShowEditModal(true);
               }}
@@ -544,7 +657,91 @@ const RoutineDetailScreen = () => {
             {formatRoutineScheduleSummary({
               startTime: editRoutineStartTime,
               endTime: editRoutineEndTime,
+              repeat: editRoutineRepeat,
+              days: editRoutineSelectedDays,
             })}
+          </Text>
+        ) : null}
+
+        <Text style={[styles.editLabel, { color: themeColors.text }]}>Routine days</Text>
+        <Text style={[styles.editHint, { color: themeColors.textLight }]}>
+          Choose whether this routine runs daily, on specific weekdays, or on specific month days.
+        </Text>
+        <ChipGroup
+          options={ROUTINE_REPEAT_OPTIONS}
+          selectedValue={editRoutineRepeat}
+          onSelect={handleEditRoutineRepeatSelect}
+          style={styles.scheduleChipGroup}
+          color={detailTheme.accent}
+        />
+        {editRoutineRepeat === ROUTINE_REPEAT.WEEKLY ? (
+          <View style={styles.scheduleChipWrap}>
+            {ROUTINE_WEEKDAY_LABELS.map((dayLabel) => {
+              const selected = editRoutineWeekDays.includes(dayLabel);
+              return (
+                <TouchableOpacity
+                  key={`edit-weekday-${dayLabel}`}
+                  style={[
+                    styles.scheduleChip,
+                    {
+                      borderColor: selected ? detailTheme.accent : themeColors.border,
+                      backgroundColor: selected ? detailTheme.actionBg : 'transparent',
+                    },
+                  ]}
+                  onPress={() => toggleEditRoutineWeekDay(dayLabel)}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.scheduleChipText,
+                      { color: selected ? detailTheme.accent : themeColors.textLight },
+                    ]}
+                  >
+                    {dayLabel}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ) : null}
+        {editRoutineRepeat === ROUTINE_REPEAT.MONTHLY ? (
+          <View style={styles.scheduleChipWrap}>
+            {ROUTINE_MONTH_DAY_OPTIONS.map((day) => {
+              const dayLabel = String(day);
+              const selected = editRoutineMonthDays
+                .map((value) => String(value))
+                .includes(dayLabel);
+              return (
+                <TouchableOpacity
+                  key={`edit-month-day-${day}`}
+                  style={[
+                    styles.scheduleChip,
+                    {
+                      borderColor: selected ? detailTheme.accent : themeColors.border,
+                      backgroundColor: selected ? detailTheme.actionBg : 'transparent',
+                    },
+                  ]}
+                  onPress={() => toggleEditRoutineMonthDay(day)}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.scheduleChipText,
+                      { color: selected ? detailTheme.accent : themeColors.textLight },
+                    ]}
+                  >
+                    {day}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ) : null}
+        {!isEditRoutineScheduleSelectionValid ? (
+          <Text style={[styles.scheduleValidationHint, { color: themeColors.danger }]}>
+            {editRoutineRepeat === ROUTINE_REPEAT.MONTHLY
+              ? 'Select at least one day of the month.'
+              : 'Select at least one weekday.'}
           </Text>
         ) : null}
 
@@ -619,7 +816,12 @@ const RoutineDetailScreen = () => {
           <Button
             title="Save"
             onPress={handleSaveRoutine}
-            disabled={!editRoutineName.trim() || !editRoutineStartTime || !editRoutineEndTime}
+            disabled={
+              !editRoutineName.trim() ||
+              !editRoutineStartTime ||
+              !editRoutineEndTime ||
+              !isEditRoutineScheduleSelectionValid
+            }
             style={styles.modalButton}
           />
         </View>
@@ -836,6 +1038,31 @@ const createStyles = (themeColors) => StyleSheet.create({
   rangePreview: {
     ...typography.bodySmall,
     marginBottom: spacing.md,
+  },
+  scheduleChipGroup: {
+    marginBottom: spacing.md,
+  },
+  scheduleChipWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: spacing.md,
+  },
+  scheduleChip: {
+    borderWidth: 1,
+    borderRadius: borderRadius.full,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    marginRight: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  scheduleChipText: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+  },
+  scheduleValidationHint: {
+    ...typography.caption,
+    marginBottom: spacing.md,
+    marginTop: -spacing.sm,
   },
   timeChipWrap: {
     flexDirection: 'row',

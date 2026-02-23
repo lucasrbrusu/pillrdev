@@ -112,6 +112,32 @@ const MembershipScreen = () => {
             <Text style={styles.detailValue}>{planLabel}</Text>
           </View>
 
+          {!isPremiumUser && (
+            <>
+              <View style={styles.detailDivider} />
+              <TouchableOpacity
+                activeOpacity={0.85}
+                style={styles.upsellBadge}
+                onPress={() => navigation.navigate('Paywall', { source: 'membership' })}
+              >
+                <View style={styles.upsellBadgeIconWrap}>
+                  <Ionicons name="star" size={14} color="#92400E" />
+                </View>
+                <View style={styles.upsellBadgeTextWrap}>
+                  <Text style={styles.upsellBadgeTitle}>{t('Upgrade to Premium')}</Text>
+                  <Text style={styles.upsellBadgeSubtitle}>
+                    {t('Unlock all premium features and member perks.')}
+                  </Text>
+                </View>
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color={themeColors?.textSecondary || colors.textSecondary}
+                />
+              </TouchableOpacity>
+            </>
+          )}
+
           {isPremiumUser && (
             <>
               <View style={styles.detailDivider} />
@@ -121,6 +147,28 @@ const MembershipScreen = () => {
               </View>
             </>
           )}
+        </Card>
+
+        <Card style={styles.card}>
+          <Text style={styles.sectionTitle}>{t('Cancel membership')}</Text>
+          <Text style={styles.sectionSubtitle}>
+            {t(
+              'Membership cancellations are handled by your device store and cannot be completed in this app.'
+            )}
+          </Text>
+
+          <View style={styles.cancelNotice}>
+            <Ionicons
+              name="information-circle-outline"
+              size={18}
+              color={themeColors?.textSecondary || colors.textSecondary}
+            />
+            <Text style={styles.cancelNoticeText}>
+              {t(
+                'To cancel Premium, open your App Store or Google Play subscriptions/memberships page and manage your plan there.'
+              )}
+            </Text>
+          </View>
         </Card>
       </ScrollView>
     </View>
@@ -213,6 +261,58 @@ const createStyles = (themeColors) =>
       fontWeight: '600',
       textAlign: 'right',
       flexShrink: 1,
+    },
+    upsellBadge: {
+      marginTop: spacing.sm,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: '#FDE68A',
+      backgroundColor: '#FFFBEB',
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    upsellBadgeIconWrap: {
+      width: 26,
+      height: 26,
+      borderRadius: borderRadius.full,
+      backgroundColor: '#FEF3C7',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: '#FCD34D',
+    },
+    upsellBadgeTextWrap: {
+      flex: 1,
+      gap: 2,
+    },
+    upsellBadgeTitle: {
+      ...typography.body,
+      color: '#92400E',
+      fontWeight: '700',
+    },
+    upsellBadgeSubtitle: {
+      ...typography.caption,
+      color: '#B45309',
+    },
+    cancelNotice: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.sm,
+      backgroundColor: themeColors?.surfaceSecondary || 'rgba(148, 163, 184, 0.12)',
+      borderColor: themeColors?.divider || colors.border,
+      borderWidth: 1,
+      borderRadius: borderRadius.lg,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+    },
+    cancelNoticeText: {
+      ...typography.bodySmall,
+      color: themeColors?.textSecondary || colors.textSecondary,
+      flex: 1,
+      lineHeight: 20,
     },
   });
 

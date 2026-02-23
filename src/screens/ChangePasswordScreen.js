@@ -17,7 +17,7 @@ const getPasswordError = (password) => {
     return 'Password must include at least one uppercase letter.';
   }
 
-  if (!/[^A-Za-z0-9]/.test(password)) {
+  if (!/[^A-Za-z0-9\s]/.test(password)) {
     return 'Password must include at least one symbol.';
   }
 
@@ -116,7 +116,7 @@ const ChangePasswordScreen = () => {
         <Card style={styles.card}>
           <Text style={styles.sectionTitle}>Update your password</Text>
           <Text style={styles.sectionSubtitle}>
-            Enter your current password and choose a new one.
+            Enter your current password and choose a new one with 6+ characters, 1 uppercase letter, and 1 symbol.
           </Text>
           <Input
             label="Current password"

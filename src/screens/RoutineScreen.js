@@ -34,6 +34,16 @@ import {
   spacing,
   typography,
 } from '../utils/theme';
+import {
+  ROUTINE_REPEAT,
+  ROUTINE_REPEAT_OPTIONS,
+  ROUTINE_WEEKDAY_LABELS,
+  normalizeRoutineDays,
+  normalizeRoutineRepeat,
+  getRoutineDaysForRepeat,
+  isRoutineScheduleValid,
+  getRoutineScheduleLabel,
+} from '../utils/routineSchedule';
 
 const REMINDER_TIME_OPTIONS = Array.from({ length: 48 }).map((_, idx) => {
   const h = Math.floor(idx / 2);
@@ -44,6 +54,7 @@ const REMINDER_TIME_OPTIONS = Array.from({ length: 48 }).map((_, idx) => {
 });
 
 const REMINDER_QUICK_TIMES = ['09:00', '12:00', '15:00', '18:00', '20:00'];
+const ROUTINE_MONTH_DAY_OPTIONS = Array.from({ length: 31 }).map((_, index) => index + 1);
 
 const ROUTINE_SUGGESTIONS = [
   'Morning Routine',
@@ -161,7 +172,7 @@ const getRoutineDurationLabel = (startTime, endTime) => {
   return `${minutes}m`;
 };
 
-const formatRoutineScheduleSummary = (routine) => {
+const formatRoutineTimeRangeSummary = (routine) => {
   const { startTime, endTime } = normalizeRoutineTimeRange(routine);
   if (!startTime && !endTime) return 'No range set';
   if (!startTime) return `Ends ${endTime}`;
@@ -170,6 +181,13 @@ const formatRoutineScheduleSummary = (routine) => {
   return duration
     ? `${startTime} - ${endTime} (${duration})`
     : `${startTime} - ${endTime}`;
+};
+
+const formatRoutineScheduleSummary = (routine) => {
+  const scheduleLabel = getRoutineScheduleLabel(routine?.repeat, routine?.days);
+  const timeLabel = formatRoutineTimeRangeSummary(routine);
+  if (!timeLabel) return scheduleLabel;
+  return `${scheduleLabel} - ${timeLabel}`;
 };
 
 const RoutineScreen = () => {
@@ -347,6 +365,9 @@ const RoutineScreen = () => {
   const [routineGroupId, setRoutineGroupId] = useState(null);
   const [routineStartTime, setRoutineStartTime] = useState('');
   const [routineEndTime, setRoutineEndTime] = useState('');
+  const [routineRepeat, setRoutineRepeat] = useState(ROUTINE_REPEAT.DAILY);
+  const [routineWeekDays, setRoutineWeekDays] = useState([]);
+  const [routineMonthDays, setRoutineMonthDays] = useState([]);
   const [reminderName, setReminderName] = useState('');
   const [reminderDescription, setReminderDescription] = useState('');
   const [reminderDate, setReminderDate] = useState(new Date().toISOString().split('T')[0]);
@@ -398,6 +419,9 @@ const RoutineScreen = () => {
     setRoutineName('');
     setRoutineStartTime('');
     setRoutineEndTime('');
+    setRoutineRepeat(ROUTINE_REPEAT.DAILY);
+    setRoutineWeekDays([]);
+    setRoutineMonthDays([]);
     setShowRoutineTimePicker(false);
     setRoutineTimePickerTarget(null);
 
@@ -414,6 +438,20 @@ const RoutineScreen = () => {
   const handleCreateRoutine = async () => {
     if (!routineName.trim()) return;
     if (!routineStartTime || !routineEndTime) return;
+    const routineDays = getRoutineDaysForRepeat({
+      repeat: routineRepeat,
+      weekDays: routineWeekDays,
+      monthDays: routineMonthDays,
+    });
+    if (!isRoutineScheduleValid(routineRepeat, routineDays)) {
+      Alert.alert(
+        'Select routine days',
+        routineRepeat === ROUTINE_REPEAT.MONTHLY
+          ? 'Choose at least one day of the month for this routine.'
+          : 'Choose at least one weekday for this routine.'
+      );
+      return;
+    }
     if (routineCreateType === 'group' && !routineGroupId) {
       Alert.alert('Select a group', 'Choose a group before creating a group routine.');
       return;
@@ -423,6 +461,8 @@ const RoutineScreen = () => {
         name: routineName.trim(),
         startTime: routineStartTime,
         endTime: routineEndTime,
+        repeat: normalizeRoutineRepeat(routineRepeat),
+        days: routineDays,
       };
       if (routineCreateType === 'group') {
         await addGroupRoutine({ ...payload, groupId: routineGroupId });
@@ -434,6 +474,9 @@ const RoutineScreen = () => {
       setRoutineGroupId(null);
       setRoutineStartTime('');
       setRoutineEndTime('');
+      setRoutineRepeat(ROUTINE_REPEAT.DAILY);
+      setRoutineWeekDays([]);
+      setRoutineMonthDays([]);
       setShowRoutineTimePicker(false);
       setRoutineTimePickerTarget(null);
       setShowRoutineModal(false);
@@ -466,6 +509,9 @@ const RoutineScreen = () => {
     setRoutineGroupId(null);
     setRoutineStartTime('');
     setRoutineEndTime('');
+    setRoutineRepeat(ROUTINE_REPEAT.DAILY);
+    setRoutineWeekDays([]);
+    setRoutineMonthDays([]);
     setShowRoutineTimePicker(false);
     setRoutineTimePickerTarget(null);
   };
@@ -476,6 +522,9 @@ const RoutineScreen = () => {
     if (nextType !== 'group') {
       setRoutineGroupId(null);
     }
+    setRoutineRepeat(ROUTINE_REPEAT.DAILY);
+    setRoutineWeekDays([]);
+    setRoutineMonthDays([]);
     setShowRoutineModal(true);
   };
 
@@ -484,6 +533,30 @@ const RoutineScreen = () => {
     if (value !== 'group') {
       setRoutineGroupId(null);
     }
+  };
+
+  const handleRoutineRepeatSelect = (value) => {
+    setRoutineRepeat(normalizeRoutineRepeat(value));
+  };
+
+  const toggleRoutineWeekDay = (dayLabel) => {
+    setRoutineWeekDays((prev) => {
+      const next = prev.includes(dayLabel)
+        ? prev.filter((value) => value !== dayLabel)
+        : [...prev, dayLabel];
+      return normalizeRoutineDays(next, ROUTINE_REPEAT.WEEKLY);
+    });
+  };
+
+  const toggleRoutineMonthDay = (day) => {
+    const dayLabel = String(day);
+    setRoutineMonthDays((prev) => {
+      const next = prev.map((value) => String(value));
+      const updated = next.includes(dayLabel)
+        ? next.filter((value) => value !== dayLabel)
+        : [...next, dayLabel];
+      return normalizeRoutineDays(updated, ROUTINE_REPEAT.MONTHLY).map((value) => Number(value));
+    });
   };
 
   const closeReminderModal = () => {
@@ -914,10 +987,20 @@ const RoutineScreen = () => {
   const totalRoutineCount = routines.length + groupRoutines.length;
   const reminderCount = reminders.length;
   const isGroupRoutineCreate = routineCreateType === 'group';
+  const routineSelectedDays = getRoutineDaysForRepeat({
+    repeat: routineRepeat,
+    weekDays: routineWeekDays,
+    monthDays: routineMonthDays,
+  });
+  const isRoutineScheduleSelectionValid = isRoutineScheduleValid(
+    routineRepeat,
+    routineSelectedDays
+  );
   const routineCreateDisabled =
     !routineName.trim() ||
     !routineStartTime ||
     !routineEndTime ||
+    !isRoutineScheduleSelectionValid ||
     (isGroupRoutineCreate && !routineGroupId);
 
   const renderActiveGroceryList = () => (
@@ -1469,6 +1552,104 @@ const RoutineScreen = () => {
                   { borderColor: palette.cardBorder, backgroundColor: palette.card },
                 ]}
               >
+                <Text style={styles.inputLabel}>Routine days</Text>
+                <Text style={styles.scheduleHint}>
+                  Choose whether this routine runs daily, on specific weekdays, or on specific month days.
+                </Text>
+                <ChipGroup
+                  options={ROUTINE_REPEAT_OPTIONS}
+                  selectedValue={routineRepeat}
+                  onSelect={handleRoutineRepeatSelect}
+                  style={styles.chipGroup}
+                  color={palette.routine}
+                />
+
+                {routineRepeat === ROUTINE_REPEAT.WEEKLY ? (
+                  <>
+                    <Text style={styles.quickLabel}>Weekdays</Text>
+                    <View style={styles.quickGroup}>
+                      {ROUTINE_WEEKDAY_LABELS.map((dayLabel) => {
+                        const selected = routineWeekDays.includes(dayLabel);
+                        return (
+                          <TouchableOpacity
+                            key={`weekday-${dayLabel}`}
+                            style={[
+                              styles.quickChip,
+                              {
+                                backgroundColor: selected ? palette.routine : palette.mutedSurface,
+                                borderColor: selected ? palette.routine : palette.cardBorder,
+                              },
+                            ]}
+                            onPress={() => toggleRoutineWeekDay(dayLabel)}
+                            activeOpacity={0.8}
+                          >
+                            <Text
+                              style={[
+                                styles.quickChipText,
+                                { color: selected ? '#FFFFFF' : palette.textMuted },
+                              ]}
+                            >
+                              {dayLabel}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </>
+                ) : null}
+
+                {routineRepeat === ROUTINE_REPEAT.MONTHLY ? (
+                  <>
+                    <Text style={styles.quickLabel}>Days of month</Text>
+                    <View style={styles.quickGroup}>
+                      {ROUTINE_MONTH_DAY_OPTIONS.map((day) => {
+                        const dayLabel = String(day);
+                        const selected = routineMonthDays
+                          .map((value) => String(value))
+                          .includes(dayLabel);
+                        return (
+                          <TouchableOpacity
+                            key={`month-day-${day}`}
+                            style={[
+                              styles.quickChip,
+                              {
+                                backgroundColor: selected ? palette.routine : palette.mutedSurface,
+                                borderColor: selected ? palette.routine : palette.cardBorder,
+                              },
+                            ]}
+                            onPress={() => toggleRoutineMonthDay(day)}
+                            activeOpacity={0.8}
+                          >
+                            <Text
+                              style={[
+                                styles.quickChipText,
+                                { color: selected ? '#FFFFFF' : palette.textMuted },
+                              ]}
+                            >
+                              {day}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </>
+                ) : null}
+
+                {!isRoutineScheduleSelectionValid ? (
+                  <Text style={styles.scheduleValidationHint}>
+                    {routineRepeat === ROUTINE_REPEAT.MONTHLY
+                      ? 'Select at least one day of the month.'
+                      : 'Select at least one weekday.'}
+                  </Text>
+                ) : null}
+              </View>
+
+              <View
+                style={[
+                  styles.createRoutineSectionCard,
+                  { borderColor: palette.cardBorder, backgroundColor: palette.card },
+                ]}
+              >
                 <Text style={styles.inputLabel}>Routine time range</Text>
                 <Text style={styles.scheduleHint}>
                   Set when this routine starts and ends.
@@ -1515,6 +1696,8 @@ const RoutineScreen = () => {
                     {formatRoutineScheduleSummary({
                       startTime: routineStartTime,
                       endTime: routineEndTime,
+                      repeat: routineRepeat,
+                      days: routineSelectedDays,
                     })}
                   </Text>
                 ) : null}
@@ -3115,6 +3298,12 @@ const createStyles = (themeColors, palette) => StyleSheet.create({
   scheduleHint: {
     ...typography.bodySmall,
     color: themeColors.textSecondary,
+    marginBottom: spacing.sm,
+  },
+  scheduleValidationHint: {
+    ...typography.caption,
+    color: themeColors.danger,
+    marginTop: -spacing.sm,
     marginBottom: spacing.sm,
   },
   rangePreview: {
