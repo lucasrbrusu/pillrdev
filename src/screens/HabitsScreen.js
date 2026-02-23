@@ -969,7 +969,7 @@ const HabitsScreen = () => {
     deleteHabit,
     toggleHabitCompletion,
     toggleGroupHabitCompletion,
-    getBestStreak,
+    getCurrentStreak,
     isHabitCompletedToday,
     groups,
     friends,
@@ -2032,8 +2032,8 @@ const HabitsScreen = () => {
         <View style={styles.statsRow}>
           <Card style={[styles.statCard, styles.statStreak]}>
             <Ionicons name="flame" size={16} color={statIconColors.streak} />
-            <Text style={styles.statLabel}>Best streak</Text>
-            <Text style={styles.statValue}>{getBestStreak()}</Text>
+            <Text style={styles.statLabel}>Current streak</Text>
+            <Text style={styles.statValue}>{getCurrentStreak()}</Text>
           </Card>
           <Card style={[styles.statCard, styles.statToday]}>
             <Feather name="target" size={16} color={statIconColors.today} />

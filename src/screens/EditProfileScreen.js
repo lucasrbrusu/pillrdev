@@ -41,7 +41,7 @@ const EditProfileScreen = () => {
     themeColors,
     themeName,
     tasks,
-    getBestStreak,
+    getCurrentStreak,
     userSettings,
   } = useApp();
   const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
@@ -79,7 +79,7 @@ const EditProfileScreen = () => {
     [isDark, themeColors]
   );
   const isPremium = !!profile?.isPremium;
-  const bestStreak = getBestStreak ? getBestStreak() : 0;
+  const currentStreak = getCurrentStreak ? getCurrentStreak() : 0;
   const totalTasks = tasks?.length || 0;
   const completedTasks = tasks?.filter((task) => task.completed).length || 0;
   const successRate = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
@@ -311,8 +311,8 @@ const EditProfileScreen = () => {
               >
                 <Ionicons name="flame" size={18} color={profileTheme.goalTints.calorie.icon} />
               </View>
-              <Text style={styles.statValue}>{bestStreak}</Text>
-              <Text style={styles.statLabel}>Day Streak</Text>
+              <Text style={styles.statValue}>{currentStreak}</Text>
+              <Text style={styles.statLabel}>Current streak</Text>
             </View>
             <View style={styles.statItem}>
               <View

@@ -33,7 +33,7 @@ const getInitials = (name, username, email) => {
 const ProfileScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { profile, signOut, themeColors, themeName, tasks, getBestStreak, t } = useApp();
+  const { profile, signOut, themeColors, themeName, tasks, getCurrentStreak, t } = useApp();
   const isDark = themeName === 'dark';
   const profileTheme = React.useMemo(
     () => ({
@@ -46,7 +46,7 @@ const ProfileScreen = () => {
   );
   const styles = React.useMemo(() => createStyles(themeColors, isDark), [themeColors, isDark]);
   const isPremium = !!profile?.isPremium;
-  const bestStreak = getBestStreak ? getBestStreak() : 0;
+  const currentStreak = getCurrentStreak ? getCurrentStreak() : 0;
   const totalTasks = tasks?.length || 0;
   const completedTasks = tasks?.filter((task) => task.completed).length || 0;
   const successRate = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
@@ -54,8 +54,8 @@ const ProfileScreen = () => {
     () => [
       {
         id: 'streak',
-        label: t('Day Streak'),
-        value: bestStreak,
+        label: t('Current streak'),
+        value: currentStreak,
         icon: 'flame',
         color: '#F97316',
         bg: isDark ? 'rgba(249,115,22,0.18)' : '#FFEDD5',
@@ -80,7 +80,7 @@ const ProfileScreen = () => {
         border: isDark ? 'rgba(34,197,94,0.35)' : '#BBF7D0',
       },
     ],
-    [bestStreak, completedTasks, isDark, successRate, t]
+    [currentStreak, completedTasks, isDark, successRate, t]
   );
 
   const settingsOptions = [

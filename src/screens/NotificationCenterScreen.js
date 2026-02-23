@@ -310,6 +310,112 @@ const getRoutineNextOccurrence = (routine, now = new Date()) => {
   return getNextDailyOccurrence(hour, minute, now);
 };
 
+const isRoutineScheduledForDate = (routine, dateValue = new Date()) => {
+  const targetDate = toStartOfDay(dateValue);
+  if (!targetDate) return false;
+  const schedule = normalizeRoutineSchedule(routine);
+
+  if (schedule.repeat === ROUTINE_REPEAT.WEEKLY) {
+    const weekdayLabels = normalizeRoutineDays(schedule.days, ROUTINE_REPEAT.WEEKLY);
+    if (!weekdayLabels.length) return true;
+    return weekdayLabels.includes(DAY_INDEX_TO_LABEL[targetDate.getDay()]);
+  }
+
+  if (schedule.repeat === ROUTINE_REPEAT.MONTHLY) {
+    const monthDays = normalizeRoutineDays(schedule.days, ROUTINE_REPEAT.MONTHLY)
+      .map((day) => Number(day))
+      .filter((day) => Number.isInteger(day) && day >= 1 && day <= 31);
+    if (!monthDays.length) return true;
+    return monthDays.includes(targetDate.getDate());
+  }
+
+  return true;
+};
+
+const buildRoutineWindowForDate = (routine, dateValue = new Date()) => {
+  const dayStart = toStartOfDay(dateValue);
+  if (!dayStart) return null;
+  if (!isRoutineScheduledForDate(routine, dayStart)) return null;
+
+  const startValue =
+    routine?.startTime ||
+    routine?.start_time ||
+    (Array.isArray(routine?.scheduledTimes) ? routine.scheduledTimes[0] : null) ||
+    (Array.isArray(routine?.scheduled_times) ? routine.scheduled_times[0] : null);
+  const endValue =
+    routine?.endTime ||
+    routine?.end_time ||
+    (Array.isArray(routine?.scheduledTimes) ? routine.scheduledTimes[1] : null) ||
+    (Array.isArray(routine?.scheduled_times) ? routine.scheduled_times[1] : null);
+
+  const startMinutes = parseClockMinutes(startValue);
+  const endMinutes = parseClockMinutes(endValue);
+  if (!Number.isInteger(startMinutes) || !Number.isInteger(endMinutes)) return null;
+
+  const startAt = new Date(dayStart);
+  startAt.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
+
+  const endAt = new Date(dayStart);
+  endAt.setHours(Math.floor(endMinutes / 60), endMinutes % 60, 0, 0);
+  const spansOvernight = endMinutes <= startMinutes;
+  if (spansOvernight) {
+    endAt.setDate(endAt.getDate() + 1);
+  }
+
+  return {
+    startAt,
+    endAt,
+    spansOvernight,
+    activeDateKey: startAt.toISOString().slice(0, 10),
+  };
+};
+
+const getRoutineActivityStatus = (routine, nowValue = new Date()) => {
+  const now = nowValue instanceof Date ? nowValue : new Date(nowValue || Date.now());
+  if (Number.isNaN(now.getTime())) {
+    return {
+      isActive: false,
+      activeDateKey: null,
+      windowStart: null,
+      windowEnd: null,
+    };
+  }
+
+  const todayWindow = buildRoutineWindowForDate(routine, now);
+  if (todayWindow && now.getTime() >= todayWindow.startAt.getTime() && now.getTime() <= todayWindow.endAt.getTime()) {
+    return {
+      isActive: true,
+      activeDateKey: todayWindow.activeDateKey,
+      windowStart: todayWindow.startAt,
+      windowEnd: todayWindow.endAt,
+    };
+  }
+
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayWindow = buildRoutineWindowForDate(routine, yesterday);
+  if (
+    yesterdayWindow &&
+    yesterdayWindow.spansOvernight &&
+    now.getTime() >= yesterdayWindow.startAt.getTime() &&
+    now.getTime() <= yesterdayWindow.endAt.getTime()
+  ) {
+    return {
+      isActive: true,
+      activeDateKey: yesterdayWindow.activeDateKey,
+      windowStart: yesterdayWindow.startAt,
+      windowEnd: yesterdayWindow.endAt,
+    };
+  }
+
+  return {
+    isActive: false,
+    activeDateKey: null,
+    windowStart: null,
+    windowEnd: null,
+  };
+};
+
 const groupUpcomingNotifications = (items = []) => {
   const now = new Date();
   const today = toStartOfDay(now);
@@ -361,9 +467,11 @@ const NotificationCenterScreen = () => {
     themeColors,
     tasks,
     routines,
+    groupRoutines,
     reminders,
     habits,
     isHabitCompletedToday,
+    getRoutineCompletionForDate,
     friendRequests,
     taskInvites,
     groupInvites,
@@ -374,6 +482,7 @@ const NotificationCenterScreen = () => {
     ensureRoutinesLoaded,
     ensureRemindersLoaded,
     ensureHabitsLoaded,
+    ensureGroupDataLoaded,
     ensureFriendDataLoaded,
     ensureTaskInvitesLoaded,
     ensureGroupInvitesLoaded,
@@ -426,11 +535,13 @@ const NotificationCenterScreen = () => {
     ensureRoutinesLoaded();
     ensureRemindersLoaded();
     ensureHabitsLoaded();
+    ensureGroupDataLoaded();
     ensureFriendDataLoaded();
     ensureTaskInvitesLoaded();
     ensureGroupInvitesLoaded();
   }, [
     ensureFriendDataLoaded,
+    ensureGroupDataLoaded,
     ensureGroupInvitesLoaded,
     ensureHabitsLoaded,
     ensureRemindersLoaded,
@@ -546,15 +657,77 @@ const NotificationCenterScreen = () => {
       });
     });
 
-    (routines || []).forEach((routine) => {
+    const allRoutines = [
+      ...(routines || []).map((routine) => ({ routine, isGroupRoutine: false })),
+      ...(groupRoutines || []).map((routine) => ({ routine, isGroupRoutine: true })),
+    ];
+    const activeRoutineKeys = new Set();
+
+    allRoutines.forEach(({ routine, isGroupRoutine }) => {
+      if (!routine?.id) return;
+      const routineKey = `${isGroupRoutine ? 'group' : 'personal'}:${routine.id}`;
+      const activity = getRoutineActivityStatus(routine, now);
+      if (!activity?.isActive || !activity?.activeDateKey) return;
+
+      const completion = getRoutineCompletionForDate?.(routine.id, activity.activeDateKey, {
+        isGroup: isGroupRoutine,
+      });
+      if (completion?.completed) return;
+
+      const taskIds = Array.isArray(routine?.tasks)
+        ? routine.tasks.map((task) => String(task?.id || '')).filter(Boolean)
+        : [];
+      const checkedTaskIds = new Set(
+        (completion?.completedTaskIds || []).map((taskId) => String(taskId || '')).filter(Boolean)
+      );
+      const checkedCount = taskIds.reduce(
+        (count, taskId) => (checkedTaskIds.has(taskId) ? count + 1 : count),
+        0
+      );
+      const totalTasks = taskIds.length;
+      const progressLabel = totalTasks
+        ? `${checkedCount}/${totalTasks} tasks checked`
+        : 'No tasks added yet';
+      const actionLabel = totalTasks
+        ? 'Check all routine tasks, then complete the routine.'
+        : 'Add tasks in the routine and complete it while active.';
+      const routineName = routine.name || 'Routine';
+      const key = `active-routine-${routineKey}-${activity.activeDateKey}`;
+      activeRoutineKeys.add(routineKey);
+
+      items.push({
+        key,
+        sortTimeMs: nowMs - 1000,
+        timestamp: new Date(nowMs - 1000).toISOString(),
+        component: (
+          <View key={key} style={themedStyles.card}>
+            <View style={[themedStyles.iconWrap, { backgroundColor: `${routineColor}15` }]}>
+              <Ionicons name="flash-outline" size={20} color={routineColor} />
+            </View>
+            <View style={themedStyles.textWrap}>
+              <Text style={themedStyles.cardTitle}>
+                {isGroupRoutine ? 'Group routine active now' : 'Routine active now'}
+              </Text>
+              <Text style={themedStyles.cardBody}>
+                {routineName} is active. {progressLabel}. {actionLabel}
+              </Text>
+            </View>
+          </View>
+        ),
+      });
+    });
+
+    allRoutines.forEach(({ routine, isGroupRoutine }) => {
       if (!routine) return;
+      const routineKey = `${isGroupRoutine ? 'group' : 'personal'}:${routine.id}`;
+      if (activeRoutineKeys.has(routineKey)) return;
       const nextAt = getRoutineNextOccurrence(routine, now);
       if (!(nextAt instanceof Date) || Number.isNaN(nextAt.getTime())) return;
       if (nextAt.getTime() < nowMs) return;
 
       const title = routine.name || 'Routine';
       const scheduleLabel = getRoutineScheduleLabel(routine?.repeat, routine?.days);
-      const key = `upcoming-routine-${routine.id || `${title}-${nextAt.getTime()}`}`;
+      const key = `upcoming-routine-${routineKey || `${title}-${nextAt.getTime()}`}`;
       items.push({
         key,
         sortTimeMs: nextAt.getTime(),
@@ -565,7 +738,9 @@ const NotificationCenterScreen = () => {
               <Ionicons name="repeat" size={20} color={routineColor} />
             </View>
             <View style={themedStyles.textWrap}>
-              <Text style={themedStyles.cardTitle}>Upcoming routine</Text>
+              <Text style={themedStyles.cardTitle}>
+                {isGroupRoutine ? 'Upcoming group routine' : 'Upcoming routine'}
+              </Text>
               <Text style={themedStyles.cardBody}>
                 {title} - {formatFriendlyDateTime(nextAt)} - {scheduleLabel}
               </Text>
@@ -640,9 +815,11 @@ const NotificationCenterScreen = () => {
   }, [
     tasks,
     routines,
+    groupRoutines,
     reminders,
     habits,
     isHabitCompletedToday,
+    getRoutineCompletionForDate,
     themedStyles,
     routineColor,
     reminderColor,

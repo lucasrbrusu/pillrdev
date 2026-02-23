@@ -52,7 +52,7 @@ const HomeScreen = () => {
     friendRequests,
     taskInvites,
     getTodayTasks,
-    getBestStreak,
+    getCurrentStreak,
     verifyNotePassword,
     updateNote,
     deleteNote,
@@ -455,7 +455,7 @@ const HomeScreen = () => {
     [moodEntries]
   );
   const totalMoodCount = moodEntries.length;
-  const bestStreak = getBestStreak ? getBestStreak() : 0;
+  const currentStreak = getCurrentStreak ? getCurrentStreak() : 0;
   const consumedCalories = todayHealth?.calories || 0;
   const calorieGoal = profile?.dailyCalorieGoal || 2000;
   const remainingCalories = Math.max(calorieGoal - consumedCalories, 0);
@@ -771,7 +771,7 @@ const HomeScreen = () => {
           ))}
         </View>
 
-        {/* Best Streak + Calories */}
+        {/* Current Streak + Calories */}
         <View style={styles.topStatsRow}>
           <LinearGradient
             colors={statGradients.streak}
@@ -782,8 +782,8 @@ const HomeScreen = () => {
             <View style={styles.statIconWrap}>
               <Ionicons name="flame" size={20} color="#FFFFFF" />
             </View>
-            <Text style={styles.statLabel}>Best streak</Text>
-            <Text style={styles.statValue}>{bestStreak} day{bestStreak === 1 ? '' : 's'}</Text>
+            <Text style={styles.statLabel}>Current streak</Text>
+            <Text style={styles.statValue}>{currentStreak} day{currentStreak === 1 ? '' : 's'}</Text>
           </LinearGradient>
 
           <LinearGradient

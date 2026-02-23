@@ -24,6 +24,7 @@ begin
   delete from public.tasks where user_id = auth.uid();
   delete from public.notes where user_id = auth.uid();
   delete from public.routines where user_id = auth.uid();
+  delete from public.routine_completions where user_id = auth.uid();
   delete from public.chores where user_id = auth.uid();
   delete from public.reminders where user_id = auth.uid();
   delete from public.groceries where user_id = auth.uid();

@@ -227,6 +227,7 @@ export default function InsightsScreen() {
     profile,
     tasks,
     habits,
+    getCurrentStreak,
     chores,
     healthData,
     notes,
@@ -573,10 +574,7 @@ export default function InsightsScreen() {
     return Math.round(rate * 100);
   }, [insights, periodDays]);
 
-  const bestStreak = React.useMemo(() => {
-    const streaks = (habits || []).map((habit) => habit?.streak || 0);
-    return Math.max(0, ...streaks);
-  }, [habits]);
+  const currentStreak = getCurrentStreak ? getCurrentStreak() : 0;
 
   const activityData = React.useMemo(() => {
     const dayCount = Math.max(
@@ -943,8 +941,8 @@ export default function InsightsScreen() {
                 <View style={styles.quickStatIcon}>
                   <Ionicons name="flame" size={18} color="#FFFFFF" />
                 </View>
-                <Text style={styles.quickStatValue}>{bestStreak}</Text>
-                <Text style={styles.quickStatLabel}>Day Streak</Text>
+                <Text style={styles.quickStatValue}>{currentStreak}</Text>
+                <Text style={styles.quickStatLabel}>Current streak</Text>
               </LinearGradient>
               <LinearGradient colors={gradients.completion} style={styles.quickStatCard}>
                 <View style={styles.quickStatIcon}>

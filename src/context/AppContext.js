@@ -62,6 +62,7 @@ const STORAGE_KEYS = {
   AUTH_USER: '@pillaflow_auth_user',
   ONBOARDING: '@pillaflow_onboarding_complete',
   STREAK_FROZEN_PREFIX: '@pillaflow_streak_frozen_',
+  CURRENT_STREAK_PREFIX: '@pillaflow_current_streak_',
   LAST_ACTIVE_PREFIX: '@pillaflow_last_active_',
   PUSH_DEVICE_ID: '@pillaflow_push_device_id',
 };
@@ -201,8 +202,32 @@ const normalizeRevenueCatExpiration = (entitlement, explicitExpiration) => {
   );
 };
 
+const DEFAULT_CURRENT_STREAK_STATE = {
+  streak: 0,
+  lastCompletionDayNumber: null,
+};
+
+const normalizeDayNumber = (value) => {
+  if (!Number.isFinite(value)) return null;
+  const numeric = Math.trunc(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const normalizeCurrentStreakState = (value = {}) => {
+  const normalizedStreak = Math.max(0, Number(value?.streak) || 0);
+  const normalizedLastCompletion = normalizeDayNumber(value?.lastCompletionDayNumber);
+  if (normalizedStreak <= 0) {
+    return { ...DEFAULT_CURRENT_STREAK_STATE };
+  }
+  return {
+    streak: normalizedStreak,
+    lastCompletionDayNumber: normalizedLastCompletion,
+  };
+};
+
 const getLastActiveKey = (userId) => `${STORAGE_KEYS.LAST_ACTIVE_PREFIX}${userId}`;
 const getStreakFrozenKey = (userId) => `${STORAGE_KEYS.STREAK_FROZEN_PREFIX}${userId}`;
+const getCurrentStreakKey = (userId) => `${STORAGE_KEYS.CURRENT_STREAK_PREFIX}${userId}`;
 const getFoodLogsKey = (userId) => `${STORAGE_KEYS.HEALTH_FOOD_LOGS}_${userId || 'anon'}`;
 const getProfileStorageKey = (userId) => `${STORAGE_KEYS.PROFILE}_${userId || 'anon'}`;
 
@@ -242,6 +267,45 @@ const writeStreakFrozen = async (userId, frozen) => {
     return;
   }
   await AsyncStorage.removeItem(getStreakFrozenKey(userId));
+};
+
+const readCurrentStreakState = async (userId) => {
+  if (!userId) return null;
+  const value = await AsyncStorage.getItem(getCurrentStreakKey(userId));
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    if (typeof parsed === 'number') {
+      return normalizeCurrentStreakState({ streak: parsed });
+    }
+    if (parsed && typeof parsed === 'object') {
+      return normalizeCurrentStreakState(parsed);
+    }
+    return null;
+  } catch (e) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return null;
+    return normalizeCurrentStreakState({ streak: numeric });
+  }
+};
+
+const writeCurrentStreakState = async (userId, nextState = DEFAULT_CURRENT_STREAK_STATE) => {
+  if (!userId) return;
+  const normalized = normalizeCurrentStreakState(nextState);
+  if (
+    normalized.streak <= 0 &&
+    !Number.isFinite(normalized.lastCompletionDayNumber)
+  ) {
+    await AsyncStorage.removeItem(getCurrentStreakKey(userId));
+    return;
+  }
+  await AsyncStorage.setItem(
+    getCurrentStreakKey(userId),
+    JSON.stringify({
+      ...normalized,
+      updatedAt: new Date().toISOString(),
+    })
+  );
 };
 
 const getOrCreatePushDeviceId = async () => {
@@ -475,6 +539,75 @@ const dayNumberToLocalDate = (dayNumber) => {
   const utcDate = new Date(dayNumber * MS_PER_DAY);
   if (Number.isNaN(utcDate.getTime())) return null;
   return new Date(utcDate.getUTCFullYear(), utcDate.getUTCMonth(), utcDate.getUTCDate());
+};
+
+const getAnyHabitCompletionDayNumbers = (habitList = []) =>
+  Array.from(
+    new Set(
+      (habitList || []).flatMap((habit) =>
+        (Array.isArray(habit?.completedDates) ? habit.completedDates : [])
+          .map((value) => toUtcDayNumberFromLocalDay(value))
+          .filter((dayNumber) => Number.isFinite(dayNumber))
+      )
+    )
+  ).sort((a, b) => a - b);
+
+const getLatestHabitCompletionDayNumber = (habitList = []) => {
+  const dayNumbers = getAnyHabitCompletionDayNumbers(habitList);
+  if (!dayNumbers.length) return null;
+  return dayNumbers[dayNumbers.length - 1];
+};
+
+const hasAnyHabitCompletedOnDate = (habitList = [], dateKey = '') =>
+  (habitList || []).some((habit) => (habit?.completedDates || []).includes(dateKey));
+
+const computeCurrentStreakFromHabits = (habitList = [], referenceDate = new Date()) => {
+  const completionDays = getAnyHabitCompletionDayNumbers(habitList);
+  if (!completionDays.length) return 0;
+  const currentDayNumber = toUtcDayNumberFromLocalDay(referenceDate);
+  if (!Number.isFinite(currentDayNumber)) return 0;
+  const latestCompletionDay = completionDays[completionDays.length - 1];
+  if (currentDayNumber - latestCompletionDay > 1) return 0;
+  const completionSet = new Set(completionDays);
+  let streak = 0;
+  for (let cursor = latestCompletionDay; completionSet.has(cursor); cursor -= 1) {
+    streak += 1;
+  }
+  return streak;
+};
+
+const buildCurrentStreakStateFromHabits = (habitList = [], referenceDate = new Date()) =>
+  normalizeCurrentStreakState({
+    streak: computeCurrentStreakFromHabits(habitList, referenceDate),
+    lastCompletionDayNumber: getLatestHabitCompletionDayNumber(habitList),
+  });
+
+const getMissedCurrentStreakMeta = (
+  currentStreakState = DEFAULT_CURRENT_STREAK_STATE,
+  habitList = [],
+  referenceDate = new Date()
+) => {
+  const normalizedState = normalizeCurrentStreakState(currentStreakState);
+  if ((normalizedState?.streak || 0) <= 0) return null;
+
+  const latestCompletionDay =
+    getLatestHabitCompletionDayNumber(habitList) ??
+    normalizeDayNumber(normalizedState.lastCompletionDayNumber);
+  if (!Number.isFinite(latestCompletionDay)) return null;
+
+  const currentDay = toUtcDayNumberFromLocalDay(referenceDate);
+  if (!Number.isFinite(currentDay)) return null;
+
+  const missedPeriodCount = currentDay - latestCompletionDay - 1;
+  if (missedPeriodCount < 1) return null;
+
+  const firstMissedAt = dayNumberToLocalDate(latestCompletionDay + 1);
+  if (!firstMissedAt || Number.isNaN(firstMissedAt.getTime())) return null;
+
+  return {
+    missedPeriodCount,
+    firstMissedAt,
+  };
 };
 
 const getPeriodStartDateFromIndex = (periodIndex, goalPeriod = 'day') => {
@@ -888,6 +1021,47 @@ const splitTaskBuckets = (items = [], nowMs = Date.now()) => {
   };
 };
 
+const ROUTINE_COMPLETION_KIND = Object.freeze({
+  PERSONAL: 'personal',
+  GROUP: 'group',
+});
+
+const getRoutineCompletionMapKey = (routineId, isGroup = false) => {
+  if (!routineId) return '';
+  return `${isGroup ? ROUTINE_COMPLETION_KIND.GROUP : ROUTINE_COMPLETION_KIND.PERSONAL}:${routineId}`;
+};
+
+const normalizeRoutineCompletionKind = (value, fallbackIsGroup = false) => {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (normalized === ROUTINE_COMPLETION_KIND.GROUP) return ROUTINE_COMPLETION_KIND.GROUP;
+  if (normalized === ROUTINE_COMPLETION_KIND.PERSONAL) return ROUTINE_COMPLETION_KIND.PERSONAL;
+  return fallbackIsGroup ? ROUTINE_COMPLETION_KIND.GROUP : ROUTINE_COMPLETION_KIND.PERSONAL;
+};
+
+const normalizeRoutineCompletionTaskIds = (value) => {
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.map((item) => String(item || '').trim()).filter(Boolean)));
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return Array.from(
+          new Set(parsed.map((item) => String(item || '').trim()).filter(Boolean))
+        );
+      }
+    } catch (err) {
+      // Fallback to comma-separated parsing.
+    }
+    return Array.from(new Set(trimmed.split(',').map((item) => item.trim()).filter(Boolean)));
+  }
+  return [];
+};
+
 
 export const AppProvider = ({ children }) => {
   // Habits State
@@ -908,6 +1082,7 @@ export const AppProvider = ({ children }) => {
 
   // Routine State
   const [routines, setRoutines] = useState([]);
+  const [routineCompletions, setRoutineCompletions] = useState({});
   const [chores, setChores] = useState([]);
   const [reminders, setReminders] = useState([]);
   const [groceryLists, setGroceryLists] = useState([]);
@@ -993,6 +1168,8 @@ const friendSearchAbortControllerRef = useRef(null);
   const [hasNotificationPermission, setHasNotificationPermission] = useState(false);
   const streakCheckRanRef = useRef(false);
   const [streakFrozen, setStreakFrozen] = useState(false);
+  const [currentStreakState, setCurrentStreakState] = useState(DEFAULT_CURRENT_STREAK_STATE);
+  const currentStreakNeedsBootstrapRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
   const appSessionStartMsRef = useRef(null);
   const notificationIdCacheRef = useRef({
@@ -1017,6 +1194,7 @@ const friendSearchAbortControllerRef = useRef(null);
   });
   const reschedulingNotificationsRef = useRef(false);
   const notificationPlanSignatureRef = useRef('');
+  const currentStreak = currentStreakState?.streak || 0;
 
   // Immutable snapshots of the original palettes and typography
   const defaultPaletteRef = useRef(
@@ -1222,6 +1400,7 @@ const friendSearchAbortControllerRef = useRef(null);
       setTodayHealth(defaultHealthDay());
       setWeightManagerLogs([]);
       setRoutines([]);
+      setRoutineCompletions({});
       setChores([]);
       setReminders([]);
       setGroceryLists([]);
@@ -1241,6 +1420,8 @@ const friendSearchAbortControllerRef = useRef(null);
       setBlockedUsers({ blocked: [], blockedBy: [] });
       setFoodLogs({});
       setWaterLogs({});
+      currentStreakNeedsBootstrapRef.current = false;
+      setCurrentStreakState({ ...DEFAULT_CURRENT_STREAK_STATE });
       setProfile(defaultProfile);
       setProfileLoaded(false);
       setUserSettings(defaultUserSettings);
@@ -1314,6 +1495,32 @@ const friendSearchAbortControllerRef = useRef(null);
     };
 
     hydrateStreakFreeze();
+    return () => {
+      isMounted = false;
+    };
+  }, [authUser?.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const hydrateCurrentStreak = async () => {
+      currentStreakNeedsBootstrapRef.current = false;
+      if (!authUser?.id) {
+        if (isMounted) {
+          setCurrentStreakState({ ...DEFAULT_CURRENT_STREAK_STATE });
+        }
+        return;
+      }
+      const savedCurrentStreak = await readCurrentStreakState(authUser.id);
+      if (!isMounted) return;
+      if (savedCurrentStreak) {
+        setCurrentStreakState(savedCurrentStreak);
+        return;
+      }
+      setCurrentStreakState({ ...DEFAULT_CURRENT_STREAK_STATE });
+      currentStreakNeedsBootstrapRef.current = true;
+    };
+
+    hydrateCurrentStreak();
     return () => {
       isMounted = false;
     };
@@ -1579,6 +1786,38 @@ const markDataLoaded = useCallback((key) => {
     },
     [authUser?.id]
   );
+
+  const persistCurrentStreakState = useCallback(
+    async (nextState) => {
+      const normalized =
+        typeof nextState === 'number'
+          ? normalizeCurrentStreakState({ streak: nextState })
+          : normalizeCurrentStreakState(nextState || DEFAULT_CURRENT_STREAK_STATE);
+
+      setCurrentStreakState((prev) => {
+        if (
+          prev?.streak === normalized.streak &&
+          prev?.lastCompletionDayNumber === normalized.lastCompletionDayNumber
+        ) {
+          return prev;
+        }
+        return normalized;
+      });
+
+      if (authUser?.id) {
+        await writeCurrentStreakState(authUser.id, normalized);
+      }
+    },
+    [authUser?.id]
+  );
+
+  useEffect(() => {
+    if (!authUser?.id || isLoading) return;
+    if (!currentStreakNeedsBootstrapRef.current) return;
+    currentStreakNeedsBootstrapRef.current = false;
+    const bootstrappedState = buildCurrentStreakStateFromHabits(habits, new Date());
+    persistCurrentStreakState(bootstrappedState);
+  }, [authUser?.id, habits, isLoading, persistCurrentStreakState]);
 
   const persistRoutinesLocally = async (data) => {
     await saveToStorage(STORAGE_KEYS.ROUTINES, data);
@@ -2494,6 +2733,20 @@ const mapExternalProfile = (row) => ({
         if (taskDeleteError && !isMissingRelationError(taskDeleteError, 'group_routine_tasks')) {
           console.log('Error deleting group routine tasks:', taskDeleteError);
         }
+
+        const { error: completionDeleteError } = await supabase
+          .from(ROUTINE_COMPLETIONS_TABLE)
+          .delete()
+          .eq('user_id', authUser.id)
+          .eq('routine_kind', ROUTINE_COMPLETION_KIND.GROUP)
+          .in('routine_id', routineIds);
+        if (
+          completionDeleteError &&
+          !isMissingRelationError(completionDeleteError, ROUTINE_COMPLETIONS_TABLE) &&
+          !isMissingColumnError(completionDeleteError, 'routine_kind')
+        ) {
+          console.log('Error deleting group routine completions:', completionDeleteError);
+        }
       }
 
       const { error: habitDeleteError } = await supabase
@@ -2547,6 +2800,17 @@ const mapExternalProfile = (row) => ({
         return next;
       });
       setGroupRoutines((prev) => prev.filter((r) => r.groupId !== groupId));
+      setRoutineCompletions((prev) => {
+        if (!routineIds.length) return prev;
+        const next = { ...(prev || {}) };
+        routineIds.forEach((id) => {
+          const key = getRoutineCompletionMapKey(id, true);
+          if (Object.prototype.hasOwnProperty.call(next, key)) {
+            delete next[key];
+          }
+        });
+        return next;
+      });
       await refreshGroupData(authUser.id);
       return true;
     },
@@ -3597,6 +3861,7 @@ const mapExternalProfile = (row) => ({
     async (routineId) => {
       if (!authUser?.id || !routineId) return;
 
+      await clearRoutineCompletionForRoutine(routineId, { isGroup: true });
       await supabase.from('group_routine_tasks').delete().eq('group_routine_id', routineId);
       const { error } = await supabase.from('group_routines').delete().eq('id', routineId);
       if (error && !isMissingRelationError(error, 'group_routines')) {
@@ -5230,45 +5495,72 @@ const setHabitProgress = async (habitId, amount = 0, dateISO = null, options = {
     ? Math.max(computedNextStreak, (habit.streak || 0) + 1)
     : computedNextStreak;
 
-  setHabits((prev) =>
-    prev.map((item) => {
-      if (item.id !== habitId) return item;
-      let itemCompletedDates = item.completedDates || [];
-      if (shouldComplete && !itemCompletedDates.includes(dateKey)) {
-        itemCompletedDates = [...itemCompletedDates, dateKey];
-      }
-      if (!shouldComplete && itemCompletedDates.includes(dateKey)) {
-        itemCompletedDates = itemCompletedDates.filter((value) => value !== dateKey);
-      }
-      const itemNextProgressByDate = {
-        ...(item.progressByDate || {}),
-        [dateKey]: numericAmount,
-      };
-      const itemComputedStreak = computeHabitStreak(
-        {
-          ...item,
-          completedDates: itemCompletedDates,
-          progressByDate: itemNextProgressByDate,
-        },
-        {
-          completedDates: itemCompletedDates,
-          progressByDate: itemNextProgressByDate,
-        }
-      );
-
-      return {
+  const hadAnyCompletionOnTargetDate = hasAnyHabitCompletedOnDate(habits, dateKey);
+  const targetDayNumber = toUtcDayNumberFromLocalDay(dateValue);
+  const buildUpdatedHabitForSnapshot = (item) => {
+    if (item.id !== habitId) return item;
+    let itemCompletedDates = item.completedDates || [];
+    if (shouldComplete && !itemCompletedDates.includes(dateKey)) {
+      itemCompletedDates = [...itemCompletedDates, dateKey];
+    }
+    if (!shouldComplete && itemCompletedDates.includes(dateKey)) {
+      itemCompletedDates = itemCompletedDates.filter((value) => value !== dateKey);
+    }
+    const itemNextProgressByDate = {
+      ...(item.progressByDate || {}),
+      [dateKey]: numericAmount,
+    };
+    const itemComputedStreak = computeHabitStreak(
+      {
         ...item,
         completedDates: itemCompletedDates,
-        streak: shouldPreserveFrozenStreak
-          ? Math.max(
-              itemComputedStreak,
-              (item.streak || 0) + 1
-            )
-          : itemComputedStreak,
         progressByDate: itemNextProgressByDate,
-      };
-    })
-  );
+      },
+      {
+        completedDates: itemCompletedDates,
+        progressByDate: itemNextProgressByDate,
+      }
+    );
+
+    return {
+      ...item,
+      completedDates: itemCompletedDates,
+      streak: shouldPreserveFrozenStreak
+        ? Math.max(
+            itemComputedStreak,
+            (item.streak || 0) + 1
+          )
+        : itemComputedStreak,
+      progressByDate: itemNextProgressByDate,
+    };
+  };
+  const nextHabitsSnapshot = (habits || []).map(buildUpdatedHabitForSnapshot);
+  setHabits((prev) => (prev || []).map(buildUpdatedHabitForSnapshot));
+
+  const hasAnyCompletionOnTargetDateAfter = hasAnyHabitCompletedOnDate(nextHabitsSnapshot, dateKey);
+  const shouldPreserveFrozenCurrentStreak =
+    streakFrozen &&
+    isTargetToday &&
+    shouldComplete &&
+    !hadAnyCompletionOnTargetDate &&
+    hasAnyCompletionOnTargetDateAfter &&
+    currentStreakState?.lastCompletionDayNumber !== targetDayNumber;
+  const computedCurrentStreakState = buildCurrentStreakStateFromHabits(nextHabitsSnapshot, new Date());
+  const nextCurrentStreakState = shouldPreserveFrozenCurrentStreak
+    ? normalizeCurrentStreakState({
+        streak: Math.max(computedCurrentStreakState.streak, currentStreak + 1),
+        lastCompletionDayNumber: Number.isFinite(targetDayNumber)
+          ? targetDayNumber
+          : computedCurrentStreakState.lastCompletionDayNumber,
+      })
+    : computedCurrentStreakState;
+
+  if (
+    nextCurrentStreakState.streak !== currentStreakState?.streak ||
+    nextCurrentStreakState.lastCompletionDayNumber !== currentStreakState?.lastCompletionDayNumber
+  ) {
+    await persistCurrentStreakState(nextCurrentStreakState);
+  }
 
   await supabase
     .from('habits')
@@ -5308,7 +5600,13 @@ const isHabitCompletedToday = (habitId) => {
     const userId = authUser.id;
     const now = new Date();
     const streakingHabits = (habits || []).filter((habit) => (habit?.streak || 0) > 0);
-    if (!streakingHabits.length) {
+    const missedHabitMeta = streakingHabits
+      .map((habit) => getMissedHabitPeriodMeta(habit, now))
+      .filter(Boolean);
+    const missedCurrentStreakMeta = getMissedCurrentStreakMeta(currentStreakState, habits, now);
+    const hasAnyTrackedStreak = streakingHabits.length > 0 || currentStreak > 0;
+
+    if (!hasAnyTrackedStreak) {
       if (streakFrozen) {
         await persistStreakFrozenState(false);
       }
@@ -5316,10 +5614,7 @@ const isHabitCompletedToday = (habitId) => {
       return;
     }
 
-    const missedMeta = streakingHabits
-      .map((habit) => getMissedHabitPeriodMeta(habit, now))
-      .filter(Boolean);
-    if (!missedMeta.length) {
+    if (!missedHabitMeta.length && !missedCurrentStreakMeta) {
       if (streakFrozen) {
         await persistStreakFrozenState(false);
       }
@@ -5332,7 +5627,12 @@ const isHabitCompletedToday = (habitId) => {
       computeIsPremium(profile?.plan, profile?.premiumExpiresAt || profile?.premium_expires_at);
 
     if (!isPremiumUser) {
-      await resetHabitStreaksByIds(missedMeta.map((meta) => meta.habitId));
+      if (missedHabitMeta.length) {
+        await resetHabitStreaksByIds(missedHabitMeta.map((meta) => meta.habitId));
+      }
+      if (missedCurrentStreakMeta) {
+        await persistCurrentStreakState(DEFAULT_CURRENT_STREAK_STATE);
+      }
       if (streakFrozen) {
         await persistStreakFrozenState(false);
       }
@@ -5342,7 +5642,7 @@ const isHabitCompletedToday = (habitId) => {
 
     const expiredHabitIds = [];
     let hasActiveFreezeWindow = false;
-    missedMeta.forEach((meta) => {
+    missedHabitMeta.forEach((meta) => {
       const missedAtMs = meta.firstMissedAt.getTime();
       if (now.getTime() - missedAtMs >= STREAK_FREEZE_WINDOW_MS) {
         expiredHabitIds.push(meta.habitId);
@@ -5353,6 +5653,15 @@ const isHabitCompletedToday = (habitId) => {
 
     if (expiredHabitIds.length) {
       await resetHabitStreaksByIds(expiredHabitIds);
+    }
+
+    if (missedCurrentStreakMeta) {
+      const missedAtMs = missedCurrentStreakMeta.firstMissedAt.getTime();
+      if (now.getTime() - missedAtMs >= STREAK_FREEZE_WINDOW_MS) {
+        await persistCurrentStreakState(DEFAULT_CURRENT_STREAK_STATE);
+      } else {
+        hasActiveFreezeWindow = true;
+      }
     }
 
     if (hasActiveFreezeWindow) {
@@ -5372,9 +5681,12 @@ const isHabitCompletedToday = (habitId) => {
     profile?.premium_expires_at,
     profileLoaded,
     persistStreakFrozenState,
+    persistCurrentStreakState,
     resetHabitStreaksByIds,
     streakFrozen,
     habits,
+    currentStreak,
+    currentStreakState,
   ]);
 
 const TASK_SELECT_FIELDS_BASE =
@@ -6642,6 +6954,81 @@ const resetWaterLogForDate = async (dateISO) => {
 
 
 const ROUTINE_TASKS_TABLE = 'routine_tasks';
+const ROUTINE_COMPLETIONS_TABLE = 'routine_completions';
+
+const fetchRoutineCompletionsFromSupabase = async (userId) => {
+  if (!userId) {
+    setRoutineCompletions({});
+    return;
+  }
+
+  const selectFields =
+    'routine_id, routine_kind, completion_date, completed_task_ids, is_completed, created_at, updated_at';
+  let { data, error } = await supabase
+    .from(ROUTINE_COMPLETIONS_TABLE)
+    .select(selectFields)
+    .eq('user_id', userId)
+    .order('completion_date', { ascending: true });
+
+  if (error && isMissingColumnError(error, 'routine_kind')) {
+    ({ data, error } = await supabase
+      .from(ROUTINE_COMPLETIONS_TABLE)
+      .select('routine_id, completion_date, completed_task_ids, is_completed, created_at, updated_at')
+      .eq('user_id', userId)
+      .order('completion_date', { ascending: true }));
+  }
+
+  if (error && isMissingColumnError(error, 'completed_task_ids')) {
+    ({ data, error } = await supabase
+      .from(ROUTINE_COMPLETIONS_TABLE)
+      .select('routine_id, routine_kind, completion_date, is_completed, created_at, updated_at')
+      .eq('user_id', userId)
+      .order('completion_date', { ascending: true }));
+  }
+
+  if (error && isMissingColumnError(error, 'is_completed')) {
+    ({ data, error } = await supabase
+      .from(ROUTINE_COMPLETIONS_TABLE)
+      .select('routine_id, routine_kind, completion_date, completed_task_ids, created_at, updated_at')
+      .eq('user_id', userId)
+      .order('completion_date', { ascending: true }));
+  }
+
+  if (error) {
+    if (isMissingRelationError(error, ROUTINE_COMPLETIONS_TABLE)) {
+      setRoutineCompletions({});
+      return;
+    }
+    console.log('Error fetching routine completions:', error);
+    return;
+  }
+
+  const mapped = {};
+  (data || []).forEach((row) => {
+    const routineId = row?.routine_id || null;
+    const dateKey = normalizeDateKey(row?.completion_date);
+    if (!routineId || !dateKey) return;
+
+    const kind = normalizeRoutineCompletionKind(row?.routine_kind, false);
+    const mapKey = getRoutineCompletionMapKey(
+      routineId,
+      kind === ROUTINE_COMPLETION_KIND.GROUP
+    );
+    if (!mapKey) return;
+
+    if (!mapped[mapKey]) mapped[mapKey] = {};
+    const completedTaskIds = normalizeRoutineCompletionTaskIds(row?.completed_task_ids);
+    const hasExplicitCompleted = row?.is_completed !== undefined && row?.is_completed !== null;
+    mapped[mapKey][dateKey] = {
+      completedTaskIds,
+      completed: hasExplicitCompleted ? Boolean(row?.is_completed) : false,
+      createdAt: row?.created_at || null,
+      updatedAt: row?.updated_at || row?.created_at || null,
+    };
+  });
+
+  setRoutineCompletions(mapped);
+};
 
 const fetchRoutinesFromSupabase = async (userId) => {
   const requiredColumns = ['id', 'name', 'created_at'];
@@ -6739,6 +7126,7 @@ const fetchRoutinesFromSupabase = async (userId) => {
   seedNotificationCacheFromRows('routine', routineRows || []);
   setRoutines(combined);
   await persistRoutinesLocally(combined);
+  await fetchRoutineCompletionsFromSupabase(userId);
 };
 
 
@@ -6979,6 +7367,7 @@ const deleteRoutine = async (routineId) => {
   if (!authUser?.id) return;
 
   await cancelItemNotifications('routines', 'routine', routineId);
+  await clearRoutineCompletionForRoutine(routineId, { isGroup: false });
 
   // Remove tasks first to keep data clean
   await supabase.from(ROUTINE_TASKS_TABLE).delete().eq('routine_id', routineId).eq('user_id', authUser.id);
@@ -7101,6 +7490,171 @@ const reorderRoutineTasks = async (routineId, newTaskOrder) => {
     return next;
   });
 };
+
+const getRoutineCompletionForDate = useCallback(
+  (routineId, dateValue, { isGroup = false } = {}) => {
+    if (!routineId) return null;
+    const dateKey = normalizeDateKey(dateValue || new Date());
+    if (!dateKey) return null;
+    const mapKey = getRoutineCompletionMapKey(routineId, isGroup);
+    if (!mapKey) return null;
+    return routineCompletions?.[mapKey]?.[dateKey] || null;
+  },
+  [routineCompletions]
+);
+
+const setRoutineCompletionProgress = useCallback(
+  async ({
+    routineId,
+    isGroup = false,
+    date = null,
+    completedTaskIds = [],
+    completed = false,
+  }) => {
+    if (!routineId) return null;
+    const dateKey = normalizeDateKey(date || new Date());
+    if (!dateKey) return null;
+
+    const normalizedTaskIds = normalizeRoutineCompletionTaskIds(completedTaskIds);
+    const mapKey = getRoutineCompletionMapKey(routineId, isGroup);
+    const nowISO = new Date().toISOString();
+    const nextEntry = {
+      completedTaskIds: normalizedTaskIds,
+      completed: Boolean(completed),
+      updatedAt: nowISO,
+    };
+
+    setRoutineCompletions((prev) => {
+      const next = { ...(prev || {}) };
+      const byDate = { ...(next[mapKey] || {}) };
+      const previousEntry = byDate[dateKey] || {};
+      byDate[dateKey] = {
+        ...previousEntry,
+        ...nextEntry,
+        createdAt: previousEntry?.createdAt || nowISO,
+      };
+      next[mapKey] = byDate;
+      return next;
+    });
+
+    if (!authUser?.id) {
+      return nextEntry;
+    }
+
+    const kind = isGroup
+      ? ROUTINE_COMPLETION_KIND.GROUP
+      : ROUTINE_COMPLETION_KIND.PERSONAL;
+    const basePayload = {
+      user_id: authUser.id,
+      routine_id: routineId,
+      routine_kind: kind,
+      completion_date: dateKey,
+      completed_task_ids: normalizedTaskIds,
+      is_completed: Boolean(completed),
+      updated_at: nowISO,
+    };
+
+    let payload = { ...basePayload };
+    let onConflict = 'user_id,routine_id,routine_kind,completion_date';
+    let error = null;
+
+    ({ error } = await supabase
+      .from(ROUTINE_COMPLETIONS_TABLE)
+      .upsert(payload, { onConflict }));
+
+    if (error && isMissingColumnError(error, 'routine_kind')) {
+      payload = {
+        user_id: authUser.id,
+        routine_id: routineId,
+        completion_date: dateKey,
+        completed_task_ids: normalizedTaskIds,
+        is_completed: Boolean(completed),
+        updated_at: nowISO,
+      };
+      onConflict = 'user_id,routine_id,completion_date';
+      ({ error } = await supabase
+        .from(ROUTINE_COMPLETIONS_TABLE)
+        .upsert(payload, { onConflict }));
+    }
+
+    if (error && isMissingColumnError(error, 'completed_task_ids')) {
+      delete payload.completed_task_ids;
+      ({ error } = await supabase
+        .from(ROUTINE_COMPLETIONS_TABLE)
+        .upsert(payload, { onConflict }));
+    }
+
+    if (error && isMissingColumnError(error, 'is_completed')) {
+      delete payload.is_completed;
+      ({ error } = await supabase
+        .from(ROUTINE_COMPLETIONS_TABLE)
+        .upsert(payload, { onConflict }));
+    }
+
+    if (error && !isMissingRelationError(error, ROUTINE_COMPLETIONS_TABLE)) {
+      console.log('Error saving routine completion:', error);
+    }
+
+    return nextEntry;
+  },
+  [authUser?.id]
+);
+
+const completeRoutineForDate = useCallback(
+  async ({ routineId, isGroup = false, date = null, completedTaskIds = [] }) =>
+    setRoutineCompletionProgress({
+      routineId,
+      isGroup,
+      date,
+      completedTaskIds,
+      completed: true,
+    }),
+  [setRoutineCompletionProgress]
+);
+
+const clearRoutineCompletionForRoutine = useCallback(
+  async (routineId, { isGroup = false } = {}) => {
+    if (!routineId) return;
+    const mapKey = getRoutineCompletionMapKey(routineId, isGroup);
+    if (mapKey) {
+      setRoutineCompletions((prev) => {
+        if (!prev || !Object.prototype.hasOwnProperty.call(prev, mapKey)) return prev;
+        const next = { ...prev };
+        delete next[mapKey];
+        return next;
+      });
+    }
+
+    if (!authUser?.id) return;
+
+    let query = supabase
+      .from(ROUTINE_COMPLETIONS_TABLE)
+      .delete()
+      .eq('user_id', authUser.id)
+      .eq('routine_id', routineId);
+
+    if (isGroup) {
+      query = query.eq('routine_kind', ROUTINE_COMPLETION_KIND.GROUP);
+    } else {
+      query = query.eq('routine_kind', ROUTINE_COMPLETION_KIND.PERSONAL);
+    }
+
+    let { error } = await query;
+
+    if (error && isMissingColumnError(error, 'routine_kind')) {
+      ({ error } = await supabase
+        .from(ROUTINE_COMPLETIONS_TABLE)
+        .delete()
+        .eq('user_id', authUser.id)
+        .eq('routine_id', routineId));
+    }
+
+    if (error && !isMissingRelationError(error, ROUTINE_COMPLETIONS_TABLE)) {
+      console.log('Error clearing routine completion:', error);
+    }
+  },
+  [authUser?.id]
+);
 
 
 
@@ -9911,7 +10465,7 @@ const mapProfileRow = (row) => {
 
   const buildStreakFreezeNotificationCandidate = async () => {
     if (!authUser?.id || !isPremiumUser || streakFrozen) return;
-    const hasAnyStreak = habits.some((h) => (h.streak || 0) > 0);
+    const hasAnyStreak = currentStreak > 0 || habits.some((h) => (h.streak || 0) > 0);
     if (!hasAnyStreak) return;
 
     const lastActive = await readLastActive(authUser.id);
@@ -10090,6 +10644,7 @@ const mapProfileRow = (row) => {
     tasks,
     habits,
     isPremiumUser,
+    currentStreak,
     streakFrozen,
     userSettings.notificationsEnabled,
     userSettings.taskRemindersEnabled,
@@ -10160,6 +10715,8 @@ const mapProfileRow = (row) => {
   }, [authUser?.id, rescheduleAllNotifications, registerPushTokenIfNeeded]);
 
   // COMPUTED VALUES
+  const getCurrentStreak = () => currentStreak;
+
   const getBestStreak = () => {
     if (habits.length === 0) return 0;
     return Math.max(...habits.map((h) => h.streak || 0));
@@ -10286,8 +10843,10 @@ const mapProfileRow = (row) => {
     toggleHabitCompletion,
     setHabitProgress,
     isHabitCompletedToday,
+    getCurrentStreak,
     getBestStreak,
     getTodayHabitsCount,
+    currentStreak,
     streakFrozen,
 
     // Tasks
@@ -10336,12 +10895,16 @@ const mapProfileRow = (row) => {
 
     // Routines
     routines,
+    routineCompletions,
     addRoutine,
     updateRoutine,
     deleteRoutine,
     addTaskToRoutine,
     removeTaskFromRoutine,
     reorderRoutineTasks,
+    getRoutineCompletionForDate,
+    setRoutineCompletionProgress,
+    completeRoutineForDate,
 
     // Chores
     chores,
