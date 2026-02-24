@@ -96,7 +96,21 @@ function getProposalSummary(payload: any) {
 }
 
 export default function ChatScreen() {
-  const { profile, themeColors, themeName, isPremium, isPremiumUser } = useApp();
+  const {
+    profile,
+    themeColors,
+    themeName,
+    isPremium,
+    isPremiumUser,
+    ensureTasksLoaded,
+    ensureHabitsLoaded,
+    ensureNotesLoaded,
+    ensureHealthLoaded,
+    ensureRoutinesLoaded,
+    ensureRemindersLoaded,
+    ensureChoresLoaded,
+    ensureGroceriesLoaded,
+  } = useApp();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const isPremiumActive = Boolean(
@@ -227,6 +241,51 @@ export default function ChatScreen() {
 
   const pendingItems = pendingProposals.filter((p) => p.status === "pending");
 
+  async function refreshDataForProposal(actionType?: string) {
+    const force = { force: true as const };
+    switch (actionType) {
+      case "create_task":
+      case "update_task":
+        await ensureTasksLoaded(force);
+        return;
+      case "create_habit":
+      case "complete_habit":
+        await ensureHabitsLoaded(force);
+        return;
+      case "create_note":
+        await ensureNotesLoaded(force);
+        return;
+      case "log_health_daily":
+      case "add_food_entry":
+        await ensureHealthLoaded(force);
+        return;
+      case "create_routine":
+      case "add_routine_task":
+        await ensureRoutinesLoaded(force);
+        return;
+      case "create_reminder":
+        await ensureRemindersLoaded(force);
+        return;
+      case "create_chore":
+        await ensureChoresLoaded(force);
+        return;
+      case "create_grocery":
+        await ensureGroceriesLoaded(force);
+        return;
+      default:
+        await Promise.all([
+          ensureTasksLoaded(force),
+          ensureHabitsLoaded(force),
+          ensureNotesLoaded(force),
+          ensureHealthLoaded(force),
+          ensureRoutinesLoaded(force),
+          ensureRemindersLoaded(force),
+          ensureChoresLoaded(force),
+          ensureGroceriesLoaded(force),
+        ]);
+    }
+  }
+
   async function onSend() {
     if (!isPremiumActive) return;
     const text = input.trim();
@@ -284,12 +343,17 @@ export default function ChatScreen() {
   }
 
   async function onApprove(proposalId: string) {
+    const proposal = pendingProposals.find((p) => p.id === proposalId);
+
     setPendingProposals((prev) =>
       prev.map((p) => (p.id === proposalId ? { ...p, status: "applied" } : p))
     );
 
     try {
       await applyProposal(proposalId);
+      try {
+        await refreshDataForProposal(proposal?.action_type);
+      } catch {}
       setMessages((prev) => [
         ...prev,
         {
