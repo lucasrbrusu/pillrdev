@@ -99,9 +99,6 @@ const TasksScreen = () => {
     setNotePassword,
     todayHealth,
     updateTodayHealth,
-    userSettings,
-    importTasksFromDeviceCalendar,
-    exportTasksToDeviceCalendar,
     themeName,
     themeColors,
     ensureTasksLoaded,
@@ -120,10 +117,6 @@ const TasksScreen = () => {
       calendarBg: isDark ? '#2F3147' : '#FFFFFF',
       calendarBorder: isDark ? '#3E415A' : '#E5E7EB',
       calendarIcon: isDark ? '#E5E7EB' : themeColors.textSecondary,
-      calendarSyncBg: isDark ? '#2F3147' : '#FFFFFF',
-      calendarSyncBorder: isDark ? '#3E415A' : '#E5E7EB',
-      calendarSyncIcon: isDark ? '#C4B5FD' : themeColors.primary,
-      calendarSyncText: isDark ? '#E9D5FF' : themeColors.primary,
       tabsBorder: isDark ? '#4B4760' : '#E7E1F5',
       tabActive: isDark ? '#C084FC' : themeColors.primary,
       tabText: isDark ? '#C9C4D8' : themeColors.textSecondary,
@@ -182,7 +175,6 @@ const TasksScreen = () => {
   const [selectedGroupId, setSelectedGroupId] = useState(null);
   const [taskPeople, setTaskPeople] = useState([]);
   const [loadingTaskPeople, setLoadingTaskPeople] = useState(false);
-  const [calendarSyncAction, setCalendarSyncAction] = useState(null);
   const [noteToUnlock, setNoteToUnlock] = useState(null);
   const [unlockedNoteIds, setUnlockedNoteIds] = useState([]);
   const [noteTitleDraft, setNoteTitleDraft] = useState('');
@@ -356,52 +348,6 @@ const TasksScreen = () => {
       Alert.alert('Unable to create task', err?.message || 'Please try again.');
     } finally {
       setInvitingFriends(false);
-    }
-  };
-
-  const handleImportCalendarEvents = async () => {
-    if (calendarSyncAction) return;
-    if (!userSettings?.calendarSyncEnabled) {
-      Alert.alert(
-        'Calendar access required',
-        'Enable calendar import/export in Profile -> Permissions first.'
-      );
-      return;
-    }
-    try {
-      setCalendarSyncAction('import');
-      const result = await importTasksFromDeviceCalendar();
-      Alert.alert(
-        'Import complete',
-        `Scanned ${result.scanned} events.\nImported ${result.imported} tasks.\nUpdated ${result.updated} tasks.\nSkipped ${result.skipped}.`
-      );
-    } catch (err) {
-      Alert.alert('Import failed', err?.message || 'Unable to import calendar events.');
-    } finally {
-      setCalendarSyncAction(null);
-    }
-  };
-
-  const handleExportTasksToCalendar = async () => {
-    if (calendarSyncAction) return;
-    if (!userSettings?.calendarSyncEnabled) {
-      Alert.alert(
-        'Calendar access required',
-        'Enable calendar import/export in Profile -> Permissions first.'
-      );
-      return;
-    }
-    try {
-      setCalendarSyncAction('export');
-      const result = await exportTasksToDeviceCalendar();
-      Alert.alert(
-        'Export complete',
-        `Processed ${result.total} tasks.\nCreated ${result.exported} events.\nUpdated ${result.updated} events.\nSkipped ${result.skipped}.`
-      );
-    } catch (err) {
-      Alert.alert('Export failed', err?.message || 'Unable to export tasks to calendar.');
-    } finally {
-      setCalendarSyncAction(null);
     }
   };
 
@@ -765,54 +711,6 @@ const TasksScreen = () => {
             activeOpacity={0.85}
           >
             <Ionicons name="calendar-outline" size={20} color={tasksTheme.calendarIcon} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.calendarSyncRow}>
-          <TouchableOpacity
-            style={[
-              styles.calendarSyncButton,
-              styles.calendarSyncButtonLeft,
-              {
-                backgroundColor: tasksTheme.calendarSyncBg,
-                borderColor: tasksTheme.calendarSyncBorder,
-              },
-              calendarSyncAction && styles.calendarSyncButtonDisabled,
-            ]}
-            onPress={handleImportCalendarEvents}
-            activeOpacity={0.85}
-            disabled={Boolean(calendarSyncAction)}
-          >
-            <Ionicons
-              name={calendarSyncAction === 'import' ? 'hourglass-outline' : 'download-outline'}
-              size={16}
-              color={tasksTheme.calendarSyncIcon}
-            />
-            <Text style={[styles.calendarSyncButtonText, { color: tasksTheme.calendarSyncText }]}>
-              {calendarSyncAction === 'import' ? 'Importing...' : 'Import Calendar'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.calendarSyncButton,
-              {
-                backgroundColor: tasksTheme.calendarSyncBg,
-                borderColor: tasksTheme.calendarSyncBorder,
-              },
-              calendarSyncAction && styles.calendarSyncButtonDisabled,
-            ]}
-            onPress={handleExportTasksToCalendar}
-            activeOpacity={0.85}
-            disabled={Boolean(calendarSyncAction)}
-          >
-            <Ionicons
-              name={calendarSyncAction === 'export' ? 'hourglass-outline' : 'upload-outline'}
-              size={16}
-              color={tasksTheme.calendarSyncIcon}
-            />
-            <Text style={[styles.calendarSyncButtonText, { color: tasksTheme.calendarSyncText }]}>
-              {calendarSyncAction === 'export' ? 'Exporting...' : 'Export Calendar'}
-            </Text>
           </TouchableOpacity>
         </View>
 
@@ -1937,33 +1835,6 @@ const createStyles = (themeColors) => {
     justifyContent: 'center',
     marginLeft: spacing.sm,
     marginBottom: spacing.sm,
-  },
-  calendarSyncRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
-  },
-  calendarSyncButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderRadius: borderRadius.full,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  calendarSyncButtonLeft: {
-    marginRight: spacing.sm,
-  },
-  calendarSyncButtonDisabled: {
-    opacity: 0.7,
-  },
-  calendarSyncButtonText: {
-    ...typography.bodySmall,
-    fontWeight: '700',
-    marginLeft: spacing.xs,
   },
   tabsRow: {
     flexDirection: 'row',

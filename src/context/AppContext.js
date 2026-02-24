@@ -344,6 +344,7 @@ const getCalendarSyncKey = (userId) =>
 const createDefaultCalendarSyncState = () => ({
   taskToEvent: {},
   eventToTask: {},
+  importedTaskIds: [],
   calendarId: null,
   updatedAt: null,
 });
@@ -360,6 +361,13 @@ const normalizeCalendarSyncState = (value = {}) => {
   return {
     taskToEvent: normalizeMap(value?.taskToEvent),
     eventToTask: normalizeMap(value?.eventToTask),
+    importedTaskIds: Array.from(
+      new Set(
+        (Array.isArray(value?.importedTaskIds) ? value.importedTaskIds : [])
+          .map((taskId) => String(taskId || '').trim())
+          .filter(Boolean)
+      )
+    ),
     calendarId: value?.calendarId ? String(value.calendarId) : base.calendarId,
     updatedAt: value?.updatedAt || base.updatedAt,
   };
@@ -6573,6 +6581,7 @@ const fetchTasksFromSupabase = async (userId) => {
         .filter(([signature]) => Boolean(signature))
     );
     const nextMap = normalizeCalendarSyncState(calendarSyncMapRef.current);
+    const importedTaskIds = new Set(nextMap.importedTaskIds || []);
 
     let imported = 0;
     let updated = 0;
@@ -6635,6 +6644,7 @@ const fetchTasksFromSupabase = async (userId) => {
         targetTaskId = createdTask?.id || null;
         targetTask = createdTask || null;
         if (targetTask?.id) {
+          importedTaskIds.add(String(targetTask.id));
           tasksById.set(targetTask.id, targetTask);
           const signature = buildTaskSyncSignature(targetTask);
           if (signature) signatureToTaskId.set(signature, targetTask.id);
@@ -6647,6 +6657,9 @@ const fetchTasksFromSupabase = async (userId) => {
       }
     }
 
+    nextMap.importedTaskIds = Array.from(importedTaskIds).filter((taskId) =>
+      tasksById.has(taskId)
+    );
     await persistCalendarSyncMap(nextMap);
     return {
       scanned: uniqueEvents.length,
@@ -6732,6 +6745,64 @@ const fetchTasksFromSupabase = async (userId) => {
       updated,
       skipped,
       calendarId,
+    };
+  };
+
+  const undoImportedCalendarTasks = async () => {
+    if (!authUser?.id) {
+      throw new Error('You must be logged in to undo calendar imports.');
+    }
+
+    await ensureTasksLoaded();
+
+    const currentMap = normalizeCalendarSyncState(calendarSyncMapRef.current);
+    const importedTaskIds = Array.from(new Set(currentMap.importedTaskIds || []));
+    if (!importedTaskIds.length) {
+      return { tracked: 0, removed: 0, missing: 0 };
+    }
+
+    const existingTaskIds = new Set(
+      [...(tasks || []), ...(archivedTasks || [])]
+        .map((task) => String(task?.id || '').trim())
+        .filter(Boolean)
+    );
+    const removableTaskIds = importedTaskIds.filter((taskId) =>
+      existingTaskIds.has(taskId)
+    );
+
+    for (const taskId of removableTaskIds) {
+      await deleteTask(taskId);
+    }
+
+    const removedTaskIds = new Set(removableTaskIds);
+    const nextMap = normalizeCalendarSyncState(calendarSyncMapRef.current);
+
+    Object.keys(nextMap.taskToEvent).forEach((taskId) => {
+      if (!removedTaskIds.has(taskId)) return;
+      const mappedEventId = nextMap.taskToEvent[taskId];
+      delete nextMap.taskToEvent[taskId];
+      if (mappedEventId && nextMap.eventToTask[mappedEventId] === taskId) {
+        delete nextMap.eventToTask[mappedEventId];
+      }
+    });
+
+    Object.keys(nextMap.eventToTask).forEach((eventId) => {
+      const mappedTaskId = nextMap.eventToTask[eventId];
+      if (removedTaskIds.has(mappedTaskId)) {
+        delete nextMap.eventToTask[eventId];
+      }
+    });
+
+    const importedTaskIdSet = new Set(importedTaskIds);
+    nextMap.importedTaskIds = (nextMap.importedTaskIds || []).filter(
+      (taskId) => !importedTaskIdSet.has(taskId)
+    );
+
+    await persistCalendarSyncMap(nextMap);
+    return {
+      tracked: importedTaskIds.length,
+      removed: removableTaskIds.length,
+      missing: importedTaskIds.length - removableTaskIds.length,
     };
   };
 
@@ -12305,6 +12376,7 @@ const mapProfileRow = (row) => {
     toggleTaskCompletion,
     importTasksFromDeviceCalendar,
     exportTasksToDeviceCalendar,
+    undoImportedCalendarTasks,
     getTodayTasks,
     getUpcomingTasks,
 

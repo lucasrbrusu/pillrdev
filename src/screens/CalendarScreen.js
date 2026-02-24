@@ -5,8 +5,8 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
-import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -23,12 +23,23 @@ import {
 const CalendarScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { tasks, toggleTaskCompletion, themeColors, ensureTasksLoaded } = useApp();
+  const {
+    tasks,
+    toggleTaskCompletion,
+    themeColors,
+    ensureTasksLoaded,
+    userSettings,
+    importTasksFromDeviceCalendar,
+    exportTasksToDeviceCalendar,
+    undoImportedCalendarTasks,
+  } = useApp();
   const styles = useMemo(() => createStyles(), [themeColors]);
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState('week'); // 'week' or 'month'
+  const [showSettings, setShowSettings] = useState(false);
+  const [calendarSyncAction, setCalendarSyncAction] = useState(null);
 
   const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const months = [
@@ -80,6 +91,80 @@ const CalendarScreen = () => {
     const today = new Date();
     setCurrentDate(today);
     setSelectedDate(today);
+  };
+
+  const handleImportCalendarEvents = async () => {
+    if (calendarSyncAction) return;
+    if (!userSettings?.calendarSyncEnabled) {
+      Alert.alert(
+        'Calendar access required',
+        'Enable calendar import/export in Settings -> Permissions first.'
+      );
+      return;
+    }
+    try {
+      setCalendarSyncAction('import');
+      const result = await importTasksFromDeviceCalendar();
+      Alert.alert(
+        'Import complete',
+        `Scanned ${result.scanned} events.\nImported ${result.imported} tasks.\nUpdated ${result.updated} tasks.\nSkipped ${result.skipped}.`
+      );
+    } catch (err) {
+      Alert.alert('Import failed', err?.message || 'Unable to import calendar events.');
+    } finally {
+      setCalendarSyncAction(null);
+    }
+  };
+
+  const handleExportTasksToCalendar = async () => {
+    if (calendarSyncAction) return;
+    if (!userSettings?.calendarSyncEnabled) {
+      Alert.alert(
+        'Calendar access required',
+        'Enable calendar import/export in Settings -> Permissions first.'
+      );
+      return;
+    }
+    try {
+      setCalendarSyncAction('export');
+      const result = await exportTasksToDeviceCalendar();
+      Alert.alert(
+        'Export complete',
+        `Processed ${result.total} tasks.\nCreated ${result.exported} events.\nUpdated ${result.updated} events.\nSkipped ${result.skipped}.`
+      );
+    } catch (err) {
+      Alert.alert('Export failed', err?.message || 'Unable to export tasks to calendar.');
+    } finally {
+      setCalendarSyncAction(null);
+    }
+  };
+
+  const runUndoImportedTasks = async () => {
+    if (calendarSyncAction) return;
+    try {
+      setCalendarSyncAction('undo');
+      const result = await undoImportedCalendarTasks();
+      Alert.alert(
+        'Undo import complete',
+        `Tracked ${result.tracked} imported tasks.\nRemoved ${result.removed} tasks.\nMissing ${result.missing}.`
+      );
+    } catch (err) {
+      Alert.alert('Undo failed', err?.message || 'Unable to undo imported calendar tasks.');
+    } finally {
+      setCalendarSyncAction(null);
+    }
+  };
+
+  const handleUndoImportedTasks = () => {
+    if (calendarSyncAction) return;
+    Alert.alert(
+      'Undo calendar import',
+      'This removes all tasks created by calendar import from Tasks and Calendar. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Undo import', style: 'destructive', onPress: runUndoImportedTasks },
+      ]
+    );
   };
 
   const hasTasksOnDate = (date) => {
@@ -181,9 +266,17 @@ const CalendarScreen = () => {
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Calendar</Text>
-        <TouchableOpacity style={styles.todayButton} onPress={goToToday}>
-          <Text style={styles.todayText}>Today</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.todayButton} onPress={goToToday}>
+            <Text style={styles.todayText}>Today</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.settingsButton}
+            onPress={() => setShowSettings((prev) => !prev)}
+          >
+            <Ionicons name="settings-outline" size={18} color={colors.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Month/Year Header */}
@@ -198,6 +291,80 @@ const CalendarScreen = () => {
           <Ionicons name="chevron-forward" size={24} color={colors.text} />
         </TouchableOpacity>
       </View>
+
+      {showSettings && (
+        <View style={styles.settingsWrap}>
+          <Card style={styles.settingsCard}>
+            <Text style={styles.settingsTitle}>Calendar Settings</Text>
+            <Text style={styles.settingsSubtitle}>
+              Import and export your calendar events with tasks.
+            </Text>
+            <Text style={styles.settingsStatusText}>
+              {userSettings?.calendarSyncEnabled
+                ? 'Calendar sync is enabled.'
+                : 'Enable calendar sync in Settings -> Permissions first.'}
+            </Text>
+
+            <TouchableOpacity
+              style={[
+                styles.settingsActionButton,
+                calendarSyncAction && styles.settingsActionDisabled,
+              ]}
+              onPress={handleImportCalendarEvents}
+              disabled={Boolean(calendarSyncAction)}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name={calendarSyncAction === 'import' ? 'hourglass-outline' : 'download-outline'}
+                size={18}
+                color={colors.primary}
+              />
+              <Text style={styles.settingsActionText}>
+                {calendarSyncAction === 'import' ? 'Importing...' : 'Import Calendar'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.settingsActionButton,
+                calendarSyncAction && styles.settingsActionDisabled,
+              ]}
+              onPress={handleExportTasksToCalendar}
+              disabled={Boolean(calendarSyncAction)}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name={calendarSyncAction === 'export' ? 'hourglass-outline' : 'upload-outline'}
+                size={18}
+                color={colors.primary}
+              />
+              <Text style={styles.settingsActionText}>
+                {calendarSyncAction === 'export' ? 'Exporting...' : 'Export Calendar'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.settingsActionButton,
+                styles.settingsActionDangerButton,
+                calendarSyncAction && styles.settingsActionDisabled,
+              ]}
+              onPress={handleUndoImportedTasks}
+              disabled={Boolean(calendarSyncAction)}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name={calendarSyncAction === 'undo' ? 'hourglass-outline' : 'trash-outline'}
+                size={18}
+                color={colors.danger}
+              />
+              <Text style={[styles.settingsActionText, styles.settingsActionDangerText]}>
+                {calendarSyncAction === 'undo' ? 'Undoing...' : 'Undo import'}
+              </Text>
+            </TouchableOpacity>
+          </Card>
+        </View>
+      )}
 
       {/* Week View */}
       <View style={styles.weekContainer}>
@@ -471,6 +638,11 @@ const createStyles = () => StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.lg,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   backButton: {
     padding: spacing.xs,
   },
@@ -488,12 +660,73 @@ const createStyles = () => StyleSheet.create({
     color: colors.primary,
     fontWeight: '600',
   },
+  settingsButton: {
+    width: 34,
+    height: 34,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   monthHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.xl,
     marginBottom: spacing.md,
+  },
+  settingsWrap: {
+    paddingHorizontal: spacing.xl,
+    marginBottom: spacing.md,
+  },
+  settingsCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  settingsTitle: {
+    ...typography.h3,
+    marginBottom: spacing.xs,
+    color: colors.text,
+  },
+  settingsSubtitle: {
+    ...typography.bodySmall,
+    color: colors.textSecondary,
+  },
+  settingsStatusText: {
+    ...typography.caption,
+    color: colors.textLight,
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  settingsActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.inputBackground,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+    gap: spacing.sm,
+  },
+  settingsActionDangerButton: {
+    borderColor: `${colors.danger}55`,
+    backgroundColor: `${colors.danger}10`,
+  },
+  settingsActionDisabled: {
+    opacity: 0.6,
+  },
+  settingsActionText: {
+    ...typography.bodySmall,
+    color: colors.primary,
+    fontWeight: '700',
+  },
+  settingsActionDangerText: {
+    color: colors.danger,
   },
   navButton: {
     padding: spacing.sm,
