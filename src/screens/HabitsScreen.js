@@ -483,6 +483,8 @@ const SwipeHabitCard = ({
   completed,
   achieved = false,
   overdone = false,
+  streakFrozen = false,
+  freezeEligible = false,
   isInteractive,
   onTap,
   onEdit,
@@ -798,8 +800,17 @@ const SwipeHabitCard = ({
     : achieved
       ? habitTextColor
       : withAlpha(habitTextColor, 0.72);
+  const streakIsFrozenVisual =
+    streakFrozen &&
+    freezeEligible &&
+    !overdoneVisual &&
+    !achieved &&
+    !completed &&
+    (habit.streak || 0) > 0;
   const streakIconColor = overdoneVisual
     ? '#DC2626'
+    : streakIsFrozenVisual
+      ? '#4DA6FF'
     : achieved
       ? habitTextColor
     : resolveContrastColor({
@@ -984,6 +995,7 @@ const HabitsScreen = () => {
     themeColors,
     ensureHabitsLoaded,
     setHabitProgress,
+    streakFrozen,
     completeHabitsTutorial,
   } = useApp();
 
@@ -1340,11 +1352,11 @@ const HabitsScreen = () => {
 
   const statIconColors = useMemo(
     () => ({
-      streak: palette.isDark ? '#FDBA74' : '#F97316',
+      streak: streakFrozen ? '#4DA6FF' : palette.isDark ? '#FDBA74' : '#F97316',
       today: palette.isDark ? '#6EE7B7' : '#10B981',
       total: palette.isDark ? '#93C5FD' : '#2563EB',
     }),
-    [palette.isDark]
+    [palette.isDark, streakFrozen]
   );
 
   const resetForm = () => {
@@ -2127,6 +2139,8 @@ const HabitsScreen = () => {
                 completed={completed}
                 achieved={lifecycleCompleted}
                 overdone={overdone}
+                streakFrozen={streakFrozen}
+                freezeEligible={isSelectedDateToday}
                 isInteractive={isSelectedDateToday && !lifecycleCompleted}
                 onTap={(item) => {
                   if (item.__isGroupHabit) {

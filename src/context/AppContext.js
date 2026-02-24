@@ -10,6 +10,7 @@ import React, {
 import { AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import * as ExpoCalendar from 'expo-calendar';
 import { colors, typography } from '../utils/theme';
 import themePresets from '../utils/themePresets';
 import { supabase } from '../utils/supabaseClient';
@@ -33,6 +34,14 @@ import {
 } from '../utils/routineSchedule';
 import uuid from 'react-native-uuid';
 import { getPremiumEntitlementStatus, setRevenueCatUserId } from '../../RevenueCat';
+import {
+  checkHealthAvailability,
+  getHealthProviderDetails,
+  readTodayActiveCaloriesFromHealth,
+  readTodayStepsFromHealth,
+  requestHealthPermissions,
+  writeDailyNutritionToHealth,
+} from '../utils/healthBridge';
 
 const AppContext = createContext();
 
@@ -64,6 +73,7 @@ const STORAGE_KEYS = {
   STREAK_FROZEN_PREFIX: '@pillaflow_streak_frozen_',
   CURRENT_STREAK_PREFIX: '@pillaflow_current_streak_',
   LAST_ACTIVE_PREFIX: '@pillaflow_last_active_',
+  CALENDAR_SYNC_PREFIX: '@pillaflow_calendar_sync_',
   PUSH_DEVICE_ID: '@pillaflow_push_device_id',
 };
 
@@ -119,6 +129,98 @@ const defaultHealthDay = () => ({
   updatedAt: null,
 });
 
+const defaultHealthConnection = () => {
+  const providerDetails = getHealthProviderDetails();
+  return {
+    platform: providerDetails.platform,
+    provider: providerDetails.provider,
+    providerLabel: providerDetails.label,
+    connectLabel: providerDetails.connectLabel,
+    isConnected: false,
+    canReadSteps: false,
+    canReadActiveCalories: false,
+    canWriteNutrition: false,
+    syncNutritionToHealth: false,
+    lastSyncedDate: null,
+    lastSyncedAt: null,
+    available: false,
+    unavailableReason: null,
+    updatedAt: null,
+  };
+};
+
+const createHealthMetricEntry = (dateKey, row = {}) => ({
+  date: normalizeDateKey(dateKey || row.metric_date || row.date),
+  steps: Math.max(0, Math.round(asNumber(row.steps, 0) || 0)),
+  activeCalories: asNumber(row.active_calories ?? row.activeCalories, null),
+  source: row.source || 'unknown',
+  updatedAt: row.updated_at || row.updatedAt || null,
+});
+
+const createNutritionTotalsEntry = (dateKey, row = {}) => ({
+  date: normalizeDateKey(dateKey || row.total_date || row.date),
+  calories: Math.max(0, Math.round(asNumber(row.calories, 0) || 0)),
+  protein: Math.max(0, asNumber(row.protein_grams ?? row.protein, 0) || 0),
+  carbs: Math.max(0, asNumber(row.carbs_grams ?? row.carbs, 0) || 0),
+  fat: Math.max(0, asNumber(row.fat_grams ?? row.fat, 0) || 0),
+  source: row.source || 'pillaflow',
+  syncedToHealth: Boolean(row.synced_to_health ?? row.syncedToHealth),
+  lastSyncedToHealthAt: row.last_synced_to_health_at || row.lastSyncedToHealthAt || null,
+  updatedAt: row.updated_at || row.updatedAt || null,
+});
+
+const deriveNutritionTotalsFromFoods = (day = {}) => {
+  const foods = Array.isArray(day?.foods) ? day.foods : [];
+  const macroTotals = foods.reduce(
+    (totals, food) => ({
+      calories: totals.calories + (asNumber(food?.calories, 0) || 0),
+      protein: totals.protein + (asNumber(food?.proteinGrams ?? food?.protein_grams, 0) || 0),
+      carbs: totals.carbs + (asNumber(food?.carbsGrams ?? food?.carbs_grams, 0) || 0),
+      fat: totals.fat + (asNumber(food?.fatGrams ?? food?.fat_grams, 0) || 0),
+    }),
+    { calories: 0, protein: 0, carbs: 0, fat: 0 }
+  );
+
+  return {
+    calories: Math.max(
+      0,
+      Math.round(
+        macroTotals.calories || asNumber(day?.calories, 0) || 0
+      )
+    ),
+    protein: Math.max(0, Math.round((macroTotals.protein || 0) * 10) / 10),
+    carbs: Math.max(0, Math.round((macroTotals.carbs || 0) * 10) / 10),
+    fat: Math.max(0, Math.round((macroTotals.fat || 0) * 10) / 10),
+  };
+};
+
+const toPositiveGoalOrNull = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const getActiveJourneyNutritionGoals = (profileValue = null) => ({
+  calorieGoal: toPositiveGoalOrNull(profileValue?.weightManagerTargetCalories),
+  proteinGoal: toPositiveGoalOrNull(profileValue?.weightManagerProteinGrams),
+  carbsGoal: toPositiveGoalOrNull(profileValue?.weightManagerCarbsGrams),
+  fatGoal: toPositiveGoalOrNull(profileValue?.weightManagerFatGrams),
+});
+
+const createHealthDayWithJourneyDefaults = (profileValue = null, fallback = null) => {
+  const base = { ...defaultHealthDay(), ...(fallback || {}) };
+  const journeyGoals = getActiveJourneyNutritionGoals(profileValue);
+  const pickGoal = (value, fallbackValue) =>
+    value === null || value === undefined ? fallbackValue : value;
+
+  return {
+    ...base,
+    calorieGoal: pickGoal(base.calorieGoal, journeyGoals.calorieGoal),
+    proteinGoal: pickGoal(base.proteinGoal, journeyGoals.proteinGoal),
+    carbsGoal: pickGoal(base.carbsGoal, journeyGoals.carbsGoal),
+    fatGoal: pickGoal(base.fatGoal, journeyGoals.fatGoal),
+  };
+};
+
 const defaultUserSettings = {
   id: null,
   themeName: 'default',
@@ -126,6 +228,7 @@ const defaultUserSettings = {
   habitRemindersEnabled: true,
   taskRemindersEnabled: true,
   healthRemindersEnabled: true,
+  calendarSyncEnabled: false,
   defaultCurrencyCode: 'USD',
 };
 
@@ -146,6 +249,11 @@ const FRIEND_SEARCH_CACHE_TTL_MS = 30 * 1000;
 const FRIEND_SEARCH_LIMIT = 20;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const NOTIFICATION_RESCHEDULE_DEBOUNCE_MS = 750;
+const CALENDAR_SYNC_TITLE = 'Pillaflow';
+const CALENDAR_SYNC_NOTE_MARKER_REGEX = /\[pillaflow_task_id:([^\]\s]+)\]/i;
+const CALENDAR_SYNC_IMPORT_LOOKBACK_DAYS = 30;
+const CALENDAR_SYNC_IMPORT_LOOKAHEAD_DAYS = 365;
+const CALENDAR_TASK_EXPORT_DURATION_MINUTES = 30;
 
 const computeIsPremium = (plan, premiumExpiresAt, explicitFlag) => {
   if (explicitFlag === true) return true;
@@ -230,6 +338,88 @@ const getStreakFrozenKey = (userId) => `${STORAGE_KEYS.STREAK_FROZEN_PREFIX}${us
 const getCurrentStreakKey = (userId) => `${STORAGE_KEYS.CURRENT_STREAK_PREFIX}${userId}`;
 const getFoodLogsKey = (userId) => `${STORAGE_KEYS.HEALTH_FOOD_LOGS}_${userId || 'anon'}`;
 const getProfileStorageKey = (userId) => `${STORAGE_KEYS.PROFILE}_${userId || 'anon'}`;
+const getCalendarSyncKey = (userId) =>
+  `${STORAGE_KEYS.CALENDAR_SYNC_PREFIX}${userId || 'anon'}`;
+
+const createDefaultCalendarSyncState = () => ({
+  taskToEvent: {},
+  eventToTask: {},
+  calendarId: null,
+  updatedAt: null,
+});
+
+const normalizeCalendarSyncState = (value = {}) => {
+  const base = createDefaultCalendarSyncState();
+  const normalizeMap = (source = {}) =>
+    Object.fromEntries(
+      Object.entries(source || {})
+        .map(([key, mappedValue]) => [String(key || '').trim(), String(mappedValue || '').trim()])
+        .filter(([key, mappedValue]) => key && mappedValue)
+    );
+
+  return {
+    taskToEvent: normalizeMap(value?.taskToEvent),
+    eventToTask: normalizeMap(value?.eventToTask),
+    calendarId: value?.calendarId ? String(value.calendarId) : base.calendarId,
+    updatedAt: value?.updatedAt || base.updatedAt,
+  };
+};
+
+const parseTaskIdFromCalendarNotes = (notes) => {
+  if (!notes || typeof notes !== 'string') return null;
+  const match = notes.match(CALENDAR_SYNC_NOTE_MARKER_REGEX);
+  return match?.[1] ? String(match[1]).trim() : null;
+};
+
+const stripTaskIdMarkerFromCalendarNotes = (notes) => {
+  if (!notes || typeof notes !== 'string') return '';
+  return notes.replace(CALENDAR_SYNC_NOTE_MARKER_REGEX, '').trim();
+};
+
+const withTaskIdMarkerInCalendarNotes = (notes, taskId) => {
+  const marker = `[pillaflow_task_id:${taskId}]`;
+  const cleanNotes = stripTaskIdMarkerFromCalendarNotes(notes || '');
+  if (!cleanNotes) return marker;
+  return `${cleanNotes}\n\n${marker}`;
+};
+
+const formatTaskTimeFromDate = (date, allDay = false) => {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+  if (allDay) return '09:00';
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+};
+
+const normalizeTaskTimeKey = (value) => {
+  const minutes = parseClockMinutes(value);
+  return Number.isInteger(minutes) ? String(minutes) : '';
+};
+
+const buildTaskSyncSignature = (task = {}) => {
+  const title = String(task?.title || '')
+    .trim()
+    .toLowerCase();
+  const date = String(task?.date || '').trim();
+  const timeKey = normalizeTaskTimeKey(task?.time);
+  if (!title || !date) return '';
+  return `${title}|${date}|${timeKey}`;
+};
+
+const getCalendarSyncWindow = ({ startDate, endDate } = {}) => {
+  const now = new Date();
+  const fallbackStart = new Date(now);
+  fallbackStart.setDate(fallbackStart.getDate() - CALENDAR_SYNC_IMPORT_LOOKBACK_DAYS);
+  const fallbackEnd = new Date(now);
+  fallbackEnd.setDate(fallbackEnd.getDate() + CALENDAR_SYNC_IMPORT_LOOKAHEAD_DAYS);
+
+  const nextStart = startDate instanceof Date ? startDate : fallbackStart;
+  const nextEnd = endDate instanceof Date ? endDate : fallbackEnd;
+  return {
+    startDate: nextStart,
+    endDate: nextEnd,
+  };
+};
 
 const readLastActive = async (userId) => {
   if (!userId) return null;
@@ -395,6 +585,29 @@ const normalizeDateKey = (value) => {
   return d.toISOString().slice(0, 10);
 };
 
+const ISO_DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+const parseIsoDateOnlyAsLocalDay = (value) => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  const match = trimmed.match(ISO_DATE_ONLY_PATTERN);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const parsed = new Date(year, month, day);
+  if (Number.isNaN(parsed.getTime())) return null;
+  if (
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month ||
+    parsed.getDate() !== day
+  ) {
+    return null;
+  }
+  return parsed;
+};
+
 const normalizeStreakGoalPeriod = (value) => {
   const normalized = String(value || 'day').toLowerCase();
   if (normalized === 'week' || normalized === 'month') return normalized;
@@ -402,9 +615,33 @@ const normalizeStreakGoalPeriod = (value) => {
 };
 
 const toStartOfLocalDay = (value) => {
-  const date = value instanceof Date ? value : new Date(value || Date.now());
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+
+  let date = null;
+  if (value instanceof Date) {
+    date = value;
+  } else if (typeof value === 'string') {
+    date = parseIsoDateOnlyAsLocalDay(value) || new Date(value);
+  } else {
+    date = new Date(value);
+  }
   if (Number.isNaN(date.getTime())) return null;
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+};
+
+const toLocalDateKey = (value) => {
+  const date = toStartOfLocalDay(value);
+  return date ? date.toDateString() : '';
+};
+
+const toLocalDateISO = (value = new Date()) => {
+  const date = toStartOfLocalDay(value);
+  if (!date) return '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
 const toUtcDayNumberFromLocalDay = (value) => {
@@ -618,10 +855,13 @@ const getMissedCurrentStreakMeta = (
 
   const firstMissedAt = dayNumberToLocalDate(latestCompletionDay + 1);
   if (!firstMissedAt || Number.isNaN(firstMissedAt.getTime())) return null;
+  const freezeWindowStartAt = dayNumberToLocalDate(latestCompletionDay + 2);
+  if (!freezeWindowStartAt || Number.isNaN(freezeWindowStartAt.getTime())) return null;
 
   return {
     missedPeriodCount,
     firstMissedAt,
+    freezeWindowStartAt,
   };
 };
 
@@ -643,6 +883,14 @@ const getPeriodStartDateFromIndex = (periodIndex, goalPeriod = 'day') => {
   return dayNumberToLocalDate(periodIndex);
 };
 
+const isWithinFreezeWindow = (windowStartAt, referenceDate = new Date()) => {
+  if (!(windowStartAt instanceof Date) || Number.isNaN(windowStartAt.getTime())) return false;
+  const now = referenceDate instanceof Date ? referenceDate : new Date(referenceDate || Date.now());
+  if (Number.isNaN(now.getTime())) return false;
+  const elapsedMs = now.getTime() - windowStartAt.getTime();
+  return elapsedMs >= 0 && elapsedMs < STREAK_FREEZE_WINDOW_MS;
+};
+
 const getMissedHabitPeriodMeta = (habit, referenceDate = new Date()) => {
   if (!habit || !habit.id) return null;
   if ((habit.streak || 0) <= 0) return null;
@@ -662,12 +910,18 @@ const getMissedHabitPeriodMeta = (habit, referenceDate = new Date()) => {
   const firstMissedPeriodIndex = latestCompletedPeriodIndex + 1;
   const firstMissedAt = getPeriodStartDateFromIndex(firstMissedPeriodIndex, goalPeriod);
   if (!firstMissedAt || Number.isNaN(firstMissedAt.getTime())) return null;
+  const freezeWindowStartAt = getPeriodStartDateFromIndex(
+    firstMissedPeriodIndex + 1,
+    goalPeriod
+  );
+  if (!freezeWindowStartAt || Number.isNaN(freezeWindowStartAt.getTime())) return null;
 
   return {
     habitId: habit.id,
     goalPeriod,
     missedPeriodCount,
     firstMissedAt,
+    freezeWindowStartAt,
   };
 };
 
@@ -1094,6 +1348,9 @@ export const AppProvider = ({ children }) => {
   const [foodLogs, setFoodLogs] = useState({});
   const [waterLogs, setWaterLogs] = useState({});
   const [weightManagerLogs, setWeightManagerLogs] = useState([]);
+  const [healthConnection, setHealthConnection] = useState(defaultHealthConnection());
+  const [healthDailyMetrics, setHealthDailyMetrics] = useState({});
+  const [nutritionDailyTotals, setNutritionDailyTotals] = useState({});
 
   // Routine State
   const [routines, setRoutines] = useState([]);
@@ -1127,6 +1384,7 @@ const realtimeFriendRequestChannelRef = useRef(null);
 const realtimeFriendshipChannelRef = useRef(null);
 const friendDataPromiseRef = useRef(null);
 const healthDataPromiseRef = useRef(null);
+const healthSyncPromiseRef = useRef(null);
 const realtimeEnabledRef = useRef(false);
 const profileCacheRef = useRef({});
 const friendSearchCacheRef = useRef(new Map());
@@ -1181,6 +1439,7 @@ const friendSearchAbortControllerRef = useRef(null);
   // Loading State
   const [isLoading, setIsLoading] = useState(true);
   const [hasNotificationPermission, setHasNotificationPermission] = useState(false);
+  const [hasCalendarPermission, setHasCalendarPermission] = useState(false);
   const streakCheckRanRef = useRef(false);
   const [streakFrozen, setStreakFrozen] = useState(false);
   const [currentStreakState, setCurrentStreakState] = useState(DEFAULT_CURRENT_STREAK_STATE);
@@ -1209,6 +1468,7 @@ const friendSearchAbortControllerRef = useRef(null);
   });
   const reschedulingNotificationsRef = useRef(false);
   const notificationPlanSignatureRef = useRef('');
+  const calendarSyncMapRef = useRef(createDefaultCalendarSyncState());
   const currentStreak = currentStreakState?.streak || 0;
 
   // Immutable snapshots of the original palettes and typography
@@ -1395,6 +1655,7 @@ const friendSearchAbortControllerRef = useRef(null);
     await Promise.all([
       fetchProfileFromSupabase(userId),
       fetchUserSettings(userId),
+      refreshHealthTransferData(userId),
     ]);
   } catch (error) {
     console.error('Error loading user data from Supabase:', error);
@@ -1414,6 +1675,9 @@ const friendSearchAbortControllerRef = useRef(null);
       setHealthData({});
       setTodayHealth(defaultHealthDay());
       setWeightManagerLogs([]);
+      setHealthConnection(defaultHealthConnection());
+      setHealthDailyMetrics({});
+      setNutritionDailyTotals({});
       setRoutines([]);
       setRoutineCompletions({});
       setChores([]);
@@ -1437,9 +1701,11 @@ const friendSearchAbortControllerRef = useRef(null);
       setWaterLogs({});
       currentStreakNeedsBootstrapRef.current = false;
       setCurrentStreakState({ ...DEFAULT_CURRENT_STREAK_STATE });
+      healthSyncPromiseRef.current = null;
       setProfile(defaultProfile);
       setProfileLoaded(false);
       setUserSettings(defaultUserSettings);
+      setHasCalendarPermission(false);
       setRevenueCatPremium({
         isActive: false,
         expiration: null,
@@ -1451,6 +1717,14 @@ const friendSearchAbortControllerRef = useRef(null);
       applyTheme('default');
     }
   }, [authUser]);
+
+  useEffect(() => {
+    if (!authUser?.id) {
+      calendarSyncMapRef.current = createDefaultCalendarSyncState();
+      return;
+    }
+    hydrateCalendarSyncMap(authUser.id);
+  }, [authUser?.id, hydrateCalendarSyncMap]);
 
   // Track time spent in-app (foreground time) for Insights.
   useEffect(() => {
@@ -1860,6 +2134,44 @@ const markDataLoaded = useCallback((key) => {
     } catch (err) {
       console.log('Error parsing stored food logs', err);
       return null;
+    }
+  }, []);
+
+  const persistCalendarSyncMap = useCallback(
+    async (nextValue, userIdParam) => {
+      const userId = userIdParam || authUser?.id;
+      if (!userId) return;
+      const normalized = normalizeCalendarSyncState(nextValue);
+      const payload = {
+        ...normalized,
+        updatedAt: new Date().toISOString(),
+      };
+      calendarSyncMapRef.current = payload;
+      try {
+        await AsyncStorage.setItem(getCalendarSyncKey(userId), JSON.stringify(payload));
+      } catch (err) {
+        console.log('Error saving calendar sync map:', err);
+      }
+    },
+    [authUser?.id]
+  );
+
+  const hydrateCalendarSyncMap = useCallback(async (userId) => {
+    if (!userId) {
+      calendarSyncMapRef.current = createDefaultCalendarSyncState();
+      return createDefaultCalendarSyncState();
+    }
+    try {
+      const stored = await AsyncStorage.getItem(getCalendarSyncKey(userId));
+      const parsed = stored ? JSON.parse(stored) : null;
+      const normalized = normalizeCalendarSyncState(parsed || createDefaultCalendarSyncState());
+      calendarSyncMapRef.current = normalized;
+      return normalized;
+    } catch (err) {
+      console.log('Error loading calendar sync map:', err);
+      const fallback = createDefaultCalendarSyncState();
+      calendarSyncMapRef.current = fallback;
+      return fallback;
     }
   }, []);
 
@@ -3447,7 +3759,7 @@ const mapExternalProfile = (row) => ({
     async (habitId, options = {}) => {
       if (!authUser?.id || !habitId) return;
       const providedDate = normalizeDateKey(options?.dateISO);
-      const targetDateISO = providedDate || new Date().toISOString().slice(0, 10);
+      const targetDateISO = providedDate || toLocalDateISO(new Date());
       const amountOverride =
         options?.amount === null || options?.amount === undefined
           ? null
@@ -4344,7 +4656,20 @@ const mapExternalProfile = (row) => ({
 
       const run = (async () => {
         const cachedFoodLogs = await hydrateCachedFoodLogs(userId);
-        await fetchHealthFromSupabase(userId, cachedFoodLogs);
+        const healthResult = await fetchHealthFromSupabase(userId, cachedFoodLogs);
+        await Promise.all([
+          fetchHealthConnectionFromSupabase(userId),
+          fetchHealthDailyMetricsFromSupabase(userId),
+          fetchNutritionDailyTotalsFromSupabase(userId),
+        ]);
+        const todayISO = toLocalDateISO(new Date());
+        const todayFromHealthMap = healthResult?.healthMap?.[todayISO];
+        if (todayFromHealthMap) {
+          await upsertNutritionDailyTotalForDate(todayISO, {
+            ...deriveNutritionTotalsFromFoods(todayFromHealthMap),
+            source: 'pillaflow',
+          });
+        }
         markDataLoaded('health');
       })();
 
@@ -4958,7 +5283,8 @@ const fetchHabitsFromSupabase = async (userId, _groupListParam) => {
   const progressByHabit = {};
   (completionRows || []).forEach((row) => {
     const key = row.habit_id;
-    const dateString = new Date(row.date).toDateString();
+    const dateString = toLocalDateKey(row.date);
+    if (!key || !dateString) return;
     if (!completionRowsByHabit[key]) completionRowsByHabit[key] = [];
     completionRowsByHabit[key].push({
       dateString,
@@ -4968,6 +5294,8 @@ const fetchHabitsFromSupabase = async (userId, _groupListParam) => {
     progressByHabit[key][dateString] = Number(row.amount) || 0;
   });
 
+  const referenceNow = new Date();
+  const canUseStreakFreeze = Boolean(streakFrozen || isPremiumUser);
   const streakCorrections = [];
   const mappedHabits = (habitRows || []).map((h) => {
     const goalValue = Number(h.goal_value) || 1;
@@ -5020,9 +5348,15 @@ const fetchHabitsFromSupabase = async (userId, _groupListParam) => {
       completedDates,
       progressByDate: habitProgressByDate,
     });
-    mappedHabit.streak = computedStreak;
+    const missedMeta = getMissedHabitPeriodMeta(mappedHabit, referenceNow);
+    const isFreezeProtectedHabit =
+      canUseStreakFreeze &&
+      (Number(h.streak) || 0) > 0 &&
+      isWithinFreezeWindow(missedMeta?.freezeWindowStartAt || null, referenceNow);
+    mappedHabit.streak = isFreezeProtectedHabit ? Number(h.streak) || 0 : computedStreak;
     if (
       h.user_id === userId &&
+      !isFreezeProtectedHabit &&
       (Number(h.streak) || 0) !== computedStreak
     ) {
       streakCorrections.push({ id: h.id, streak: computedStreak });
@@ -5444,8 +5778,8 @@ const toggleHabitCompletion = async (habitId) => {
   if (!authUser?.id) return;
 
   const today = new Date();
-  const todayKey = today.toDateString();
-  const todayISO = today.toISOString().slice(0, 10);
+  const todayKey = toLocalDateKey(today);
+  const todayISO = toLocalDateISO(today);
 
   const habit = habits.find((h) => h.id === habitId);
   if (!habit) return;
@@ -5469,9 +5803,9 @@ const toggleHabitCompletion = async (habitId) => {
 const setHabitProgress = async (habitId, amount = 0, dateISO = null, options = {}) => {
   if (!authUser?.id || !habitId) return;
 
-  const dateValue = dateISO || new Date().toISOString().slice(0, 10);
-  const dateKey = new Date(dateValue).toDateString();
-  const todayKey = new Date().toDateString();
+  const dateValue = normalizeDateKey(dateISO) || toLocalDateISO(new Date());
+  const dateKey = toLocalDateKey(dateValue);
+  const todayKey = toLocalDateKey(new Date());
   const syncLinkedGroupHabits = options?.syncLinkedGroupHabits !== false;
   const numericAmount = Math.max(0, Number(amount) || 0);
   const habit = habits.find((item) => item.id === habitId);
@@ -5488,33 +5822,106 @@ const setHabitProgress = async (habitId, amount = 0, dateISO = null, options = {
     ? isQuitAmountCompleted(existingAmountOnDate, goalValue)
     : (habit.completedDates || []).includes(dateKey);
 
-  await supabase
-    .from('habit_completions')
-    .delete()
-    .eq('habit_id', habitId)
-    .eq('user_id', authUser.id)
-    .eq('date', dateValue);
+  const isOnConflictTargetError = (error) => {
+    if (!error) return false;
+    if (error.code === '42P10') return true;
+    const combined = `${error.message || ''} ${error.details || ''} ${error.hint || ''}`.toLowerCase();
+    return (
+      combined.includes('no unique or exclusion constraint') &&
+      combined.includes('on conflict')
+    );
+  };
 
+  let completionWriteError = null;
   if (numericAmount > 0) {
-    let { error } = await supabase
-      .from('habit_completions')
-      .insert({
-        habit_id: habitId,
-        user_id: authUser.id,
-        date: dateValue,
-        amount: numericAmount,
-      });
-    if (error && isMissingColumnError(error, 'amount')) {
-      ({ error } = await supabase
+    const payloadWithAmount = {
+      habit_id: habitId,
+      user_id: authUser.id,
+      date: dateValue,
+      amount: numericAmount,
+    };
+    const payloadWithoutAmount = {
+      habit_id: habitId,
+      user_id: authUser.id,
+      date: dateValue,
+    };
+    const conflictTargets = ['habit_id,user_id,date', 'habit_id,date'];
+
+    for (const conflictTarget of conflictTargets) {
+      let { error } = await supabase
         .from('habit_completions')
-        .insert({
-          habit_id: habitId,
-          user_id: authUser.id,
-          date: dateValue,
-        }));
+        .upsert(payloadWithAmount, { onConflict: conflictTarget });
+
+      if (error && isMissingColumnError(error, 'amount')) {
+        ({ error } = await supabase
+          .from('habit_completions')
+          .upsert(payloadWithoutAmount, { onConflict: conflictTarget }));
+      }
+
+      if (!error) {
+        completionWriteError = null;
+        break;
+      }
+
+      completionWriteError = error;
+      const canTryLegacyConflictTarget =
+        conflictTarget === 'habit_id,user_id,date' &&
+        (isOnConflictTargetError(error) || error.code === '23505');
+      if (canTryLegacyConflictTarget) continue;
+      break;
     }
-    if (error) {
-      console.log('Error setting habit progress:', error);
+  } else {
+    const { error } = await supabase
+      .from('habit_completions')
+      .delete()
+      .eq('habit_id', habitId)
+      .eq('user_id', authUser.id)
+      .eq('date', dateValue);
+    completionWriteError = error || null;
+  }
+
+  if (completionWriteError) {
+    const combined = `${completionWriteError.message || ''} ${completionWriteError.details || ''} ${completionWriteError.hint || ''}`.toLowerCase();
+    const legacyUniqueConflict =
+      completionWriteError.code === '23505' &&
+      combined.includes('habit_completions_habit_id_date_key');
+    if (!legacyUniqueConflict) {
+      console.log('Error setting habit progress:', completionWriteError);
+      return;
+    }
+
+    // Legacy schema fallback: if the user's row already exists for that day,
+    // continue local streak computation so UI state can still progress.
+    const { data: existingRows, error: existingRowError } = await supabase
+      .from('habit_completions')
+      .select('habit_id')
+      .eq('habit_id', habitId)
+      .eq('user_id', authUser.id)
+      .eq('date', dateValue)
+      .limit(1);
+    const hasOwnCompletionRow =
+      !existingRowError && Array.isArray(existingRows) && existingRows.length > 0;
+
+    if (!hasOwnCompletionRow) {
+      console.log(
+        'Error setting habit progress: habit_completions must be unique by (habit_id, user_id, date). Run supabase/habit-completions-integrity.sql.',
+        completionWriteError
+      );
+      return;
+    }
+
+    // Best effort: keep amount accurate when the column exists.
+    let { error: legacyUpdateError } = await supabase
+      .from('habit_completions')
+      .update({ amount: numericAmount })
+      .eq('habit_id', habitId)
+      .eq('user_id', authUser.id)
+      .eq('date', dateValue);
+    if (legacyUpdateError && isMissingColumnError(legacyUpdateError, 'amount')) {
+      legacyUpdateError = null;
+    }
+    if (legacyUpdateError) {
+      console.log('Error updating legacy habit completion amount:', legacyUpdateError);
     }
   }
 
@@ -5531,7 +5938,6 @@ const setHabitProgress = async (habitId, amount = 0, dateISO = null, options = {
     [dateKey]: numericAmount,
   };
   const shouldPreserveFrozenStreak =
-    !quitHabit &&
     !lifecycleCompletedAtTargetDate &&
     streakFrozen &&
     isTargetToday &&
@@ -5643,7 +6049,7 @@ const setHabitProgress = async (habitId, amount = 0, dateISO = null, options = {
 const isHabitCompletedToday = (habitId) => {
   const habit = habits.find((h) => h.id === habitId);
   if (!habit) return false;
-  const today = new Date().toDateString();
+  const today = toLocalDateKey(new Date());
   if (isQuitHabit(habit)) {
     const amount = Number((habit.progressByDate || {})[today]) || 0;
     return isQuitAmountCompleted(amount, getHabitGoalValue(habit));
@@ -5679,10 +6085,6 @@ const isHabitCompletedToday = (habitId) => {
       return;
     }
 
-    const isPremiumUser =
-      profile?.isPremium ||
-      computeIsPremium(profile?.plan, profile?.premiumExpiresAt || profile?.premium_expires_at);
-
     if (!isPremiumUser) {
       if (missedHabitMeta.length) {
         await resetHabitStreaksByIds(missedHabitMeta.map((meta) => meta.habitId));
@@ -5700,8 +6102,7 @@ const isHabitCompletedToday = (habitId) => {
     const expiredHabitIds = [];
     let hasActiveFreezeWindow = false;
     missedHabitMeta.forEach((meta) => {
-      const missedAtMs = meta.firstMissedAt.getTime();
-      if (now.getTime() - missedAtMs >= STREAK_FREEZE_WINDOW_MS) {
+      if (!isWithinFreezeWindow(meta?.freezeWindowStartAt, now)) {
         expiredHabitIds.push(meta.habitId);
       } else {
         hasActiveFreezeWindow = true;
@@ -5713,8 +6114,7 @@ const isHabitCompletedToday = (habitId) => {
     }
 
     if (missedCurrentStreakMeta) {
-      const missedAtMs = missedCurrentStreakMeta.firstMissedAt.getTime();
-      if (now.getTime() - missedAtMs >= STREAK_FREEZE_WINDOW_MS) {
+      if (!isWithinFreezeWindow(missedCurrentStreakMeta?.freezeWindowStartAt, now)) {
         await persistCurrentStreakState(DEFAULT_CURRENT_STREAK_STATE);
       } else {
         hasActiveFreezeWindow = true;
@@ -5732,10 +6132,7 @@ const isHabitCompletedToday = (habitId) => {
     await writeLastActive(userId, now);
   }, [
     authUser?.id,
-    profile?.isPremium,
-    profile?.plan,
-    profile?.premiumExpiresAt,
-    profile?.premium_expires_at,
+    isPremiumUser,
     profileLoaded,
     persistStreakFrozenState,
     persistCurrentStreakState,
@@ -6075,6 +6472,269 @@ const fetchTasksFromSupabase = async (userId) => {
   }
 };
 
+  const ensureCalendarSyncEnabledAndAuthorized = async () => {
+    if (!authUser?.id) {
+      throw new Error('You must be logged in to sync calendar data.');
+    }
+    if (!userSettings.calendarSyncEnabled) {
+      throw new Error('Enable calendar permissions in Settings -> Permissions first.');
+    }
+    const granted = await requestCalendarPermission();
+    if (!granted) {
+      throw new Error('Calendar permission was denied.');
+    }
+    return true;
+  };
+
+  const ensurePillaflowCalendarId = async () => {
+    const currentMap = normalizeCalendarSyncState(calendarSyncMapRef.current);
+    const knownCalendarId = currentMap.calendarId;
+    if (knownCalendarId) {
+      try {
+        const existing = await ExpoCalendar.getCalendarAsync(knownCalendarId);
+        if (existing?.id) return existing.id;
+      } catch (err) {
+        // calendar may have been deleted by the user; recreate below.
+      }
+    }
+
+    const calendars = await ExpoCalendar.getCalendarsAsync(ExpoCalendar.EntityTypes.EVENT);
+    const existingCalendar = (calendars || []).find(
+      (calendar) =>
+        calendar?.title === CALENDAR_SYNC_TITLE &&
+        calendar?.allowsModifications !== false
+    );
+    if (existingCalendar?.id) {
+      const nextMap = {
+        ...currentMap,
+        calendarId: existingCalendar.id,
+      };
+      await persistCalendarSyncMap(nextMap);
+      return existingCalendar.id;
+    }
+
+    let defaultCalendarSource = null;
+    if (Platform.OS === 'ios') {
+      const iosDefault = await ExpoCalendar.getDefaultCalendarAsync();
+      defaultCalendarSource =
+        iosDefault?.source ||
+        (calendars || []).find((calendar) => calendar?.source && calendar?.allowsModifications !== false)?.source ||
+        null;
+    } else {
+      defaultCalendarSource = { isLocalAccount: true, name: CALENDAR_SYNC_TITLE };
+    }
+    if (!defaultCalendarSource) {
+      throw new Error('No writable calendar source is available on this device.');
+    }
+
+    const createdCalendarId = await ExpoCalendar.createCalendarAsync({
+      title: CALENDAR_SYNC_TITLE,
+      color: colors.primary,
+      entityType: ExpoCalendar.EntityTypes.EVENT,
+      sourceId: defaultCalendarSource?.id,
+      source: defaultCalendarSource,
+      name: CALENDAR_SYNC_TITLE,
+      ownerAccount: 'personal',
+      accessLevel: ExpoCalendar.CalendarAccessLevel.OWNER,
+    });
+    const nextMap = {
+      ...currentMap,
+      calendarId: createdCalendarId,
+    };
+    await persistCalendarSyncMap(nextMap);
+    return createdCalendarId;
+  };
+
+  const importTasksFromDeviceCalendar = async ({ startDate, endDate } = {}) => {
+    await ensureCalendarSyncEnabledAndAuthorized();
+    await ensureTasksLoaded();
+
+    const { startDate: windowStart, endDate: windowEnd } = getCalendarSyncWindow({
+      startDate,
+      endDate,
+    });
+
+    const calendars = await ExpoCalendar.getCalendarsAsync(ExpoCalendar.EntityTypes.EVENT);
+    const calendarIds = (calendars || []).map((calendar) => calendar?.id).filter(Boolean);
+    if (!calendarIds.length) {
+      return { scanned: 0, imported: 0, updated: 0, skipped: 0 };
+    }
+
+    const events = await ExpoCalendar.getEventsAsync(calendarIds, windowStart, windowEnd);
+    const uniqueEvents = Array.from(
+      new Map((events || []).filter((event) => event?.id).map((event) => [event.id, event])).values()
+    );
+
+    const combinedTasks = [...(tasks || []), ...(archivedTasks || [])];
+    const tasksById = new Map(combinedTasks.map((task) => [task.id, task]));
+    const signatureToTaskId = new Map(
+      combinedTasks
+        .map((task) => [buildTaskSyncSignature(task), task.id])
+        .filter(([signature]) => Boolean(signature))
+    );
+    const nextMap = normalizeCalendarSyncState(calendarSyncMapRef.current);
+
+    let imported = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    for (const event of uniqueEvents) {
+      const eventStart = event?.startDate ? new Date(event.startDate) : null;
+      if (!(eventStart instanceof Date) || Number.isNaN(eventStart.getTime())) {
+        skipped += 1;
+        continue;
+      }
+
+      const normalizedTitle = String(event?.title || '').trim();
+      if (!normalizedTitle) {
+        skipped += 1;
+        continue;
+      }
+
+      const mappedDescription = stripTaskIdMarkerFromCalendarNotes(event?.notes || '');
+      const payload = {
+        title: normalizedTitle,
+        description: mappedDescription,
+        priority: 'medium',
+        date: toLocalDateISO(eventStart),
+        time: formatTaskTimeFromDate(eventStart, Boolean(event?.allDay)),
+      };
+
+      if (!payload.date || !payload.time) {
+        skipped += 1;
+        continue;
+      }
+
+      const markerTaskId = parseTaskIdFromCalendarNotes(event?.notes || '');
+      let targetTaskId =
+        nextMap.eventToTask[event.id] || markerTaskId || signatureToTaskId.get(buildTaskSyncSignature(payload)) || null;
+      let targetTask = targetTaskId ? tasksById.get(targetTaskId) : null;
+
+      if (targetTask?.id) {
+        const updates = {};
+        if (targetTask.title !== payload.title) updates.title = payload.title;
+        if ((targetTask.description || '') !== (payload.description || '')) {
+          updates.description = payload.description || '';
+        }
+        if (targetTask.date !== payload.date) updates.date = payload.date;
+        if (normalizeTaskTimeKey(targetTask.time) !== normalizeTaskTimeKey(payload.time)) {
+          updates.time = payload.time;
+        }
+
+        if (Object.keys(updates).length) {
+          await updateTask(targetTask.id, updates);
+          updated += 1;
+          targetTask = { ...targetTask, ...updates };
+          tasksById.set(targetTask.id, targetTask);
+        } else {
+          skipped += 1;
+        }
+      } else {
+        const createdTask = await addTask(payload);
+        imported += 1;
+        targetTaskId = createdTask?.id || null;
+        targetTask = createdTask || null;
+        if (targetTask?.id) {
+          tasksById.set(targetTask.id, targetTask);
+          const signature = buildTaskSyncSignature(targetTask);
+          if (signature) signatureToTaskId.set(signature, targetTask.id);
+        }
+      }
+
+      if (targetTaskId) {
+        nextMap.eventToTask[event.id] = targetTaskId;
+        nextMap.taskToEvent[targetTaskId] = event.id;
+      }
+    }
+
+    await persistCalendarSyncMap(nextMap);
+    return {
+      scanned: uniqueEvents.length,
+      imported,
+      updated,
+      skipped,
+    };
+  };
+
+  const exportTasksToDeviceCalendar = async () => {
+    await ensureCalendarSyncEnabledAndAuthorized();
+    await ensureTasksLoaded();
+
+    const calendarId = await ensurePillaflowCalendarId();
+    const nextMap = normalizeCalendarSyncState(calendarSyncMapRef.current);
+    const exportableTasks = (tasks || []).filter(
+      (task) => task?.id && task?.date && task?.time && !isTaskPastArchiveWindow(task)
+    );
+
+    let exported = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    for (const task of exportableTasks) {
+      const startDate = buildDateWithTime(task.date, task.time, 9, 0);
+      if (!(startDate instanceof Date) || Number.isNaN(startDate.getTime())) {
+        skipped += 1;
+        continue;
+      }
+      const endDate = new Date(
+        startDate.getTime() + CALENDAR_TASK_EXPORT_DURATION_MINUTES * 60 * 1000
+      );
+      const notes = withTaskIdMarkerInCalendarNotes(task.description || '', task.id);
+      const eventPayload = {
+        title: task.title,
+        notes,
+        startDate,
+        endDate,
+        allDay: false,
+      };
+
+      const existingEventId = nextMap.taskToEvent[task.id];
+      let finalEventId = existingEventId;
+
+      if (existingEventId) {
+        try {
+          await ExpoCalendar.updateEventAsync(existingEventId, {
+            ...eventPayload,
+            calendarId,
+          });
+          updated += 1;
+        } catch (error) {
+          finalEventId = null;
+        }
+      }
+
+      if (!finalEventId) {
+        finalEventId = await ExpoCalendar.createEventAsync(calendarId, eventPayload);
+        exported += 1;
+      }
+
+      if (finalEventId) {
+        nextMap.taskToEvent[task.id] = finalEventId;
+        nextMap.eventToTask[finalEventId] = task.id;
+      }
+    }
+
+    const validTaskIds = new Set(exportableTasks.map((task) => task.id));
+    Object.keys(nextMap.taskToEvent).forEach((taskId) => {
+      if (!validTaskIds.has(taskId)) {
+        const mappedEventId = nextMap.taskToEvent[taskId];
+        delete nextMap.taskToEvent[taskId];
+        if (mappedEventId && nextMap.eventToTask[mappedEventId] === taskId) {
+          delete nextMap.eventToTask[mappedEventId];
+        }
+      }
+    });
+
+    await persistCalendarSyncMap(nextMap);
+    return {
+      total: exportableTasks.length,
+      exported,
+      updated,
+      skipped,
+      calendarId,
+    };
+  };
+
 //Fetch Notes
 const fetchNotesFromSupabase = async (userId) => {
   const { data, error } = await supabase
@@ -6288,12 +6948,13 @@ const fetchHealthFromSupabase = async (userId, cachedFoodLogs = null) => {
   }
 
   const effectiveFoodLogs = cachedFoodLogs || foodLogs || {};
+  const defaultHealthForProfile = createHealthDayWithJourneyDefaults(profile);
 
   const healthMap = {};
   (data || []).forEach((row) => {
     const key = normalizeDateKey(row.date);
     if (!key) return;
-    healthMap[key] = mapHealthRow(row);
+    healthMap[key] = mapHealthRow(row, defaultHealthForProfile);
   });
 
   const foodMap = {};
@@ -6330,7 +6991,7 @@ const fetchHealthFromSupabase = async (userId, cachedFoodLogs = null) => {
   });
 
   Object.entries(foodMap).forEach(([dateKey, foods]) => {
-    const base = healthMap[dateKey] || defaultHealthDay();
+    const base = healthMap[dateKey] || defaultHealthForProfile;
     const combined = [...(base.foods || []), ...(foods || [])];
     const deduped = [];
     const seen = new Set();
@@ -6386,7 +7047,7 @@ const fetchHealthFromSupabase = async (userId, cachedFoodLogs = null) => {
       let healthDayId =
         cachedId || food?.healthDayId || healthMap[dateKey]?.healthDayId || null;
       if (!healthDayId) {
-        const base = healthMap[dateKey] || defaultHealthDay();
+        const base = healthMap[dateKey] || defaultHealthForProfile;
         const record = await upsertHealthDayRecord(dateKey, base);
         healthDayId = record?.id || base.healthDayId || null;
         healthDayIdCache[dateKey] = healthDayId;
@@ -6444,7 +7105,7 @@ const fetchHealthFromSupabase = async (userId, cachedFoodLogs = null) => {
       deduped.push(foodWithDate);
     });
     const totalCalories = deduped.reduce((sum, f) => sum + (f.calories || 0), 0);
-    const base = healthMap[dateKey] || defaultHealthDay();
+    const base = healthMap[dateKey] || defaultHealthForProfile;
     healthMap[dateKey] = {
       ...base,
       foods: deduped,
@@ -6459,9 +7120,623 @@ const fetchHealthFromSupabase = async (userId, cachedFoodLogs = null) => {
   if (healthMap[todayISO]) {
     setTodayHealth(healthMap[todayISO]);
   } else {
-    setTodayHealth(defaultHealthDay());
+    setTodayHealth(defaultHealthForProfile);
   }
+
+  return {
+    healthMap,
+    waterMap,
+  };
 };
+
+const mapHealthConnectionRow = useCallback(
+  (row = {}, overrides = {}) => {
+    const providerDetails = getHealthProviderDetails();
+    const base = defaultHealthConnection();
+    const platform = row?.platform || overrides?.platform || providerDetails.platform || base.platform;
+    const provider = row?.provider || overrides?.provider || providerDetails.provider || base.provider;
+    const providerLabel =
+      provider === 'apple_health'
+        ? 'Apple Health'
+        : provider === 'health_connect'
+          ? 'Health Connect'
+          : providerDetails.label || base.providerLabel;
+
+    return {
+      ...base,
+      ...overrides,
+      platform,
+      provider,
+      providerLabel,
+      connectLabel: platform === 'ios' ? 'Connect Apple Health' : 'Connect Health Connect',
+      isConnected: Boolean(row?.is_connected ?? row?.isConnected ?? overrides?.isConnected),
+      canReadSteps: Boolean(row?.can_read_steps ?? row?.canReadSteps ?? overrides?.canReadSteps),
+      canReadActiveCalories: Boolean(
+        row?.can_read_active_calories ?? row?.canReadActiveCalories ?? overrides?.canReadActiveCalories
+      ),
+      canWriteNutrition: Boolean(
+        row?.can_write_nutrition ?? row?.canWriteNutrition ?? overrides?.canWriteNutrition
+      ),
+      syncNutritionToHealth: Boolean(
+        row?.sync_nutrition_to_health ??
+          row?.syncNutritionToHealth ??
+          overrides?.syncNutritionToHealth
+      ),
+      lastSyncedDate: normalizeDateKey(
+        row?.last_synced_date ?? row?.lastSyncedDate ?? overrides?.lastSyncedDate
+      ) || null,
+      lastSyncedAt: row?.last_synced_at ?? row?.lastSyncedAt ?? overrides?.lastSyncedAt ?? null,
+      available: Boolean(overrides?.available ?? row?.available ?? base.available),
+      unavailableReason:
+        overrides?.unavailableReason ?? row?.unavailable_reason ?? row?.unavailableReason ?? null,
+      updatedAt: row?.updated_at ?? row?.updatedAt ?? overrides?.updatedAt ?? null,
+    };
+  },
+  []
+);
+
+const fetchHealthConnectionFromSupabase = useCallback(
+  async (userIdParam) => {
+    const userId = userIdParam || authUser?.id;
+    const availability = await checkHealthAvailability();
+    if (!userId) {
+      const fallback = mapHealthConnectionRow({}, {
+        available: availability.available,
+        unavailableReason: availability.reason,
+      });
+      setHealthConnection(fallback);
+      return fallback;
+    }
+
+    const providerDetails = getHealthProviderDetails();
+    const { data, error } = await supabase
+      .from('health_connections')
+      .select(
+        'platform, provider, is_connected, can_read_steps, can_read_active_calories, can_write_nutrition, sync_nutrition_to_health, last_synced_date, last_synced_at, updated_at'
+      )
+      .eq('user_id', userId)
+      .eq('platform', providerDetails.platform)
+      .maybeSingle();
+
+    if (error) {
+      if (
+        !isMissingRelationError(error, 'health_connections') &&
+        !isMissingColumnError(error)
+      ) {
+        console.log('Error fetching health connection:', error);
+      }
+      const fallback = mapHealthConnectionRow({}, {
+        available: availability.available,
+        unavailableReason: availability.reason,
+      });
+      setHealthConnection(fallback);
+      return fallback;
+    }
+
+    const mapped = mapHealthConnectionRow(data || {}, {
+      available: availability.available,
+      unavailableReason: availability.reason,
+    });
+    setHealthConnection(mapped);
+    return mapped;
+  },
+  [authUser?.id, isMissingRelationError, mapHealthConnectionRow]
+);
+
+const upsertHealthConnection = useCallback(
+  async (updates = {}, userIdParam = null) => {
+    const userId = userIdParam || authUser?.id;
+    if (!userId) {
+      const localOnly = mapHealthConnectionRow(healthConnection || {}, updates);
+      setHealthConnection(localOnly);
+      return localOnly;
+    }
+
+    const providerDetails = getHealthProviderDetails();
+    const nowISO = new Date().toISOString();
+    const payload = pruneUndefined({
+      user_id: userId,
+      platform: updates.platform || healthConnection?.platform || providerDetails.platform,
+      provider: updates.provider || healthConnection?.provider || providerDetails.provider,
+      is_connected:
+        updates.isConnected === undefined
+          ? healthConnection?.isConnected || false
+          : Boolean(updates.isConnected),
+      can_read_steps:
+        updates.canReadSteps === undefined
+          ? healthConnection?.canReadSteps || false
+          : Boolean(updates.canReadSteps),
+      can_read_active_calories:
+        updates.canReadActiveCalories === undefined
+          ? healthConnection?.canReadActiveCalories || false
+          : Boolean(updates.canReadActiveCalories),
+      can_write_nutrition:
+        updates.canWriteNutrition === undefined
+          ? healthConnection?.canWriteNutrition || false
+          : Boolean(updates.canWriteNutrition),
+      sync_nutrition_to_health:
+        updates.syncNutritionToHealth === undefined
+          ? healthConnection?.syncNutritionToHealth || false
+          : Boolean(updates.syncNutritionToHealth),
+      last_synced_date:
+        updates.lastSyncedDate === undefined
+          ? healthConnection?.lastSyncedDate || null
+          : normalizeDateKey(updates.lastSyncedDate) || null,
+      last_synced_at:
+        updates.lastSyncedAt === undefined
+          ? healthConnection?.lastSyncedAt || null
+          : updates.lastSyncedAt || null,
+      updated_at: nowISO,
+    });
+
+    const { data, error } = await supabase
+      .from('health_connections')
+      .upsert(payload, { onConflict: 'user_id,platform' })
+      .select(
+        'platform, provider, is_connected, can_read_steps, can_read_active_calories, can_write_nutrition, sync_nutrition_to_health, last_synced_date, last_synced_at, updated_at'
+      )
+      .single();
+
+    if (error) {
+      if (
+        !isMissingRelationError(error, 'health_connections') &&
+        !isMissingColumnError(error)
+      ) {
+        console.log('Error saving health connection:', error);
+      }
+      const fallback = mapHealthConnectionRow(healthConnection || {}, {
+        ...updates,
+        updatedAt: nowISO,
+      });
+      setHealthConnection(fallback);
+      return fallback;
+    }
+
+    const mapped = mapHealthConnectionRow(data || payload, {
+      available: updates.available ?? healthConnection?.available,
+      unavailableReason: updates.unavailableReason ?? healthConnection?.unavailableReason,
+    });
+    setHealthConnection(mapped);
+    return mapped;
+  },
+  [authUser?.id, healthConnection, isMissingRelationError, mapHealthConnectionRow]
+);
+
+const fetchHealthDailyMetricsFromSupabase = useCallback(
+  async (userIdParam) => {
+    const userId = userIdParam || authUser?.id;
+    if (!userId) {
+      setHealthDailyMetrics({});
+      return {};
+    }
+
+    const { data, error } = await supabase
+      .from('health_daily_metrics')
+      .select('metric_date, steps, active_calories, source, updated_at')
+      .eq('user_id', userId)
+      .order('metric_date', { ascending: false })
+      .limit(180);
+
+    if (error) {
+      if (
+        !isMissingRelationError(error, 'health_daily_metrics') &&
+        !isMissingColumnError(error)
+      ) {
+        console.log('Error fetching health daily metrics:', error);
+      }
+      setHealthDailyMetrics({});
+      return {};
+    }
+
+    const mapped = {};
+    (data || []).forEach((row) => {
+      const dateKey = normalizeDateKey(row?.metric_date);
+      if (!dateKey) return;
+      mapped[dateKey] = createHealthMetricEntry(dateKey, row);
+    });
+    setHealthDailyMetrics(mapped);
+    return mapped;
+  },
+  [authUser?.id, isMissingRelationError]
+);
+
+const fetchNutritionDailyTotalsFromSupabase = useCallback(
+  async (userIdParam) => {
+    const userId = userIdParam || authUser?.id;
+    if (!userId) {
+      setNutritionDailyTotals({});
+      return {};
+    }
+
+    const { data, error } = await supabase
+      .from('nutrition_daily_totals')
+      .select(
+        'total_date, calories, protein_grams, carbs_grams, fat_grams, source, synced_to_health, last_synced_to_health_at, updated_at'
+      )
+      .eq('user_id', userId)
+      .order('total_date', { ascending: false })
+      .limit(365);
+
+    if (error) {
+      if (
+        !isMissingRelationError(error, 'nutrition_daily_totals') &&
+        !isMissingColumnError(error)
+      ) {
+        console.log('Error fetching nutrition totals:', error);
+      }
+      setNutritionDailyTotals({});
+      return {};
+    }
+
+    const mapped = {};
+    (data || []).forEach((row) => {
+      const dateKey = normalizeDateKey(row?.total_date);
+      if (!dateKey) return;
+      mapped[dateKey] = createNutritionTotalsEntry(dateKey, row);
+    });
+    setNutritionDailyTotals(mapped);
+    return mapped;
+  },
+  [authUser?.id, isMissingRelationError]
+);
+
+const getHealthDailyMetricForDate = useCallback(
+  (dateISO) => {
+    const dateKey = normalizeDateKey(dateISO);
+    if (!dateKey) return null;
+    return healthDailyMetrics[dateKey] || null;
+  },
+  [healthDailyMetrics]
+);
+
+const getNutritionDailyTotalForDate = useCallback(
+  (dateISO) => {
+    const dateKey = normalizeDateKey(dateISO);
+    if (!dateKey) return null;
+    return nutritionDailyTotals[dateKey] || null;
+  },
+  [nutritionDailyTotals]
+);
+
+const upsertHealthDailyMetricForDate = useCallback(
+  async (dateISO, metricUpdates = {}) => {
+    if (!authUser?.id) return null;
+    const dateKey = normalizeDateKey(dateISO) || toLocalDateISO(new Date());
+    const existing = healthDailyMetrics[dateKey] || {};
+    const payload = pruneUndefined({
+      user_id: authUser.id,
+      metric_date: dateKey,
+      steps: Math.max(
+        0,
+        Math.round(asNumber(metricUpdates.steps, existing.steps || 0) || 0)
+      ),
+      active_calories: asNumber(
+        metricUpdates.activeCalories,
+        existing.activeCalories ?? null
+      ),
+      source: metricUpdates.source || existing.source || 'platform_health',
+      updated_at: new Date().toISOString(),
+    });
+
+    const { data, error } = await supabase
+      .from('health_daily_metrics')
+      .upsert(payload, { onConflict: 'user_id,metric_date' })
+      .select('metric_date, steps, active_calories, source, updated_at')
+      .single();
+
+    if (error) {
+      if (
+        !isMissingRelationError(error, 'health_daily_metrics') &&
+        !isMissingColumnError(error)
+      ) {
+        console.log('Error saving health daily metric:', error);
+      }
+    }
+
+    const mapped = createHealthMetricEntry(dateKey, data || payload);
+    setHealthDailyMetrics((prev) => ({ ...prev, [dateKey]: mapped }));
+    return mapped;
+  },
+  [authUser?.id, healthDailyMetrics, isMissingRelationError]
+);
+
+const upsertNutritionDailyTotalForDate = useCallback(
+  async (dateISO, totalsOverride = null) => {
+    if (!authUser?.id) return null;
+    const dateKey = normalizeDateKey(dateISO) || toLocalDateISO(new Date());
+    const dayData = healthData[dateKey] || createHealthDayWithJourneyDefaults(profile);
+    const derived = totalsOverride || deriveNutritionTotalsFromFoods(dayData);
+    const payload = pruneUndefined({
+      user_id: authUser.id,
+      total_date: dateKey,
+      calories: Math.max(0, Math.round(asNumber(derived.calories, 0) || 0)),
+      protein_grams: Math.max(0, asNumber(derived.protein, 0) || 0),
+      carbs_grams: Math.max(0, asNumber(derived.carbs, 0) || 0),
+      fat_grams: Math.max(0, asNumber(derived.fat, 0) || 0),
+      source: totalsOverride?.source || 'pillaflow',
+      updated_at: new Date().toISOString(),
+    });
+
+    const { data, error } = await supabase
+      .from('nutrition_daily_totals')
+      .upsert(payload, { onConflict: 'user_id,total_date' })
+      .select(
+        'total_date, calories, protein_grams, carbs_grams, fat_grams, source, synced_to_health, last_synced_to_health_at, updated_at'
+      )
+      .single();
+
+    if (error) {
+      if (
+        !isMissingRelationError(error, 'nutrition_daily_totals') &&
+        !isMissingColumnError(error)
+      ) {
+        console.log('Error saving nutrition daily total:', error);
+      }
+    }
+
+    const mapped = createNutritionTotalsEntry(dateKey, data || payload);
+    setNutritionDailyTotals((prev) => ({ ...prev, [dateKey]: mapped }));
+    return mapped;
+  },
+  [authUser?.id, healthData, profile, isMissingRelationError]
+);
+
+const syncNutritionDailyTotalToHealth = useCallback(
+  async (dateISO, explicitTotals = null) => {
+    const dateKey = normalizeDateKey(dateISO) || toLocalDateISO(new Date());
+    if (!healthConnection?.isConnected) {
+      return { synced: false, reason: 'health_not_connected' };
+    }
+    if (!healthConnection?.syncNutritionToHealth) {
+      return { synced: false, reason: 'nutrition_sync_disabled' };
+    }
+    if (!healthConnection?.canWriteNutrition) {
+      return { synced: false, reason: 'nutrition_write_not_supported' };
+    }
+
+    const totals =
+      explicitTotals ||
+      getNutritionDailyTotalForDate(dateKey) ||
+      (await upsertNutritionDailyTotalForDate(dateKey));
+
+    if (!totals) {
+      return { synced: false, reason: 'nutrition_totals_unavailable' };
+    }
+
+    const writeResult = await writeDailyNutritionToHealth({
+      dateISO: dateKey,
+      calories: totals.calories,
+      protein: totals.protein,
+      carbs: totals.carbs,
+      fat: totals.fat,
+    });
+
+    if (!writeResult?.written) {
+      return {
+        synced: false,
+        reason: 'health_write_failed_or_unsupported',
+        details: writeResult,
+      };
+    }
+
+    const nowISO = new Date().toISOString();
+    const updatePayload = {
+      synced_to_health: true,
+      last_synced_to_health_at: nowISO,
+      updated_at: nowISO,
+    };
+
+    const { error } = await supabase
+      .from('nutrition_daily_totals')
+      .update(updatePayload)
+      .eq('user_id', authUser?.id)
+      .eq('total_date', dateKey);
+
+    if (
+      error &&
+      !isMissingRelationError(error, 'nutrition_daily_totals') &&
+      !isMissingColumnError(error)
+    ) {
+      console.log('Error marking nutrition sync state:', error);
+    }
+
+    setNutritionDailyTotals((prev) => ({
+      ...prev,
+      [dateKey]: createNutritionTotalsEntry(dateKey, {
+        ...(prev?.[dateKey] || totals),
+        synced_to_health: true,
+        last_synced_to_health_at: nowISO,
+        updated_at: nowISO,
+      }),
+    }));
+
+    return { synced: true, details: writeResult };
+  },
+  [
+    authUser?.id,
+    getNutritionDailyTotalForDate,
+    healthConnection,
+    isMissingRelationError,
+    upsertNutritionDailyTotalForDate,
+  ]
+);
+
+const syncHealthMetricsFromPlatform = useCallback(
+  async ({ force = false, connectionOverride = null } = {}) => {
+    if (!authUser?.id) {
+      return { synced: false, reason: 'not_authenticated' };
+    }
+    const effectiveConnection = connectionOverride || healthConnection;
+    if (!effectiveConnection?.isConnected) {
+      return { synced: false, reason: 'health_not_connected' };
+    }
+    if (!force && healthSyncPromiseRef.current) {
+      return healthSyncPromiseRef.current;
+    }
+
+    const run = (async () => {
+      const availability = await checkHealthAvailability();
+      if (!availability.available) {
+        await upsertHealthConnection({
+          available: false,
+          unavailableReason: availability.reason,
+        });
+        return { synced: false, reason: availability.reason || 'health_not_available' };
+      }
+
+      const todayISO = toLocalDateISO(new Date());
+      if (!force && effectiveConnection?.lastSyncedDate === todayISO) {
+        return { synced: false, reason: 'already_synced_today', date: todayISO };
+      }
+
+      const [stepsResult, activeCaloriesResult] = await Promise.all([
+        readTodayStepsFromHealth(new Date()),
+        readTodayActiveCaloriesFromHealth(new Date()),
+      ]);
+
+      const stepsValue = Math.max(0, Math.round(asNumber(stepsResult?.steps, 0) || 0));
+      const activeCaloriesValue = asNumber(activeCaloriesResult?.activeCalories, null);
+
+      await upsertHealthDailyMetricForDate(todayISO, {
+        steps: stepsValue,
+        activeCalories: activeCaloriesValue,
+        source: 'platform_health',
+      });
+
+      const nowISO = new Date().toISOString();
+      await upsertHealthConnection({
+        isConnected: true,
+        canReadSteps: effectiveConnection?.canReadSteps || stepsResult?.supported,
+        canReadActiveCalories:
+          effectiveConnection?.canReadActiveCalories || activeCaloriesResult?.supported,
+        available: true,
+        unavailableReason: null,
+        lastSyncedDate: todayISO,
+        lastSyncedAt: nowISO,
+      });
+
+      if (effectiveConnection?.syncNutritionToHealth) {
+        await syncNutritionDailyTotalToHealth(todayISO);
+      }
+
+      return {
+        synced: true,
+        date: todayISO,
+        steps: stepsValue,
+        activeCalories: activeCaloriesValue,
+      };
+    })();
+
+    healthSyncPromiseRef.current = run;
+    try {
+      return await run;
+    } finally {
+      if (healthSyncPromiseRef.current === run) {
+        healthSyncPromiseRef.current = null;
+      }
+    }
+  },
+  [
+    authUser?.id,
+    healthConnection,
+    syncNutritionDailyTotalToHealth,
+    upsertHealthConnection,
+    upsertHealthDailyMetricForDate,
+  ]
+);
+
+const connectHealthIntegration = useCallback(
+  async ({ syncNutritionToHealth = false } = {}) => {
+    if (!authUser?.id) {
+      throw new Error('You must be logged in to connect health permissions.');
+    }
+
+    const availability = await checkHealthAvailability();
+    if (!availability.available) {
+      throw new Error(
+        availability.reason ||
+          'The platform health app is not available on this device.'
+      );
+    }
+
+    const permissionResult = await requestHealthPermissions({
+      includeNutritionWrite: true,
+    });
+    if (!permissionResult.granted) {
+      throw new Error(permissionResult.reason || 'Health permission request was denied.');
+    }
+
+    const nextConnection = await upsertHealthConnection({
+      isConnected: true,
+      canReadSteps: permissionResult.capabilities?.canReadSteps,
+      canReadActiveCalories: permissionResult.capabilities?.canReadActiveCalories,
+      canWriteNutrition: permissionResult.capabilities?.canWriteNutrition,
+      syncNutritionToHealth:
+        syncNutritionToHealth && Boolean(permissionResult.capabilities?.canWriteNutrition),
+      available: true,
+      unavailableReason: null,
+      lastSyncedDate: null,
+      lastSyncedAt: null,
+    });
+
+    await syncHealthMetricsFromPlatform({ force: true, connectionOverride: nextConnection });
+    await upsertNutritionDailyTotalForDate(toLocalDateISO(new Date()));
+    if (nextConnection?.syncNutritionToHealth) {
+      await syncNutritionDailyTotalToHealth(toLocalDateISO(new Date()));
+    }
+
+    return nextConnection;
+  },
+  [
+    authUser?.id,
+    syncHealthMetricsFromPlatform,
+    syncNutritionDailyTotalToHealth,
+    upsertHealthConnection,
+    upsertNutritionDailyTotalForDate,
+  ]
+);
+
+const disconnectHealthIntegration = useCallback(async () => {
+  if (!authUser?.id) return null;
+  return upsertHealthConnection({
+    isConnected: false,
+    syncNutritionToHealth: false,
+    lastSyncedDate: null,
+    lastSyncedAt: null,
+  });
+}, [authUser?.id, upsertHealthConnection]);
+
+const setHealthNutritionSyncEnabled = useCallback(
+  async (enabled) => {
+    const nextEnabled = Boolean(enabled) && Boolean(healthConnection?.canWriteNutrition);
+    const updated = await upsertHealthConnection({
+      syncNutritionToHealth: nextEnabled,
+    });
+    if (nextEnabled) {
+      await syncNutritionDailyTotalToHealth(toLocalDateISO(new Date()));
+    }
+    return updated;
+  },
+  [healthConnection?.canWriteNutrition, syncNutritionDailyTotalToHealth, upsertHealthConnection]
+);
+
+const refreshHealthTransferData = useCallback(
+  async (userIdParam) => {
+    const userId = userIdParam || authUser?.id;
+    if (!userId) return;
+    await Promise.all([
+      fetchHealthConnectionFromSupabase(userId),
+      fetchHealthDailyMetricsFromSupabase(userId),
+      fetchNutritionDailyTotalsFromSupabase(userId),
+    ]);
+  },
+  [
+    authUser?.id,
+    fetchHealthConnectionFromSupabase,
+    fetchHealthDailyMetricsFromSupabase,
+    fetchNutritionDailyTotalsFromSupabase,
+  ]
+);
 
 const fetchWeightManagerLogsFromSupabase = async (userId) => {
   if (!userId) return [];
@@ -6640,10 +7915,11 @@ const upsertHealthDayRecord = async (dateISO, healthDay) => {
     const { energy: _ignoreEnergy, waterIntakeDelta, ...updatesWithoutEnergy } = updates || {};
     const nowISO = new Date().toISOString();
     const todayISO = new Date().toISOString().slice(0, 10);
+    const defaultHealthForProfile = createHealthDayWithJourneyDefaults(profile);
     let newHealth = null;
 
     setHealthData((prev) => {
-      const base = prev[normalizedDate] || defaultHealthDay();
+      const base = prev[normalizedDate] || defaultHealthForProfile;
       const { energy: _ignoreBaseEnergy, ...baseWithoutEnergy } = base;
       const createdAt = baseWithoutEnergy.createdAt || updatesWithoutEnergy?.createdAt || nowISO;
       const merged = {
@@ -6713,6 +7989,14 @@ const upsertHealthDayRecord = async (dateISO, healthDay) => {
       return;
     }
 
+    await upsertNutritionDailyTotalForDate(normalizedDate, {
+      ...deriveNutritionTotalsFromFoods(newHealth),
+      source: 'pillaflow',
+    });
+    if (healthConnection?.syncNutritionToHealth) {
+      await syncNutritionDailyTotalToHealth(normalizedDate);
+    }
+
     const healthDayRecord = await upsertHealthDayRecord(normalizedDate, newHealth);
     if (healthDayRecord) {
       const persistedHealth = mapHealthRow(healthDayRecord, newHealth);
@@ -6736,7 +8020,7 @@ const addFoodEntryForDate = async (dateISO, food) => {
     throw new Error('You must be logged in to log food.');
   }
   const dayKey = normalizeDateKey(dateISO);
-  const baseDay = healthData[dayKey] || defaultHealthDay();
+  const baseDay = healthData[dayKey] || createHealthDayWithJourneyDefaults(profile);
 
   const healthDayRecord = await upsertHealthDayRecord(dayKey, baseDay);
   const healthDayId = healthDayRecord?.id || baseDay.healthDayId;
@@ -6820,7 +8104,7 @@ const addFoodEntryForDate = async (dateISO, food) => {
 const deleteFoodEntryForDate = async (dateISO, foodId) => {
   if (!authUser?.id) return;
   const dayKey = normalizeDateKey(dateISO);
-  const baseDay = healthData[dayKey] || defaultHealthDay();
+  const baseDay = healthData[dayKey] || createHealthDayWithJourneyDefaults(profile);
   const updatedFoods = (baseDay.foods || []).filter((f) => f.id !== foodId);
   const totalCalories = updatedFoods.reduce((sum, f) => sum + (f.calories || 0), 0);
 
@@ -6850,7 +8134,7 @@ const addWaterLogEntryForDate = async (dateISO, entry) => {
     throw new Error('You must be logged in to log water.');
   }
   const dayKey = normalizeDateKey(dateISO);
-  const baseDay = healthData[dayKey] || defaultHealthDay();
+  const baseDay = healthData[dayKey] || createHealthDayWithJourneyDefaults(profile);
 
   const amountMl = asNumber(entry?.amountMl ?? entry?.amount_ml ?? entry?.amount, null);
   if (!Number.isFinite(amountMl) || amountMl <= 0) {
@@ -6954,7 +8238,7 @@ const resetWaterLogForDate = async (dateISO) => {
   const nowISO = new Date().toISOString();
 
   setHealthData((prev) => {
-    const base = prev[dayKey] || defaultHealthDay();
+    const base = prev[dayKey] || createHealthDayWithJourneyDefaults(profile);
     const updated = {
       ...base,
       waterIntake: 0,
@@ -6965,7 +8249,7 @@ const resetWaterLogForDate = async (dateISO) => {
 
   if (dayKey === todayISO) {
     setTodayHealth((prev) => ({
-      ...(prev || defaultHealthDay()),
+      ...(prev || createHealthDayWithJourneyDefaults(profile)),
       waterIntake: 0,
       updatedAt: nowISO,
     }));
@@ -9539,25 +10823,52 @@ const mapProfileRow = (row) => {
     habitRemindersEnabled: row?.habit_reminders_enabled ?? defaultUserSettings.habitRemindersEnabled,
     taskRemindersEnabled: row?.task_reminders_enabled ?? defaultUserSettings.taskRemindersEnabled,
     healthRemindersEnabled: row?.health_reminders_enabled ?? defaultUserSettings.healthRemindersEnabled,
+    calendarSyncEnabled:
+      row?.calendar_sync_enabled ?? defaultUserSettings.calendarSyncEnabled,
     defaultCurrencyCode: row?.default_currency_code || defaultUserSettings.defaultCurrencyCode,
   });
 
   const fetchUserSettings = async (userId) => {
     if (!userId) return null;
-    const { data, error } = await supabase
-      .from('user_settings')
-      .select(
-        'id, user_id, theme_name, notifications_enabled, habit_reminders_enabled, task_reminders_enabled, health_reminders_enabled, default_currency_code'
-      )
-      .eq('user_id', userId)
-      .single();
+    const baseSelectFields =
+      'id, user_id, theme_name, notifications_enabled, habit_reminders_enabled, task_reminders_enabled, health_reminders_enabled, default_currency_code';
+    const selectVariants = [
+      `${baseSelectFields}, calendar_sync_enabled`,
+      baseSelectFields,
+    ];
+    let row = null;
+    let lastError = null;
 
-    if (error && error.code !== 'PGRST116') {
-      console.log('Error fetching user settings:', error);
-      return null;
+    for (const fields of selectVariants) {
+      const { data, error } = await supabase
+        .from('user_settings')
+        .select(fields)
+        .eq('user_id', userId)
+        .single();
+
+      if (!error) {
+        row = data || null;
+        break;
+      }
+
+      if (error.code === 'PGRST116') {
+        row = null;
+        lastError = null;
+        break;
+      }
+
+      if (isMissingColumnError(error, 'calendar_sync_enabled')) {
+        continue;
+      }
+
+      lastError = error;
+      break;
     }
 
-    let row = data;
+    if (lastError) {
+      console.log('Error fetching user settings:', lastError);
+      return null;
+    }
 
     if (!row) {
       row = await upsertUserSettings({ ...defaultUserSettings }, userId);
@@ -9587,6 +10898,10 @@ const mapProfileRow = (row) => {
       habit_reminders_enabled: overrides.habitRemindersEnabled ?? userSettings.habitRemindersEnabled ?? defaultUserSettings.habitRemindersEnabled,
       task_reminders_enabled: overrides.taskRemindersEnabled ?? userSettings.taskRemindersEnabled ?? defaultUserSettings.taskRemindersEnabled,
       health_reminders_enabled: overrides.healthRemindersEnabled ?? userSettings.healthRemindersEnabled ?? defaultUserSettings.healthRemindersEnabled,
+      calendar_sync_enabled:
+        overrides.calendarSyncEnabled ??
+        userSettings.calendarSyncEnabled ??
+        defaultUserSettings.calendarSyncEnabled,
       default_currency_code: overrides.defaultCurrencyCode ?? userSettings.defaultCurrencyCode ?? defaultUserSettings.defaultCurrencyCode,
       language: 'en',
       updated_at: nowISO,
@@ -9596,11 +10911,24 @@ const mapProfileRow = (row) => {
       delete payload.id;
     }
 
-    const { data, error } = await supabase
-      .from('user_settings')
-      .upsert(payload, { onConflict: 'user_id' })
-      .select()
-      .single();
+    let mutablePayload = { ...payload };
+    let data = null;
+    let error = null;
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      ({ data, error } = await supabase
+        .from('user_settings')
+        .upsert(mutablePayload, { onConflict: 'user_id' })
+        .select()
+        .single());
+      if (!error) break;
+
+      if (!isMissingColumnError(error)) break;
+      const missingColumn = extractMissingColumnName(error);
+      if (!missingColumn) break;
+      if (!Object.prototype.hasOwnProperty.call(mutablePayload, missingColumn)) break;
+      delete mutablePayload[missingColumn];
+    }
 
     if (error) {
       console.log('Error saving user settings:', error);
@@ -9616,6 +10944,37 @@ const mapProfileRow = (row) => {
     const merged = { ...userSettings, ...updates };
     setUserSettings(merged);
     return upsertUserSettings(merged);
+  };
+
+  const requestCalendarPermission = async () => {
+    const existing = await ExpoCalendar.getCalendarPermissionsAsync();
+    if (existing?.status === 'granted') {
+      setHasCalendarPermission(true);
+      return true;
+    }
+
+    const requested = await ExpoCalendar.requestCalendarPermissionsAsync();
+    const granted = requested?.status === 'granted';
+    setHasCalendarPermission(granted);
+    return granted;
+  };
+
+  const setCalendarSyncEnabled = async (enabled) => {
+    const nextEnabled = Boolean(enabled);
+    if (!nextEnabled) {
+      setHasCalendarPermission(false);
+      await updateUserSettings({ calendarSyncEnabled: false });
+      return false;
+    }
+
+    const granted = await requestCalendarPermission();
+    if (!granted) {
+      await updateUserSettings({ calendarSyncEnabled: false });
+      throw new Error('Calendar permission was denied.');
+    }
+
+    await updateUserSettings({ calendarSyncEnabled: true });
+    return true;
   };
 
   const t = (text) => text;
@@ -9838,6 +11197,7 @@ const mapProfileRow = (row) => {
     setHasOnboarded(false);
     setProfile(defaultProfile);
     setUserSettings(defaultUserSettings);
+    setHasCalendarPermission(false);
     setThemeName('default');
     applyTheme('default');
     cacheThemeLocally('default');
@@ -10729,6 +12089,29 @@ const mapProfileRow = (row) => {
   }, [authUser, userSettings.notificationsEnabled]);
 
   useEffect(() => {
+    let mounted = true;
+    const syncCalendarPermission = async () => {
+      if (!authUser?.id || !userSettings.calendarSyncEnabled) {
+        if (mounted) setHasCalendarPermission(false);
+        return;
+      }
+      try {
+        const permission = await ExpoCalendar.getCalendarPermissionsAsync();
+        if (mounted) {
+          setHasCalendarPermission(permission?.status === 'granted');
+        }
+      } catch (error) {
+        if (mounted) setHasCalendarPermission(false);
+      }
+    };
+
+    syncCalendarPermission();
+    return () => {
+      mounted = false;
+    };
+  }, [authUser?.id, userSettings.calendarSyncEnabled]);
+
+  useEffect(() => {
     if (!authUser?.id || !userSettings.notificationsEnabled || !hasNotificationPermission) {
       return;
     }
@@ -10757,6 +12140,11 @@ const mapProfileRow = (row) => {
   }, [isLoading, rescheduleAllNotifications]);
 
   useEffect(() => {
+    if (!authUser?.id || !healthConnection?.isConnected) return;
+    syncHealthMetricsFromPlatform();
+  }, [authUser?.id, healthConnection?.isConnected, syncHealthMetricsFromPlatform]);
+
+  useEffect(() => {
     if (!authUser?.id) return undefined;
     const onStateChange = (nextState) => {
       const prevState = appStateRef.current;
@@ -10764,12 +12152,13 @@ const mapProfileRow = (row) => {
       if (prevState !== 'active' && nextState === 'active') {
         rescheduleAllNotifications();
         registerPushTokenIfNeeded(true);
+        syncHealthMetricsFromPlatform();
       }
     };
 
     const sub = AppState.addEventListener('change', onStateChange);
     return () => sub?.remove?.();
-  }, [authUser?.id, rescheduleAllNotifications, registerPushTokenIfNeeded]);
+  }, [authUser?.id, rescheduleAllNotifications, registerPushTokenIfNeeded, syncHealthMetricsFromPlatform]);
 
   // COMPUTED VALUES
   const getCurrentStreak = () => currentStreak;
@@ -10780,7 +12169,7 @@ const mapProfileRow = (row) => {
   };
 
   const getTodayHabitsCount = () => {
-    const today = new Date().toDateString();
+    const today = toLocalDateKey(new Date());
     const completedToday = habits.filter((habit) => {
       if (isQuitHabit(habit)) {
         const amount = Number((habit.progressByDate || {})[today]) || 0;
@@ -10872,6 +12261,7 @@ const mapProfileRow = (row) => {
     isLoading,
     themeReady,
     hasNotificationPermission,
+    hasCalendarPermission,
     profileLoaded,
 
     // Data loaders
@@ -10913,6 +12303,8 @@ const mapProfileRow = (row) => {
     updateTask,
     deleteTask,
     toggleTaskCompletion,
+    importTasksFromDeviceCalendar,
+    exportTasksToDeviceCalendar,
     getTodayTasks,
     getUpcomingTasks,
 
@@ -10936,6 +12328,9 @@ const mapProfileRow = (row) => {
     todayHealth,
     weightManagerLogs,
     waterLogs,
+    healthConnection,
+    healthDailyMetrics,
+    nutritionDailyTotals,
     updateTodayHealth,
     updateHealthForDate,
     addWeightManagerLog,
@@ -10949,6 +12344,15 @@ const mapProfileRow = (row) => {
     resetWaterLogForDate,
     getAverageWater,
     getAverageSleep,
+    getHealthDailyMetricForDate,
+    getNutritionDailyTotalForDate,
+    upsertHealthDailyMetricForDate,
+    upsertNutritionDailyTotalForDate,
+    connectHealthIntegration,
+    disconnectHealthIntegration,
+    setHealthNutritionSyncEnabled,
+    syncHealthMetricsFromPlatform,
+    syncNutritionDailyTotalToHealth,
 
     // Routines
     routines,
@@ -11050,6 +12454,8 @@ const mapProfileRow = (row) => {
     completeHabitsTutorial,
     userSettings,
     updateUserSettings,
+    setCalendarSyncEnabled,
+    requestCalendarPermission,
     t,
 
     // Auth

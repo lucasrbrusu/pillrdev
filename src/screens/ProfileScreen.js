@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   Image,
   Alert,
+  Switch,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -33,8 +35,26 @@ const getInitials = (name, username, email) => {
 const ProfileScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { profile, signOut, themeColors, themeName, tasks, getCurrentStreak, t } = useApp();
+  const {
+    profile,
+    signOut,
+    themeColors,
+    themeName,
+    tasks,
+    getCurrentStreak,
+    healthConnection,
+    connectHealthIntegration,
+    disconnectHealthIntegration,
+    setHealthNutritionSyncEnabled,
+    syncHealthMetricsFromPlatform,
+    userSettings,
+    setCalendarSyncEnabled,
+    hasCalendarPermission,
+    t,
+  } = useApp();
   const isDark = themeName === 'dark';
+  const [isUpdatingHealthPermissions, setIsUpdatingHealthPermissions] = React.useState(false);
+  const [isUpdatingCalendarPermissions, setIsUpdatingCalendarPermissions] = React.useState(false);
   const profileTheme = React.useMemo(
     () => ({
       settingsBg: isDark ? '#0F172A' : '#FFFFFF',
@@ -145,6 +165,63 @@ const ProfileScreen = () => {
     }),
     [isDark]
   );
+  const healthProviderLabel =
+    healthConnection?.providerLabel ||
+    (Platform.OS === 'ios' ? 'Apple Health' : 'Health Connect');
+  const canWriteNutritionToHealth = Boolean(healthConnection?.canWriteNutrition);
+  const nutritionSyncEnabled =
+    Boolean(healthConnection?.syncNutritionToHealth) && canWriteNutritionToHealth;
+  const connectButtonTitle = healthConnection?.isConnected
+    ? `Reconnect ${healthProviderLabel}`
+    : `Connect ${healthProviderLabel}`;
+  const lastHealthSyncText = healthConnection?.lastSyncedAt
+    ? new Date(healthConnection.lastSyncedAt).toLocaleString()
+    : 'Not synced yet';
+
+  const handleConnectHealth = async () => {
+    try {
+      setIsUpdatingHealthPermissions(true);
+      await connectHealthIntegration({ syncNutritionToHealth: nutritionSyncEnabled });
+      await syncHealthMetricsFromPlatform({ force: true });
+    } catch (err) {
+      Alert.alert('Unable to connect', err?.message || 'Please try again.');
+    } finally {
+      setIsUpdatingHealthPermissions(false);
+    }
+  };
+
+  const handleDisconnectHealth = async () => {
+    try {
+      setIsUpdatingHealthPermissions(true);
+      await disconnectHealthIntegration();
+    } catch (err) {
+      Alert.alert('Unable to disconnect', err?.message || 'Please try again.');
+    } finally {
+      setIsUpdatingHealthPermissions(false);
+    }
+  };
+
+  const handleToggleNutritionSync = async (enabled) => {
+    try {
+      setIsUpdatingHealthPermissions(true);
+      await setHealthNutritionSyncEnabled(enabled);
+    } catch (err) {
+      Alert.alert('Unable to update', err?.message || 'Please try again.');
+    } finally {
+      setIsUpdatingHealthPermissions(false);
+    }
+  };
+
+  const handleToggleCalendarSync = async (enabled) => {
+    try {
+      setIsUpdatingCalendarPermissions(true);
+      await setCalendarSyncEnabled(enabled);
+    } catch (err) {
+      Alert.alert('Calendar permission', err?.message || 'Unable to update calendar permission.');
+    } finally {
+      setIsUpdatingCalendarPermissions(false);
+    }
+  };
 
   const handleSignOut = () => {
     Alert.alert(
@@ -325,6 +402,111 @@ const ProfileScreen = () => {
               </TouchableOpacity>
             );
           })}
+        </Card>
+
+        <Card
+          style={[
+            styles.permissionsCard,
+            { backgroundColor: profileTheme.settingsBg, borderColor: profileTheme.settingsBorder },
+          ]}
+        >
+          <Text style={styles.sectionTitle}>{t('Permissions')}</Text>
+          <Text style={styles.permissionsSubtitle}>
+            {t('Allow read/write access for platform health syncing.')}
+          </Text>
+
+          <View style={styles.permissionItem}>
+            <Ionicons name="walk-outline" size={16} color={themeColors.primary} />
+            <Text style={styles.permissionItemText}>{t('Steps (read daily snapshots)')}</Text>
+          </View>
+          <View style={styles.permissionItem}>
+            <Ionicons name="flame-outline" size={16} color={themeColors.warning || '#F59E0B'} />
+            <Text style={styles.permissionItemText}>{t('Active calories (optional read)')}</Text>
+          </View>
+          <View style={styles.permissionItem}>
+            <Ionicons name="nutrition-outline" size={16} color={themeColors.success || '#22C55E'} />
+            <Text style={styles.permissionItemText}>{t('Nutrition totals (optional write)')}</Text>
+          </View>
+          <View style={styles.permissionItem}>
+            <Ionicons name="calendar-outline" size={16} color={themeColors.info || '#0EA5E9'} />
+            <Text style={styles.permissionItemText}>{t('Calendar events (read import, write export)')}</Text>
+          </View>
+
+          <TouchableOpacity
+            style={[
+              styles.connectHealthButton,
+              { backgroundColor: themeColors.primary },
+              isUpdatingHealthPermissions && styles.connectHealthButtonDisabled,
+            ]}
+            onPress={handleConnectHealth}
+            disabled={isUpdatingHealthPermissions}
+          >
+            <Text style={styles.connectHealthButtonText}>
+              {isUpdatingHealthPermissions ? t('Updating...') : connectButtonTitle}
+            </Text>
+          </TouchableOpacity>
+
+          {healthConnection?.isConnected && (
+            <TouchableOpacity
+              style={[
+                styles.disconnectHealthButton,
+                { borderColor: themeColors.border, backgroundColor: themeColors.card },
+                isUpdatingHealthPermissions && styles.connectHealthButtonDisabled,
+              ]}
+              onPress={handleDisconnectHealth}
+              disabled={isUpdatingHealthPermissions}
+            >
+              <Text style={[styles.disconnectHealthButtonText, { color: themeColors.text }]}>
+                {t('Disconnect')}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          <View style={styles.nutritionToggleRow}>
+            <View style={styles.nutritionToggleTextWrap}>
+              <Text style={styles.nutritionToggleTitle}>
+                {t('Sync nutrition totals to health app')}
+              </Text>
+              <Text style={styles.nutritionToggleSubtitle}>
+                {canWriteNutritionToHealth
+                  ? t('Write calories/macros from Pillaflow into your health app daily.')
+                  : t('Not supported by current platform permission set.')}
+              </Text>
+            </View>
+            <Switch
+              value={nutritionSyncEnabled}
+              onValueChange={handleToggleNutritionSync}
+              disabled={!healthConnection?.isConnected || !canWriteNutritionToHealth || isUpdatingHealthPermissions}
+              trackColor={{ false: '#9CA3AF', true: themeColors.primary }}
+            />
+          </View>
+
+          <View style={styles.calendarToggleRow}>
+            <View style={styles.calendarToggleTextWrap}>
+              <Text style={styles.calendarToggleTitle}>{t('Calendar import and export')}</Text>
+              <Text style={styles.calendarToggleSubtitle}>
+                {hasCalendarPermission
+                  ? t('Import device calendar events as tasks and export tasks back to your device calendar.')
+                  : t('Enable to request iOS/Android calendar permission for task import/export.')}
+              </Text>
+            </View>
+            <Switch
+              value={Boolean(userSettings?.calendarSyncEnabled)}
+              onValueChange={handleToggleCalendarSync}
+              disabled={isUpdatingCalendarPermissions}
+              trackColor={{ false: '#9CA3AF', true: themeColors.primary }}
+            />
+          </View>
+
+          <Text style={styles.permissionMeta}>
+            {t('Status')}: {healthConnection?.isConnected ? t('Connected') : t('Disconnected')}
+          </Text>
+          <Text style={styles.permissionMeta}>
+            {t('Last sync')}: {lastHealthSyncText}
+          </Text>
+          <Text style={styles.permissionMeta}>
+            {t('Calendar access')}: {hasCalendarPermission ? t('Allowed') : t('Not allowed')}
+          </Text>
         </Card>
 
         {/* Sign Out */}
@@ -595,6 +777,99 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
       ...typography.h3,
       color: baseText,
       marginBottom: spacing.md,
+    },
+    permissionsCard: {
+      marginBottom: spacing.xl,
+      borderRadius: borderRadius.xl,
+    },
+    permissionsSubtitle: {
+      ...typography.bodySmall,
+      color: mutedText,
+      marginBottom: spacing.md,
+    },
+    permissionItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: spacing.sm,
+    },
+    permissionItemText: {
+      ...typography.bodySmall,
+      color: baseText,
+      marginLeft: spacing.sm,
+    },
+    connectHealthButton: {
+      marginTop: spacing.sm,
+      borderRadius: borderRadius.md,
+      paddingVertical: spacing.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    connectHealthButtonDisabled: {
+      opacity: 0.65,
+    },
+    connectHealthButtonText: {
+      ...typography.bodySmall,
+      color: '#FFFFFF',
+      fontWeight: '700',
+    },
+    disconnectHealthButton: {
+      marginTop: spacing.sm,
+      borderRadius: borderRadius.md,
+      borderWidth: 1,
+      paddingVertical: spacing.sm,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    disconnectHealthButtonText: {
+      ...typography.bodySmall,
+      fontWeight: '600',
+    },
+    nutritionToggleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: spacing.md,
+      marginBottom: spacing.sm,
+    },
+    nutritionToggleTextWrap: {
+      flex: 1,
+      marginRight: spacing.md,
+    },
+    nutritionToggleTitle: {
+      ...typography.bodySmall,
+      color: baseText,
+      fontWeight: '600',
+    },
+    nutritionToggleSubtitle: {
+      ...typography.caption,
+      color: mutedText,
+      marginTop: 2,
+    },
+    calendarToggleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: spacing.sm,
+      marginBottom: spacing.sm,
+    },
+    calendarToggleTextWrap: {
+      flex: 1,
+      marginRight: spacing.md,
+    },
+    calendarToggleTitle: {
+      ...typography.bodySmall,
+      color: baseText,
+      fontWeight: '600',
+    },
+    calendarToggleSubtitle: {
+      ...typography.caption,
+      color: mutedText,
+      marginTop: 2,
+    },
+    permissionMeta: {
+      ...typography.caption,
+      color: mutedText,
+      marginTop: 2,
     },
     settingItem: {
       flexDirection: 'row',

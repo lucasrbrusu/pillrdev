@@ -252,6 +252,8 @@ const StreakScreen = () => {
     year: 'numeric',
   });
   const bestHabitCurrentStreak = getBestStreak ? getBestStreak() : 0;
+  const frozenStreakIconColor = '#4DA6FF';
+  const todayDateKey = React.useMemo(() => new Date().toDateString(), []);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -282,7 +284,11 @@ const StreakScreen = () => {
         >
           <View style={styles.heroTopRow}>
             <View style={styles.heroIconWrap}>
-              <Ionicons name="flame" size={20} color="#FFFFFF" />
+              <Ionicons
+                name="flame"
+                size={20}
+                color={streakFrozen ? frozenStreakIconColor : '#FFFFFF'}
+              />
             </View>
             {streakFrozen ? (
               <View style={styles.frozenBadge}>
@@ -334,6 +340,10 @@ const StreakScreen = () => {
           {topCurrentHabits.length ? (
             topCurrentHabits.map((habit, index) => {
               const streakValue = habit?.streak || 0;
+              const streakIconColor =
+                streakFrozen && !(habit?.completedDates || []).includes(todayDateKey)
+                  ? frozenStreakIconColor
+                  : '#F97316';
               return (
                 <View key={habit?.id || `${habit?.title || 'habit'}-${index}`} style={styles.habitRow}>
                   <View style={styles.habitRank}>
@@ -347,7 +357,7 @@ const StreakScreen = () => {
                       {streakValue} {getStreakUnit(habit?.goalPeriod || 'day', streakValue !== 1)}
                     </Text>
                   </View>
-                  <Ionicons name="flame" size={16} color="#F97316" />
+                  <Ionicons name="flame" size={16} color={streakIconColor} />
                 </View>
               );
             })

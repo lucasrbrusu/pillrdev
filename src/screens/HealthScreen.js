@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Animated, useWindowDimensions, TextInput } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -52,6 +52,19 @@ const BARCODE_FOOD_MAP = {
   '04963406': { name: 'Greek Yogurt', calories: 100, proteinGrams: 17, carbsGrams: 6, fatGrams: 0 },
 };
 
+const formatStepsNumber = (value) =>
+  Number(value || 0).toLocaleString('en-US');
+
+const formatStepsDateLabel = (value) => {
+  const parsed = value instanceof Date ? value : new Date(value || Date.now());
+  if (Number.isNaN(parsed.getTime())) return '--';
+  return parsed.toLocaleDateString('en-US', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  });
+};
+
 const HealthScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -59,32 +72,20 @@ const HealthScreen = () => {
   const { width: windowWidth } = useWindowDimensions();
   const {
     healthData,
-    todayHealth,
     waterLogs,
-    updateTodayHealth,
-    addFoodEntry,
     addFoodEntryForDate,
     deleteFoodEntryForDate,
     updateHealthForDate,
     profile,
-    isPremium,
-    isPremiumUser,
     getAverageWater,
     getAverageSleep,
+    healthDailyMetrics,
+    nutritionDailyTotals,
     themeName,
     themeColors,
     ensureHealthLoaded,
   } = useApp();
   const isDark = themeName === 'dark';
-  const isPremiumActive = Boolean(
-    isPremiumUser ||
-      isPremium ||
-      profile?.isPremium ||
-      profile?.plan === 'premium' ||
-      profile?.plan === 'pro' ||
-      profile?.plan === 'paid'
-  );
-  const isWeightManagerLocked = !isPremiumActive;
   const swipeCardWidth = Math.max(0, windowWidth - spacing.xl * 2);
   const healthTheme = useMemo(() => {
     const baseCard = isDark ? '#1D2236' : '#FFFFFF';
@@ -518,6 +519,12 @@ const HealthScreen = () => {
 
   const selectedDateISO = selectedDate.toISOString().slice(0, 10);
   const selectedDateKey = selectedDateISO;
+  const selectedHealthMetric = healthDailyMetrics?.[selectedDateKey] || null;
+  const selectedStepsTotal = Math.max(
+    0,
+    Math.round(Number(selectedHealthMetric?.steps) || 0)
+  );
+
   const emptyDay = {
     mood: null,
     moodThought: null,
@@ -538,6 +545,7 @@ const HealthScreen = () => {
     ...selectedHealthRaw,
     foods: Array.isArray(selectedHealthRaw.foods) ? selectedHealthRaw.foods : [],
   };
+  const selectedNutritionTotals = nutritionDailyTotals?.[selectedDateKey] || null;
   const getMoodThoughtValue = (day = {}) => {
     const rawValue = day?.moodThought ?? day?.mood_thought ?? day?.moodNote ?? '';
     if (typeof rawValue !== 'string') return '';
@@ -659,7 +667,17 @@ const HealthScreen = () => {
     normalizedWaterGoal > 0 ? Math.round(waterProgress * 100) : 0;
   const waterValueColor = healthTheme.stats.water.value;
   const sleepValueColor = healthTheme.stats.sleep.value;
-  const caloriesConsumed = selectedHealth.calories || 0;
+  const foodDerivedMacroTotals = (selectedHealth.foods || []).reduce(
+    (totals, food) => ({
+      protein: totals.protein + (Number(food.proteinGrams) || 0),
+      carbs: totals.carbs + (Number(food.carbsGrams) || 0),
+      fat: totals.fat + (Number(food.fatGrams) || 0),
+    }),
+    { protein: 0, carbs: 0, fat: 0 }
+  );
+  const caloriesConsumed = Number.isFinite(selectedNutritionTotals?.calories)
+    ? selectedNutritionTotals.calories
+    : selectedHealth.calories || 0;
   const caloriesRemaining = dailyCalorieGoal - caloriesConsumed;
   const {
     weightManagerPlan,
@@ -668,14 +686,17 @@ const HealthScreen = () => {
     weightManagerCurrentDisplay,
     weightManagerTargetDisplay,
   } = useWeightManagerOverview();
-  const macroTotals = (selectedHealth.foods || []).reduce(
-    (totals, food) => ({
-      protein: totals.protein + (Number(food.proteinGrams) || 0),
-      carbs: totals.carbs + (Number(food.carbsGrams) || 0),
-      fat: totals.fat + (Number(food.fatGrams) || 0),
-    }),
-    { protein: 0, carbs: 0, fat: 0 }
-  );
+  const macroTotals = {
+    protein: Number.isFinite(selectedNutritionTotals?.protein)
+      ? selectedNutritionTotals.protein
+      : foodDerivedMacroTotals.protein,
+    carbs: Number.isFinite(selectedNutritionTotals?.carbs)
+      ? selectedNutritionTotals.carbs
+      : foodDerivedMacroTotals.carbs,
+    fat: Number.isFinite(selectedNutritionTotals?.fat)
+      ? selectedNutritionTotals.fat
+      : foodDerivedMacroTotals.fat,
+  };
   const macroGoals = {
     protein: Number.isFinite(selectedHealth.proteinGoal)
       ? selectedHealth.proteinGoal
@@ -1182,13 +1203,7 @@ const HealthScreen = () => {
 
   const cardWidthStyle = swipeCardWidth ? { width: swipeCardWidth } : null;
   const swipeCardStyle = swipeCardWidth ? styles.swipeCard : null;
-  const upgradeBadgeColor = themeColors.warning || colors.warning;
-
   const handleWeightManagerPress = () => {
-    if (isWeightManagerLocked) {
-      navigation.navigate('Paywall', { source: 'weight-manager' });
-      return;
-    }
     navigation.navigate('WeightManager');
   };
 
@@ -1328,19 +1343,16 @@ const HealthScreen = () => {
             Weight Manager
           </Text>
           <View
-            style={[
-              styles.weightManagerBadge,
-              isWeightManagerLocked && { backgroundColor: upgradeBadgeColor },
-            ]}
+            style={styles.weightManagerBadge}
           >
             <Ionicons
-              name={isWeightManagerLocked ? 'lock-closed' : 'star'}
+              name="barbell"
               size={12}
               color="#FFFFFF"
               style={styles.weightManagerBadgeIcon}
             />
             <Text style={styles.weightManagerBadgeText}>
-              {isWeightManagerLocked ? 'Upgrade to Premium' : 'Premium'}
+              Available
             </Text>
           </View>
         </View>
@@ -1449,24 +1461,10 @@ const HealthScreen = () => {
 
         <View style={styles.weightManagerFooter}>
           <Text style={[styles.weightManagerAction, { color: healthTheme.calorie.title }]}>
-            Tap to update your plan
+            Tap to open weight manager
           </Text>
           <Ionicons name="chevron-forward" size={18} color={healthTheme.calorie.title} />
         </View>
-        {isWeightManagerLocked && (
-          <View pointerEvents="none" style={styles.weightManagerLockOverlay}>
-            <View style={styles.weightManagerLockScrim} />
-            <View style={styles.weightManagerLockContent}>
-              <Ionicons name="lock-closed" size={22} color={healthTheme.calorie.title} />
-              <Text style={[styles.weightManagerLockTitle, { color: healthTheme.calorie.title }]}>
-                Upgrade to Premium
-              </Text>
-              <Text style={[styles.weightManagerLockSubtitle, { color: healthTheme.calorie.label }]}>
-                Unlock weight targets and daily macro goals.
-              </Text>
-            </View>
-          </View>
-        )}
       </Card>
     </TouchableOpacity>
   );
@@ -1485,7 +1483,7 @@ const HealthScreen = () => {
       >
         <View style={styles.headerRow}>
           <Text style={styles.pageTitle}>Health</Text>
-          <Text style={styles.pageSubtitle}>Track sleep, nutrition, water, and mood</Text>
+          <Text style={styles.pageSubtitle}>Track sleep, nutrition, water, mood, and steps</Text>
         </View>
 
         <View style={styles.dateSwitcher}>
@@ -1690,6 +1688,37 @@ const HealthScreen = () => {
               </Text>
             </View>
           </TouchableOpacity>
+        </Card>
+
+        {/* Steps Section */}
+        <Card
+          style={[
+            styles.sectionCard,
+            { backgroundColor: themeColors.card, borderColor: themeColors.border },
+          ]}
+          onPress={() => navigation.navigate('Steps', { dateISO: selectedDateISO })}
+        >
+          <View style={styles.logHeaderRow}>
+            <View style={[styles.logIconWrap, { backgroundColor: themeColors.primaryLight }]}>
+              <Ionicons name="walk" size={18} color={themeColors.primary} />
+            </View>
+            <View style={styles.logHeaderText}>
+              <Text style={[styles.logTitle, { color: themeColors.text }]}>Steps</Text>
+              <Text style={styles.logSubtitle}>
+                {selectedHealthMetric?.source
+                  ? `${formatStepsDateLabel(selectedDate)} • ${selectedHealthMetric.source}`
+                  : formatStepsDateLabel(selectedDate)}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={themeColors.primary} />
+          </View>
+          <Text style={[styles.stepsOverviewValue, { color: themeColors.text }]}>
+            {formatStepsNumber(selectedStepsTotal)}
+          </Text>
+          <View style={styles.logActionRow}>
+            <Text style={styles.logActionText}>Tap to view details and set your daily snapshot</Text>
+            <Text style={[styles.logPercentText, { color: themeColors.primary }]}>steps</Text>
+          </View>
         </Card>
 
         {/* Sleep Section */}
@@ -3276,6 +3305,181 @@ const createStyles = (themeColors) => StyleSheet.create({
     ...typography.body,
     fontWeight: '600',
     color: themeColors.text,
+  },
+  stepsOverviewValue: {
+    ...typography.h2,
+    fontWeight: '700',
+    marginBottom: spacing.md,
+    color: themeColors.text,
+  },
+  stepsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  stepsHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  stepsIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+  },
+  stepsTitle: {
+    ...typography.body,
+    fontWeight: '700',
+  },
+  stepsSubtitle: {
+    ...typography.caption,
+    marginTop: 2,
+  },
+  stepsAddButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    backgroundColor: themeColors.inputBackground,
+  },
+  stepsDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  stepsDateArrow: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    backgroundColor: themeColors.card,
+    ...shadows.small,
+  },
+  stepsDatePicker: {
+    flex: 1,
+    marginHorizontal: spacing.sm,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: themeColors.card,
+  },
+  stepsDateText: {
+    ...typography.bodySmall,
+    marginHorizontal: spacing.xs,
+    fontWeight: '600',
+  },
+  stepsTotalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  stepsTotalLabel: {
+    ...typography.caption,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  stepsTotalValue: {
+    ...typography.h3,
+    fontWeight: '700',
+  },
+  stepsChartHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  stepsWeekButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    backgroundColor: themeColors.inputBackground,
+  },
+  stepsWeekButtonDisabled: {
+    opacity: 0.5,
+  },
+  stepsWeekLabel: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+  },
+  stepsChartRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  stepsChartDay: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  stepsBarTrack: {
+    width: 20,
+    height: 94,
+    borderRadius: 10,
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+    marginBottom: spacing.xs,
+  },
+  stepsBarFill: {
+    width: '100%',
+    borderRadius: 10,
+  },
+  stepsDayLabel: {
+    ...typography.caption,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  stepsDayValue: {
+    ...typography.caption,
+    marginTop: 2,
+  },
+  stepsWeekTotalText: {
+    ...typography.caption,
+    marginBottom: spacing.md,
+  },
+  stepsEntriesSection: {
+    borderTopWidth: 1,
+    borderTopColor: themeColors.border,
+    paddingTop: spacing.md,
+  },
+  stepsEntriesTitle: {
+    ...typography.bodySmall,
+    fontWeight: '700',
+    marginBottom: spacing.sm,
+  },
+  stepsEntryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    paddingVertical: spacing.sm,
+  },
+  stepsEntryValue: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+  },
+  stepsEntryMeta: {
+    ...typography.caption,
+    marginTop: 2,
+  },
+  stepsEntriesEmpty: {
+    ...typography.caption,
   },
   moodTouchable: {
     padding: spacing.lg,

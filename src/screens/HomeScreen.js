@@ -63,6 +63,7 @@ const HomeScreen = () => {
     ensureRoutinesLoaded,
     ensureHealthLoaded,
     healthData,
+    nutritionDailyTotals,
     themeName,
   } = useApp();
   const isDark = themeName === 'dark';
@@ -73,7 +74,6 @@ const HomeScreen = () => {
     const stillActive = expiresAt ? expiresAt > new Date() : false;
     return !!(profile?.isPremium || plan === 'premium' || plan === 'paid' || stillActive);
   }, [profile]);
-  const isWeightManagerLocked = !isPremium;
 
   const sectionListTheme = React.useMemo(
     () => ({
@@ -323,6 +323,16 @@ const HomeScreen = () => {
   const topHabitStreakLabel = topStreakHabit
     ? `${topHabitIsAchieved ? 'Final streak: ' : ''}${topHabitStreakValue} ${getStreakUnit(topStreakHabit.goalPeriod, topHabitStreakValue !== 1)} streak`
     : '';
+  const frozenStreakIconColor = '#4DA6FF';
+  const topHabitCompletedToday = React.useMemo(
+    () => (topStreakHabit ? (topStreakHabit.completedDates || []).includes(todayDateKey) : false),
+    [todayDateKey, topStreakHabit]
+  );
+  const topHabitStreakIconColor =
+    streakFrozen && !topHabitIsAchieved && !topHabitCompletedToday
+      ? frozenStreakIconColor
+      : '#FDBA74';
+  const currentStreakIconColor = streakFrozen ? frozenStreakIconColor : '#FFFFFF';
   const parseClockMinutes = React.useCallback((value) => {
     if (!value || typeof value !== 'string') return null;
     const match = value
@@ -456,7 +466,10 @@ const HomeScreen = () => {
   );
   const totalMoodCount = moodEntries.length;
   const currentStreak = getCurrentStreak ? getCurrentStreak() : 0;
-  const consumedCalories = todayHealth?.calories || 0;
+  const todayNutritionKey = React.useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const consumedCalories = Number.isFinite(nutritionDailyTotals?.[todayNutritionKey]?.calories)
+    ? nutritionDailyTotals[todayNutritionKey].calories
+    : todayHealth?.calories || 0;
   const calorieGoal = profile?.dailyCalorieGoal || 2000;
   const remainingCalories = Math.max(calorieGoal - consumedCalories, 0);
   const {
@@ -785,7 +798,7 @@ const HomeScreen = () => {
               style={styles.statCard}
             >
               <View style={styles.statIconWrap}>
-                <Ionicons name="flame" size={20} color="#FFFFFF" />
+                <Ionicons name="flame" size={20} color={currentStreakIconColor} />
               </View>
               <Text style={styles.statLabel}>Current streak</Text>
               <Text style={styles.statValue}>{currentStreak} day{currentStreak === 1 ? '' : 's'}</Text>
@@ -1059,7 +1072,11 @@ const HomeScreen = () => {
                   </View>
 
                   <View style={styles.habitsTopStreakRow}>
-                    <Ionicons name={topHabitIsAchieved ? 'flag' : 'flame'} size={14} color="#FDBA74" />
+                    <Ionicons
+                      name={topHabitIsAchieved ? 'flag' : 'flame'}
+                      size={14}
+                      color={topHabitStreakIconColor}
+                    />
                     <Text
                       style={[styles.habitsTopStreakText, { color: sectionListTheme.habits.text }]}
                       numberOfLines={1}
@@ -1636,20 +1653,6 @@ const HomeScreen = () => {
                     </Text>
                   </View>
                 </View>
-                {isWeightManagerLocked && (
-                  <View pointerEvents="none" style={styles.weightManagerLockOverlay}>
-                    <View style={styles.weightManagerLockScrim} />
-                    <View style={styles.weightManagerLockContent}>
-                      <Ionicons name="lock-closed" size={20} color={sectionListTheme.weightManager.text} />
-                      <Text style={[styles.weightManagerLockTitle, { color: sectionListTheme.weightManager.text }]}>
-                        Upgrade to Premium
-                      </Text>
-                      <Text style={[styles.weightManagerLockSubtitle, { color: sectionListTheme.weightManager.meta }]}>
-                        Unlock weight targets and daily macro goals.
-                      </Text>
-                    </View>
-                  </View>
-                )}
               </View>
             </LinearGradient>
           </Card>

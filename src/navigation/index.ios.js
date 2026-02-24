@@ -50,7 +50,11 @@ import SpendingInsightsScreen from '../screens/SpendingInsightsScreen';
 import FriendProfileScreen from '../screens/FriendProfileScreen';
 import PaywallScreen from '../screens/PaywallScreen';
 import WeightManagerScreen from '../screens/WeightManagerScreen';
+import WeightProgressScreen from '../screens/WeightProgressScreen';
 import WeightManagerUpdatePlanScreen from '../screens/WeightManagerUpdatePlanScreen';
+import WeightJourneyHistoryScreen from '../screens/WeightJourneyHistoryScreen';
+import WeightJourneyHistoryDetailScreen from '../screens/WeightJourneyHistoryDetailScreen';
+import StepsScreen from '../screens/StepsScreen';
 import WaterLogScreen from '../screens/WaterLogScreen';
 import SleepLogScreen from '../screens/SleepLogScreen';
 import MoodCalendarScreen from '../screens/MoodCalendarScreen';
@@ -415,7 +419,14 @@ const Navigation = () => {
           <Stack.Screen name="FocusMode" component={FocusModeScreen} />
           <Stack.Screen name="CountdownTimer" component={CountdownTimerScreen} />
           <Stack.Screen name="WeightManager" component={WeightManagerScreen} />
+          <Stack.Screen name="WeightProgress" component={WeightProgressScreen} />
           <Stack.Screen name="WeightManagerUpdatePlan" component={WeightManagerUpdatePlanScreen} />
+          <Stack.Screen name="WeightJourneyHistory" component={WeightJourneyHistoryScreen} />
+          <Stack.Screen
+            name="WeightJourneyHistoryDetail"
+            component={WeightJourneyHistoryDetailScreen}
+          />
+          <Stack.Screen name="Steps" component={StepsScreen} />
           <Stack.Screen name="WaterLog" component={WaterLogScreen} />
           <Stack.Screen name="SleepLog" component={SleepLogScreen} />
           <Stack.Screen name="MoodCalendar" component={MoodCalendarScreen} />

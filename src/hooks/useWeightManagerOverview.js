@@ -37,10 +37,14 @@ const useWeightManagerOverview = () => {
       };
       const profileFallback = {
         weightUnit: normalizeUnit(profile?.weightManagerUnit) || DEFAULT_WEIGHT_MANAGER_UNIT,
+        startingWeight: parseOptionalNumber(profile?.weightManagerCurrentWeight),
         currentWeight: parseOptionalNumber(profile?.weightManagerCurrentWeight),
         targetWeight: parseOptionalNumber(profile?.weightManagerTargetWeight),
         currentBodyType: normalizeBodyType(profile?.weightManagerCurrentBodyType),
         targetBodyType: normalizeBodyType(profile?.weightManagerTargetBodyType),
+        journeyGoalMode: 'duration',
+        journeyDurationWeeks: null,
+        journeyGoalDate: '',
       };
 
       try {
@@ -55,10 +59,19 @@ const useWeightManagerOverview = () => {
         const parsed = JSON.parse(stored);
         const merged = {
           weightUnit: normalizeUnit(parsed?.weightUnit) || profileFallback.weightUnit,
+          startingWeight:
+            parseOptionalNumber(parsed?.startingWeight) ?? profileFallback.startingWeight,
           currentWeight: parseOptionalNumber(parsed?.currentWeight) ?? profileFallback.currentWeight,
           targetWeight: parseOptionalNumber(parsed?.targetWeight) ?? profileFallback.targetWeight,
           currentBodyType: normalizeBodyType(parsed?.currentBodyType) || profileFallback.currentBodyType,
           targetBodyType: normalizeBodyType(parsed?.targetBodyType) || profileFallback.targetBodyType,
+          journeyGoalMode:
+            parsed?.journeyGoalMode === 'date' || parsed?.journeyGoalMode === 'duration'
+              ? parsed.journeyGoalMode
+              : profileFallback.journeyGoalMode,
+          journeyDurationWeeks: parseOptionalNumber(parsed?.journeyDurationWeeks),
+          journeyGoalDate:
+            typeof parsed?.journeyGoalDate === 'string' ? parsed.journeyGoalDate : profileFallback.journeyGoalDate,
         };
         const hasMergedData = Object.values(merged).some(
           (value) => value !== null && value !== undefined && value !== ''

@@ -1,18 +1,26 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useApp } from '../context/AppContext';
-import { Card, Button, PlatformScrollView } from '../components';
+import { PlatformScrollView } from '../components';
 import { borderRadius, spacing, typography, shadows } from '../utils/theme';
 import useWeightManagerOverview from '../hooks/useWeightManagerOverview';
+import {
+  formatProgressDateLabel,
+  getWeightProgressStorageKey,
+  normalizePositiveWeight,
+  parseWeightProgressPayload,
+} from '../utils/weightProgress';
 
 const WeightManagerScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const {
+    authUser,
     themeColors,
     themeName,
     profile,
@@ -97,9 +105,88 @@ const WeightManagerScreen = () => {
     ? `${weeklyChange >= 0 ? '+' : ''}${weeklyChange.toFixed(1)} ${weightManagerUnit}`
     : '--';
 
-  const handleUpdatePlan = () => {
+  const progressStorageKey = useMemo(
+    () =>
+      getWeightProgressStorageKey({
+        authUserId: authUser?.id,
+        profileId: profile?.id,
+        profileUserId: profile?.user_id,
+      }),
+    [authUser?.id, profile?.id, profile?.user_id]
+  );
+  const [progressStartInput, setProgressStartInput] = useState('');
+  const [progressCurrentInput, setProgressCurrentInput] = useState('');
+  const [progressEntries, setProgressEntries] = useState([]);
+  const hydrateProgressCheck = useCallback(async () => {
+    try {
+      const stored = await AsyncStorage.getItem(progressStorageKey);
+      if (!stored) {
+        setProgressStartInput('');
+        setProgressCurrentInput('');
+        setProgressEntries([]);
+        return;
+      }
+
+      const parsed = JSON.parse(stored);
+      const normalized = parseWeightProgressPayload(parsed);
+      setProgressStartInput(
+        Number.isFinite(normalized.startingWeight) ? String(normalized.startingWeight) : ''
+      );
+      setProgressCurrentInput(
+        Number.isFinite(normalized.currentWeight) ? String(normalized.currentWeight) : ''
+      );
+      setProgressEntries(normalized.entries);
+    } catch (error) {
+      console.log('Error loading weight progress check:', error);
+    }
+  }, [progressStorageKey]);
+
+  useEffect(() => {
+    hydrateProgressCheck();
+  }, [hydrateProgressCheck]);
+
+  useFocusEffect(
+    useCallback(() => {
+      hydrateProgressCheck();
+      return undefined;
+    }, [hydrateProgressCheck])
+  );
+
+  const progressStartValue = normalizePositiveWeight(progressStartInput);
+  const progressCurrentValue = normalizePositiveWeight(progressCurrentInput);
+  const progressDifference =
+    Number.isFinite(progressStartValue) && Number.isFinite(progressCurrentValue)
+      ? Math.round((progressCurrentValue - progressStartValue) * 10) / 10
+      : null;
+  const progressDifferenceLabel = Number.isFinite(progressDifference)
+    ? `${progressDifference > 0 ? '+' : ''}${progressDifference.toFixed(1)} ${weightManagerUnit}`
+    : '--';
+  const progressDifferenceHint = Number.isFinite(progressDifference)
+    ? progressDifference > 0
+      ? 'Gained since start'
+      : progressDifference < 0
+      ? 'Lost since start'
+      : 'No change since start'
+    : 'Add starting and current weight to see your change.';
+  const latestProgressEntry = progressEntries.length
+    ? progressEntries[progressEntries.length - 1]
+    : null;
+
+  const handleUnlockWeightJourney = useCallback(() => {
+    navigation.navigate('Paywall', { source: 'weight-manager-journey' });
+  }, [navigation]);
+
+  const handleUpdatePlan = useCallback(() => {
+    if (!isPremiumActive) {
+      handleUnlockWeightJourney();
+      return;
+    }
     navigation.navigate('WeightManagerUpdatePlan');
-  };
+  }, [handleUnlockWeightJourney, isPremiumActive, navigation]);
+
+  const handleOpenProgressPage = useCallback(() => {
+    navigation.navigate('WeightProgress');
+  }, [navigation]);
 
   const formatWeekday = (value) => {
     if (!value) return '';
@@ -108,30 +195,6 @@ const WeightManagerScreen = () => {
     const label = parsed.toLocaleDateString('en-US', { weekday: 'short' });
     return label.slice(0, 1);
   };
-
-  if (!isPremiumActive) {
-    return (
-      <View style={[styles.lockedContainer, { paddingTop: insets.top }]}>
-        <Card style={styles.lockedCard}>
-          <Ionicons name="star" size={28} color={themeColors.primary} />
-          <Text style={styles.lockedTitle}>Premium feature</Text>
-          <Text style={styles.lockedText}>
-            Upgrade to access the Weight Manager and personalized nutrition targets.
-          </Text>
-          <Button
-            title="Upgrade to Premium"
-            onPress={() => navigation.navigate('Paywall', { source: 'weight-manager' })}
-            style={styles.lockedButton}
-          />
-          <Button
-            title="Go back"
-            variant="secondary"
-            onPress={() => navigation.goBack()}
-          />
-        </Card>
-      </View>
-    );
-  }
 
   return (
     <View style={[styles.container, { backgroundColor: summaryTheme.background }]}>
@@ -160,13 +223,76 @@ const WeightManagerScreen = () => {
               style={styles.heroNavButton}
               onPress={handleUpdatePlan}
             >
-              <Ionicons name="create-outline" size={20} color="#FFFFFF" />
+              <Ionicons
+                name={isPremiumActive ? 'create-outline' : 'lock-closed'}
+                size={20}
+                color="#FFFFFF"
+              />
             </TouchableOpacity>
           </View>
           <Text style={styles.heroSubtitle}>Track your daily targets and progress.</Text>
         </LinearGradient>
 
-        <View style={[styles.summaryCard, { backgroundColor: summaryTheme.card, borderColor: summaryTheme.cardBorder }]}
+        <TouchableOpacity
+          activeOpacity={0.92}
+          onPress={handleOpenProgressPage}
+          style={[styles.sectionCard, { backgroundColor: summaryTheme.card, borderColor: summaryTheme.cardBorder }]}
+        >
+          <View style={styles.progressCheckHeaderRow}>
+            <View style={styles.progressCheckHeaderLeft}>
+              <Ionicons name="analytics" size={18} color={summaryTheme.highlight} />
+              <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Weight Progress Check</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={summaryTheme.highlight} />
+          </View>
+
+          <Text style={[styles.progressCheckIntro, { color: summaryTheme.muted }]}>
+            Track your weight trend without setting a goal or journey.
+          </Text>
+
+          <View style={[styles.progressCheckDiffCard, { backgroundColor: summaryTheme.softBorder }]}>
+            <Text style={[styles.progressCheckDiffLabel, { color: summaryTheme.muted }]}>Difference</Text>
+            <Text style={[styles.progressCheckDiffValue, { color: themeColors.text }]}>
+              {progressDifferenceLabel}
+            </Text>
+            <Text style={[styles.progressCheckDiffHint, { color: summaryTheme.muted }]}>
+              {progressDifferenceHint}
+            </Text>
+            <View style={styles.progressCheckQuickStatsRow}>
+              <View style={styles.progressCheckQuickStatBlock}>
+                <Text style={[styles.progressCheckQuickStat, { color: summaryTheme.muted }]}>Start</Text>
+                <Text style={[styles.progressCheckQuickStatValue, { color: themeColors.text }]}>
+                  {Number.isFinite(progressStartValue) ? `${progressStartValue.toFixed(1)} ${weightManagerUnit}` : '--'}
+                </Text>
+              </View>
+              <View style={styles.progressCheckQuickStatBlock}>
+                <Text style={[styles.progressCheckQuickStat, { color: summaryTheme.muted }]}>Current</Text>
+                <Text style={[styles.progressCheckQuickStatValue, { color: themeColors.text }]}>
+                  {Number.isFinite(progressCurrentValue) ? `${progressCurrentValue.toFixed(1)} ${weightManagerUnit}` : '--'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.progressCheckFooterRow}>
+              {latestProgressEntry ? (
+                <Text style={[styles.progressCheckDiffMeta, { color: summaryTheme.muted }]}>
+                  Last check-in {formatProgressDateLabel(latestProgressEntry.dateKey)}
+                </Text>
+              ) : (
+                <Text style={[styles.progressCheckDiffMeta, { color: summaryTheme.muted }]}>
+                  Open to add your first progress check
+                </Text>
+              )}
+              <Ionicons name="open-outline" size={15} color={summaryTheme.highlight} />
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        <View
+          style={[
+            styles.summaryCard,
+            { backgroundColor: summaryTheme.card, borderColor: summaryTheme.cardBorder },
+            !isPremiumActive && styles.premiumJourneyLockedCard,
+          ]}
         >
           <View style={styles.summaryHeader}>
             <View style={styles.summaryTargetType}>
@@ -242,9 +368,34 @@ const WeightManagerScreen = () => {
               />
             </View>
           </View>
+          {!isPremiumActive ? (
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={handleUnlockWeightJourney}
+              style={[
+                styles.premiumJourneyLockOverlay,
+                { backgroundColor: isDark ? 'rgba(8, 10, 20, 0.82)' : 'rgba(255,255,255,0.86)' },
+              ]}
+            >
+              <View style={[styles.premiumJourneyLockIcon, { backgroundColor: summaryTheme.softBorder }]}>
+                <Ionicons name="lock-closed" size={18} color={summaryTheme.highlight} />
+              </View>
+              <Text style={[styles.premiumJourneyLockTitle, { color: themeColors.text }]}>
+                Premium weight-loss journey
+              </Text>
+              <Text style={[styles.premiumJourneyLockText, { color: summaryTheme.muted }]}>
+                Update Plan, daily macro targets, and goal progress are premium features.
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
 
-        <View style={[styles.sectionCard, { backgroundColor: summaryTheme.card, borderColor: summaryTheme.cardBorder }]}
+        <View
+          style={[
+            styles.sectionCard,
+            { backgroundColor: summaryTheme.card, borderColor: summaryTheme.cardBorder },
+            !isPremiumActive && styles.premiumJourneyLockedCard,
+          ]}
         >
           <View style={styles.sectionHeader}>
             <Ionicons name="calendar" size={18} color={summaryTheme.highlight} />
@@ -279,9 +430,34 @@ const WeightManagerScreen = () => {
             </View>
             <Ionicons name="trending-up" size={18} color={summaryTheme.highlight} />
           </View>
+          {!isPremiumActive ? (
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={handleUnlockWeightJourney}
+              style={[
+                styles.premiumJourneyLockOverlay,
+                { backgroundColor: isDark ? 'rgba(8, 10, 20, 0.82)' : 'rgba(255,255,255,0.86)' },
+              ]}
+            >
+              <View style={[styles.premiumJourneyLockIcon, { backgroundColor: summaryTheme.softBorder }]}>
+                <Ionicons name="lock-closed" size={18} color={summaryTheme.highlight} />
+              </View>
+              <Text style={[styles.premiumJourneyLockTitle, { color: themeColors.text }]}>
+                Premium weight-loss journey
+              </Text>
+              <Text style={[styles.premiumJourneyLockText, { color: summaryTheme.muted }]}>
+                Weekly journey insights unlock with Premium.
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
 
-        <View style={[styles.sectionCard, { backgroundColor: summaryTheme.card, borderColor: summaryTheme.cardBorder }]}
+        <View
+          style={[
+            styles.sectionCard,
+            { backgroundColor: summaryTheme.card, borderColor: summaryTheme.cardBorder },
+            !isPremiumActive && styles.premiumJourneyLockedCard,
+          ]}
         >
           <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Daily Macro Goals</Text>
           <View style={styles.macroRow}>
@@ -304,6 +480,26 @@ const WeightManagerScreen = () => {
               <Text style={styles.macroLabel}>Fat</Text>
             </View>
           </View>
+          {!isPremiumActive ? (
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={handleUnlockWeightJourney}
+              style={[
+                styles.premiumJourneyLockOverlay,
+                { backgroundColor: isDark ? 'rgba(8, 10, 20, 0.82)' : 'rgba(255,255,255,0.86)' },
+              ]}
+            >
+              <View style={[styles.premiumJourneyLockIcon, { backgroundColor: summaryTheme.softBorder }]}>
+                <Ionicons name="lock-closed" size={18} color={summaryTheme.highlight} />
+              </View>
+              <Text style={[styles.premiumJourneyLockTitle, { color: themeColors.text }]}>
+                Premium weight-loss journey
+              </Text>
+              <Text style={[styles.premiumJourneyLockText, { color: summaryTheme.muted }]}>
+                Personalized macro goals are available on Premium.
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         <TouchableOpacity
@@ -313,8 +509,14 @@ const WeightManagerScreen = () => {
         >
           <LinearGradient colors={summaryTheme.updateGradient} style={styles.updateButton}
           >
-            <Ionicons name="radio-button-on" size={18} color="#FFFFFF" />
-            <Text style={styles.updateButtonText}>Update Your Plan</Text>
+            <Ionicons
+              name={isPremiumActive ? 'radio-button-on' : 'lock-closed'}
+              size={18}
+              color="#FFFFFF"
+            />
+            <Text style={styles.updateButtonText}>
+              {isPremiumActive ? 'Open Weight Loss Journey' : 'Unlock Weight Loss Journey'}
+            </Text>
           </LinearGradient>
         </TouchableOpacity>
 
@@ -489,6 +691,40 @@ const createStyles = (themeColors) =>
       height: '100%',
       borderRadius: 999,
     },
+    premiumJourneyLockedCard: {
+      position: 'relative',
+      overflow: 'hidden',
+    },
+    premiumJourneyLockOverlay: {
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      borderRadius: borderRadius.xl,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: spacing.lg,
+    },
+    premiumJourneyLockIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: spacing.sm,
+    },
+    premiumJourneyLockTitle: {
+      ...typography.body,
+      fontWeight: '700',
+      textAlign: 'center',
+    },
+    premiumJourneyLockText: {
+      ...typography.bodySmall,
+      textAlign: 'center',
+      marginTop: spacing.xs,
+      maxWidth: 280,
+    },
     sectionCard: {
       marginHorizontal: spacing.xl,
       marginTop: spacing.lg,
@@ -541,6 +777,67 @@ const createStyles = (themeColors) =>
       ...typography.body,
       fontWeight: '700',
       marginTop: 2,
+    },
+    progressCheckIntro: {
+      ...typography.bodySmall,
+      marginBottom: spacing.md,
+    },
+    progressCheckHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    progressCheckHeaderLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    progressCheckDiffCard: {
+      marginTop: spacing.md,
+      borderRadius: borderRadius.lg,
+      padding: spacing.md,
+    },
+    progressCheckDiffLabel: {
+      ...typography.caption,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    progressCheckDiffValue: {
+      ...typography.h3,
+      marginTop: spacing.xs,
+    },
+    progressCheckDiffHint: {
+      ...typography.bodySmall,
+      marginTop: spacing.xs,
+    },
+    progressCheckQuickStatsRow: {
+      marginTop: spacing.sm,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing.sm,
+    },
+    progressCheckQuickStatBlock: {
+      flex: 1,
+    },
+    progressCheckQuickStat: {
+      ...typography.caption,
+      flex: 1,
+    },
+    progressCheckQuickStatValue: {
+      ...typography.bodySmall,
+      fontWeight: '700',
+      marginTop: 2,
+    },
+    progressCheckFooterRow: {
+      marginTop: spacing.sm,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing.sm,
+    },
+    progressCheckDiffMeta: {
+      ...typography.caption,
+      flex: 1,
     },
     macroRow: {
       flexDirection: 'row',
