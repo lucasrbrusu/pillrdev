@@ -22,7 +22,10 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Pillaflow uses the camera to let you scan/attach photos within the app.",
         "NSPhotoLibraryUsageDescription": "Pillaflow uses the library of the user to attach an image for profile appearance",
-        "NSPhotoLibraryAddUsageDescription": "This adds the image that the user chose to the app to set their profile picture"
+        "NSPhotoLibraryAddUsageDescription": "This adds the image that the user chose to the app to set their profile picture",
+        "NSCalendarsUsageDescription": "Pillaflow uses your calendar to import events into tasks and export tasks to your device calendar.",
+        "NSHealthShareUsageDescription": "Pillaflow reads your steps and activity calories to keep your daily health metrics in sync.",
+        "NSHealthUpdateUsageDescription": "Pillaflow can write your daily nutrition totals to Apple Health when nutrition sync is enabled."
       }
     },
     "android": {
@@ -34,7 +37,13 @@
       "package": "com.pillaflow.app",
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_CALENDAR",
+        "android.permission.WRITE_CALENDAR",
+        "android.permission.health.READ_STEPS",
+        "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
+        "android.permission.health.WRITE_NUTRITION",
+        "android.permission.health.READ_NUTRITION"
       ]
     },
     "web": {
@@ -42,9 +51,13 @@
     },
     "plugins": [
       "expo-notifications",
+      "expo-calendar",
       "expo-camera",
       "expo-web-browser",
-      "expo-font"
+      "expo-font",
+      "react-native-health",
+      "react-native-health-connect",
+      "@react-native-community/datetimepicker"
     ],
     "extra": {
       "eas": {
