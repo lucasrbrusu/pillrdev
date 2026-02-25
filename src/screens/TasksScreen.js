@@ -31,6 +31,13 @@ import {
   typography,
   priorityLevels,
 } from '../utils/theme';
+import {
+  DEFAULT_TASK_DURATION_MINUTES,
+  findOverlappingTasks,
+  formatTaskTimeRangeLabel,
+  getTaskOverlapPairs,
+  normalizeTaskDurationMinutes,
+} from '../utils/taskScheduling';
 
 const TIME_OPTIONS = Array.from({ length: 48 }).map((_, idx) => {
   const h = Math.floor(idx / 2);
@@ -47,6 +54,7 @@ const TASK_QUICK_DATES = [
 ];
 
 const TASK_QUICK_TIMES = ['09:00', '12:00', '15:00', '18:00', '20:00'];
+const TASK_QUICK_DURATIONS = [15, 30, 45, 60, 90, 120];
 const TASK_ARCHIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const getISODateWithOffset = (offset) => {
@@ -190,9 +198,20 @@ const TasksScreen = () => {
   const [taskPriority, setTaskPriority] = useState('medium');
   const [taskDate, setTaskDate] = useState(new Date().toISOString().split('T')[0]);
   const [taskTime, setTaskTime] = useState('');
+  const [taskDurationInput, setTaskDurationInput] = useState(
+    String(DEFAULT_TASK_DURATION_MINUTES)
+  );
   const normalizedTaskTime = useMemo(
     () => normalizeTimeValue(taskTime),
     [taskTime]
+  );
+  const normalizedTaskDurationMinutes = useMemo(
+    () =>
+      normalizeTaskDurationMinutes(
+        taskDurationInput,
+        DEFAULT_TASK_DURATION_MINUTES
+      ),
+    [taskDurationInput]
   );
 
   // Note form state
@@ -253,12 +272,46 @@ const TasksScreen = () => {
     return filtered;
   }, [tasks, activeTab, filterType]);
 
+  const activeScheduledTasks = useMemo(
+    () =>
+      (tasks || []).filter(
+        (task) => !isTaskPastArchiveWindow(task) && task?.date && task?.time
+      ),
+    [tasks]
+  );
+
+  const taskOverlapPairs = useMemo(
+    () =>
+      getTaskOverlapPairs(activeScheduledTasks, {
+        includeCompleted: false,
+        fallbackDurationMinutes: DEFAULT_TASK_DURATION_MINUTES,
+      }),
+    [activeScheduledTasks]
+  );
+
+  const draftTaskOverlaps = useMemo(() => {
+    if (!taskDate || !taskTime) return [];
+    return findOverlappingTasks(
+      {
+        date: taskDate,
+        time: taskTime,
+        durationMinutes: normalizedTaskDurationMinutes,
+      },
+      activeScheduledTasks,
+      {
+        includeCompleted: false,
+        fallbackDurationMinutes: DEFAULT_TASK_DURATION_MINUTES,
+      }
+    );
+  }, [activeScheduledTasks, normalizedTaskDurationMinutes, taskDate, taskTime]);
+
   const resetTaskForm = () => {
     setTaskTitle('');
     setTaskDescription('');
     setTaskPriority('medium');
     setTaskDate(new Date().toISOString().split('T')[0]);
     setTaskTime('');
+    setTaskDurationInput(String(DEFAULT_TASK_DURATION_MINUTES));
     setShowDatePicker(false);
     setShowTimePicker(false);
     setTimePickerTarget(null);
@@ -284,6 +337,15 @@ const TasksScreen = () => {
     setTimePickerTarget(null);
   };
 
+  const handleQuickTaskDuration = (value) => {
+    setTaskDurationInput(String(value));
+  };
+
+  const handleTaskDurationChange = (value) => {
+    const numericOnly = String(value || '').replace(/[^0-9]/g, '').slice(0, 4);
+    setTaskDurationInput(numericOnly);
+  };
+
   const resetNoteForm = () => {
     setNoteTitle('');
     setNoteContent('');
@@ -295,6 +357,42 @@ const TasksScreen = () => {
     setSecurityError('');
   };
 
+  const confirmTaskOverlap = (conflictingTasks = []) =>
+    new Promise((resolve) => {
+      const previewLines = conflictingTasks
+        .slice(0, 3)
+        .map(
+          (task) =>
+            `- ${task.title || 'Untitled'} (${formatTaskTimeRangeLabel(task)})`
+        )
+        .join('\n');
+      const remainingCount = Math.max(0, conflictingTasks.length - 3);
+      const extraLine =
+        remainingCount > 0 ? `\n+${remainingCount} more overlapping task(s)` : '';
+      const message = `This schedule overlaps with existing tasks.\n\n${previewLines}${extraLine}\n\nCreate it anyway?`;
+
+      Alert.alert(
+        'Schedule conflict',
+        message,
+        [
+          {
+            text: 'Back',
+            style: 'cancel',
+            onPress: () => resolve(false),
+          },
+          {
+            text: 'Create anyway',
+            style: 'destructive',
+            onPress: () => resolve(true),
+          },
+        ],
+        {
+          cancelable: true,
+          onDismiss: () => resolve(false),
+        }
+      );
+    });
+
   const handleCreateTask = async () => {
     if (!taskTitle.trim()) return;
     if (!taskDate || Number.isNaN(new Date(taskDate).getTime())) {
@@ -305,6 +403,33 @@ const TasksScreen = () => {
       Alert.alert('Missing time', 'Please choose a time for this task.');
       return;
     }
+    if (
+      normalizedTaskDurationMinutes < 5 ||
+      normalizedTaskDurationMinutes > 24 * 60
+    ) {
+      Alert.alert(
+        'Invalid duration',
+        'Duration must be between 5 minutes and 24 hours.'
+      );
+      return;
+    }
+
+    const conflictingTasks = findOverlappingTasks(
+      {
+        date: taskDate,
+        time: taskTime,
+        durationMinutes: normalizedTaskDurationMinutes,
+      },
+      activeScheduledTasks,
+      {
+        includeCompleted: false,
+        fallbackDurationMinutes: DEFAULT_TASK_DURATION_MINUTES,
+      }
+    );
+    if (conflictingTasks.length) {
+      const shouldContinue = await confirmTaskOverlap(conflictingTasks);
+      if (!shouldContinue) return;
+    }
 
     try {
       setInvitingFriends(true);
@@ -314,6 +439,7 @@ const TasksScreen = () => {
         priority: taskPriority,
         date: taskDate,
         time: taskTime,
+        durationMinutes: normalizedTaskDurationMinutes,
       };
       const createdTask = selectedGroupId
         ? await shareTaskWithGroup({ groupId: selectedGroupId, task: taskPayload })
@@ -771,6 +897,29 @@ const TasksScreen = () => {
           ))}
         </View>
 
+        {taskOverlapPairs.length > 0 && (
+          <Card style={[styles.overlapWarningCard, { borderColor: themeColors.warning }]}>
+            <View style={styles.overlapWarningHeader}>
+              <Ionicons name="warning-outline" size={16} color={themeColors.warning} />
+              <Text style={[styles.overlapWarningTitle, { color: themeColors.warning }]}>
+                Overlap warning
+              </Text>
+            </View>
+            <Text style={[styles.overlapWarningText, { color: themeColors.textSecondary }]}>
+              {taskOverlapPairs.length} schedule conflict{taskOverlapPairs.length === 1 ? '' : 's'} detected.
+            </Text>
+            {taskOverlapPairs.slice(0, 2).map((pair) => (
+              <Text
+                key={`${pair.a?.id || 'a'}-${pair.b?.id || 'b'}`}
+                style={[styles.overlapWarningText, { color: themeColors.textSecondary }]}
+              >
+                {pair.a?.title || 'Task'} overlaps {pair.b?.title || 'Task'} ({formatTaskTimeRangeLabel(pair.a)} vs{' '}
+                {formatTaskTimeRangeLabel(pair.b)})
+              </Text>
+            ))}
+          </Card>
+        )}
+
         {/* Tasks List */}
         <Card
           style={[
@@ -870,7 +1019,7 @@ const TasksScreen = () => {
                       );
                     })()}
                     <Text style={[styles.taskDate, { color: tasksTheme.taskDate }]}>
-                      {formatDate(task.date)}
+                      {formatDate(task.date)} | {formatTaskTimeRangeLabel(task)}
                     </Text>
                   </View>
                 </View>
@@ -1187,6 +1336,77 @@ const TasksScreen = () => {
                   </View>
                 </View>
 
+                <View style={styles.taskFormDurationRow}>
+                  <Text style={[styles.taskFormDateLabel, { color: themeColors.textSecondary }]}>
+                    Duration
+                  </Text>
+                  <View
+                    style={[
+                      styles.taskFormDurationInputWrap,
+                      {
+                        borderColor: tasksTheme.taskItemBorder,
+                        backgroundColor: tasksTheme.taskItemBg,
+                      },
+                    ]}
+                  >
+                    <TextInput
+                      style={[styles.taskFormDurationInput, { color: themeColors.text }]}
+                      value={taskDurationInput}
+                      onChangeText={handleTaskDurationChange}
+                      onBlur={() =>
+                        setTaskDurationInput(String(normalizedTaskDurationMinutes))
+                      }
+                      keyboardType="number-pad"
+                      placeholder={String(DEFAULT_TASK_DURATION_MINUTES)}
+                      placeholderTextColor={themeColors.placeholder}
+                      maxLength={4}
+                    />
+                    <Text style={[styles.taskFormDurationUnit, { color: themeColors.textSecondary }]}>
+                      min
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={[styles.quickLabel, { color: themeColors.textSecondary }]}>Quick durations</Text>
+                <View style={styles.quickGroup}>
+                  {TASK_QUICK_DURATIONS.map((duration) => {
+                    const selected = normalizedTaskDurationMinutes === duration;
+                    return (
+                      <TouchableOpacity
+                        key={duration}
+                        style={[
+                          styles.quickChip,
+                          {
+                            backgroundColor: selected ? themeColors.tasks : tasksTheme.taskItemBg,
+                            borderColor: selected ? themeColors.tasks : tasksTheme.taskItemBorder,
+                          },
+                        ]}
+                        onPress={() => handleQuickTaskDuration(duration)}
+                        activeOpacity={0.85}
+                      >
+                        <Text
+                          style={[
+                            styles.quickChipText,
+                            { color: selected ? '#FFFFFF' : themeColors.textSecondary },
+                          ]}
+                        >
+                          {duration}m
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {taskTime ? (
+                  <Text style={[styles.taskFormDurationSummary, { color: themeColors.textSecondary }]}>
+                    Schedule: {formatTaskTimeRangeLabel({
+                      date: taskDate,
+                      time: taskTime,
+                      durationMinutes: normalizedTaskDurationMinutes,
+                    })}
+                  </Text>
+                ) : null}
+
                 <Text style={[styles.quickLabel, { color: themeColors.textSecondary }]}>Quick dates</Text>
                 <View style={styles.quickGroup}>
                   {TASK_QUICK_DATES.map((option) => {
@@ -1247,6 +1467,24 @@ const TasksScreen = () => {
                     );
                   })}
                 </View>
+
+                {taskTime && draftTaskOverlaps.length > 0 ? (
+                  <View
+                    style={[
+                      styles.taskFormConflictBox,
+                      {
+                        borderColor: themeColors.warning,
+                        backgroundColor: `${themeColors.warning}14`,
+                      },
+                    ]}
+                  >
+                    <Ionicons name="warning-outline" size={16} color={themeColors.warning} />
+                    <Text style={[styles.taskFormConflictText, { color: themeColors.textSecondary }]}>
+                      Overlaps with {draftTaskOverlaps.length} existing task
+                      {draftTaskOverlaps.length === 1 ? '' : 's'}.
+                    </Text>
+                  </View>
+                ) : null}
               </View>
 
               <TouchableOpacity
@@ -1415,8 +1653,7 @@ const TasksScreen = () => {
               <View style={styles.scheduleContent}>
                 <Text style={styles.scheduleLabel}>Scheduled</Text>
                 <Text style={styles.scheduleValue}>
-                  {formatDate(selectedTask.date)}
-                  {selectedTask.time && ` at ${selectedTask.time}`}
+                  {formatDate(selectedTask.date)} | {formatTaskTimeRangeLabel(selectedTask)}
                 </Text>
               </View>
             </View>
@@ -1763,6 +2000,26 @@ const createStyles = (themeColors) => {
   filterTextActive: {
     fontWeight: '600',
   },
+  overlapWarningCard: {
+    borderWidth: 1,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  overlapWarningHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  overlapWarningTitle: {
+    ...typography.bodySmall,
+    fontWeight: '700',
+    marginLeft: spacing.xs,
+  },
+  overlapWarningText: {
+    ...typography.caption,
+    marginBottom: 4,
+  },
   sectionCard: {
     marginBottom: spacing.lg,
     borderRadius: borderRadius.xl,
@@ -2097,6 +2354,31 @@ const createStyles = (themeColors) => {
     flexDirection: 'row',
     marginBottom: spacing.md,
   },
+  taskFormDurationRow: {
+    marginBottom: spacing.md,
+  },
+  taskFormDurationInputWrap: {
+    height: 44,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  taskFormDurationInput: {
+    ...typography.body,
+    flex: 1,
+    paddingVertical: 0,
+  },
+  taskFormDurationUnit: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+  },
+  taskFormDurationSummary: {
+    ...typography.caption,
+    marginBottom: spacing.md,
+    marginTop: -spacing.xs,
+  },
   taskFormDateField: {
     flex: 1,
   },
@@ -2268,6 +2550,20 @@ const createStyles = (themeColors) => {
     flexDirection: 'row',
     flexWrap: 'wrap',
     marginBottom: spacing.lg,
+  },
+  taskFormConflictBox: {
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    marginTop: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  taskFormConflictText: {
+    ...typography.caption,
+    marginLeft: spacing.xs,
+    flex: 1,
   },
   quickChip: {
     paddingVertical: spacing.xs,

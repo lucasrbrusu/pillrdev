@@ -19,6 +19,11 @@ import {
   spacing,
   typography,
 } from '../utils/theme';
+import {
+  DEFAULT_TASK_DURATION_MINUTES,
+  formatTaskTimeRangeLabel,
+  getTaskOverlapPairs,
+} from '../utils/taskScheduling';
 
 const CalendarScreen = () => {
   const insets = useSafeAreaInsets();
@@ -75,6 +80,15 @@ const CalendarScreen = () => {
     });
   }, [tasks, selectedDate]);
 
+  const selectedDateOverlapPairs = useMemo(
+    () =>
+      getTaskOverlapPairs(selectedDateTasks, {
+        includeCompleted: false,
+        fallbackDurationMinutes: DEFAULT_TASK_DURATION_MINUTES,
+      }),
+    [selectedDateTasks]
+  );
+
   const goToPreviousWeek = () => {
     const newDate = new Date(currentDate);
     newDate.setDate(currentDate.getDate() - 7);
@@ -107,7 +121,7 @@ const CalendarScreen = () => {
       const result = await importTasksFromDeviceCalendar();
       Alert.alert(
         'Import complete',
-        `Scanned ${result.scanned} events.\nImported ${result.imported} tasks.\nUpdated ${result.updated} tasks.\nSkipped ${result.skipped}.`
+        `Scanned ${result.scanned} events.\nImported ${result.imported} tasks.\nUpdated ${result.updated} tasks.\nSkipped ${result.skipped}.\nOverlaps detected ${result.overlaps || 0}.`
       );
     } catch (err) {
       Alert.alert('Import failed', err?.message || 'Unable to import calendar events.');
@@ -423,6 +437,27 @@ const CalendarScreen = () => {
           })}
         </Text>
 
+        {selectedDateOverlapPairs.length > 0 && (
+          <Card style={styles.overlapWarningCard}>
+            <View style={styles.overlapWarningHeader}>
+              <Ionicons name="warning-outline" size={16} color={colors.warning} />
+              <Text style={styles.overlapWarningTitle}>Overlap warning</Text>
+            </View>
+            <Text style={styles.overlapWarningText}>
+              {selectedDateOverlapPairs.length} overlapping schedule pair
+              {selectedDateOverlapPairs.length === 1 ? '' : 's'} on this day.
+            </Text>
+            {selectedDateOverlapPairs.slice(0, 2).map((pair) => (
+              <Text
+                key={`${pair.a?.id || 'a'}-${pair.b?.id || 'b'}`}
+                style={styles.overlapWarningText}
+              >
+                {pair.a?.title || 'Task'} overlaps {pair.b?.title || 'Task'}
+              </Text>
+            ))}
+          </Card>
+        )}
+
         {selectedDateTasks.length === 0 ? (
           <Card style={styles.emptyCard}>
             <View style={styles.emptyState}>
@@ -470,7 +505,7 @@ const CalendarScreen = () => {
                             size={12}
                             color={colors.textSecondary}
                           />
-                          <Text style={styles.timeText}>{task.time}</Text>
+                          <Text style={styles.timeText}>{formatTaskTimeRangeLabel(task)}</Text>
                         </View>
                       )}
                       <View
@@ -587,7 +622,7 @@ const CalendarScreen = () => {
                   </Text>
                   <Text style={styles.listTaskMeta}>
                     {formatListDate(task.date)}
-                    {task.time ? ` • ${task.time}` : ''}
+                    {task.time ? ` | ${formatTaskTimeRangeLabel(task)}` : ''}
                   </Text>
                 </View>
                 <View
@@ -797,6 +832,28 @@ const createStyles = () => StyleSheet.create({
   selectedDateTitle: {
     ...typography.h3,
     marginBottom: spacing.md,
+  },
+  overlapWarningCard: {
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: `${colors.warning}66`,
+    backgroundColor: `${colors.warning}12`,
+  },
+  overlapWarningHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  overlapWarningTitle: {
+    ...typography.bodySmall,
+    fontWeight: '700',
+    color: colors.warning,
+    marginLeft: spacing.xs,
+  },
+  overlapWarningText: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginBottom: 2,
   },
   emptyCard: {
     marginBottom: spacing.lg,

@@ -42,6 +42,11 @@ import {
   requestHealthPermissions,
   writeDailyNutritionToHealth,
 } from '../utils/healthBridge';
+import {
+  DEFAULT_TASK_DURATION_MINUTES,
+  getTaskOverlapPairs,
+  normalizeTaskDurationMinutes,
+} from '../utils/taskScheduling';
 
 const AppContext = createContext();
 
@@ -253,7 +258,7 @@ const CALENDAR_SYNC_TITLE = 'Pillaflow';
 const CALENDAR_SYNC_NOTE_MARKER_REGEX = /\[pillaflow_task_id:([^\]\s]+)\]/i;
 const CALENDAR_SYNC_IMPORT_LOOKBACK_DAYS = 30;
 const CALENDAR_SYNC_IMPORT_LOOKAHEAD_DAYS = 365;
-const CALENDAR_TASK_EXPORT_DURATION_MINUTES = 30;
+const CALENDAR_TASK_EXPORT_DURATION_MINUTES = DEFAULT_TASK_DURATION_MINUTES;
 
 const computeIsPremium = (plan, premiumExpiresAt, explicitFlag) => {
   if (explicitFlag === true) return true;
@@ -399,6 +404,21 @@ const formatTaskTimeFromDate = (date, allDay = false) => {
   return `${hh}:${mm}`;
 };
 
+const deriveTaskDurationFromCalendarEvent = (event = {}) => {
+  const startDate = event?.startDate ? new Date(event.startDate) : null;
+  const endDate = event?.endDate ? new Date(event.endDate) : null;
+  if (
+    !(startDate instanceof Date) ||
+    Number.isNaN(startDate.getTime()) ||
+    !(endDate instanceof Date) ||
+    Number.isNaN(endDate.getTime())
+  ) {
+    return DEFAULT_TASK_DURATION_MINUTES;
+  }
+  const diffMinutes = Math.round((endDate.getTime() - startDate.getTime()) / (60 * 1000));
+  return normalizeTaskDurationMinutes(diffMinutes, DEFAULT_TASK_DURATION_MINUTES);
+};
+
 const normalizeTaskTimeKey = (value) => {
   const minutes = parseClockMinutes(value);
   return Number.isInteger(minutes) ? String(minutes) : '';
@@ -410,8 +430,12 @@ const buildTaskSyncSignature = (task = {}) => {
     .toLowerCase();
   const date = String(task?.date || '').trim();
   const timeKey = normalizeTaskTimeKey(task?.time);
+  const durationKey = normalizeTaskDurationMinutes(
+    task?.durationMinutes,
+    DEFAULT_TASK_DURATION_MINUTES
+  );
   if (!title || !date) return '';
-  return `${title}|${date}|${timeKey}`;
+  return `${title}|${date}|${timeKey}|${durationKey}`;
 };
 
 const getCalendarSyncWindow = ({ startDate, endDate } = {}) => {
@@ -2492,14 +2516,26 @@ const mapExternalProfile = (row) => ({
       const userId = userIdParam || authUser?.id;
       if (!userId) return { incoming: [], outgoing: [], responses: [] };
 
-      const { data, error } = await supabase
+      const inviteSelectWithDuration =
+        'id, from_user_id, to_user_id, status, task_id, task_title, task_description, task_priority, task_date, task_time, task_duration_minutes, created_at';
+      const inviteSelectLegacy =
+        'id, from_user_id, to_user_id, status, task_id, task_title, task_description, task_priority, task_date, task_time, created_at';
+
+      let { data, error } = await supabase
         .from('task_invites')
-        .select(
-          'id, from_user_id, to_user_id, status, task_id, task_title, task_description, task_priority, task_date, task_time, created_at'
-        )
+        .select(inviteSelectWithDuration)
         .or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`)
         .order('created_at', { ascending: false })
         .limit(200);
+
+      if (error && isMissingColumnError(error, 'task_duration_minutes')) {
+        ({ data, error } = await supabase
+          .from('task_invites')
+          .select(inviteSelectLegacy)
+          .or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`)
+          .order('created_at', { ascending: false })
+          .limit(200));
+      }
 
       if (error) {
         if (!isMissingRelationError(error, 'task_invites')) {
@@ -2549,6 +2585,10 @@ const mapExternalProfile = (row) => ({
           priority: row.task_priority,
           date: row.task_date,
           time: row.task_time,
+          durationMinutes: normalizeTaskDurationMinutes(
+            row.task_duration_minutes,
+            DEFAULT_TASK_DURATION_MINUTES
+          ),
         },
       }));
 
@@ -4323,14 +4363,36 @@ const mapExternalProfile = (row) => ({
       throw new Error('Task title, date, and time are required.');
     }
 
-    const { data, error } = await supabase.rpc('share_task_with_group', {
+    const normalizedDurationMinutes = normalizeTaskDurationMinutes(
+      task?.durationMinutes,
+      DEFAULT_TASK_DURATION_MINUTES
+    );
+    const rpcPayloadWithDuration = {
       p_group_id: groupId,
       p_title: task.title,
       p_description: task.description || null,
       p_priority: task.priority || 'medium',
       p_date: task.date,
       p_time: task.time,
-    });
+      p_duration_minutes: normalizedDurationMinutes,
+    };
+    const rpcPayloadLegacy = {
+      p_group_id: groupId,
+      p_title: task.title,
+      p_description: task.description || null,
+      p_priority: task.priority || 'medium',
+      p_date: task.date,
+      p_time: task.time,
+    };
+
+    let { data, error } = await supabase.rpc(
+      'share_task_with_group',
+      rpcPayloadWithDuration
+    );
+
+    if (error && isMissingFunctionError(error, 'share_task_with_group')) {
+      ({ data, error } = await supabase.rpc('share_task_with_group', rpcPayloadLegacy));
+    }
 
     if (error) {
       if (isMissingFunctionError(error, 'share_task_with_group')) {
@@ -4340,6 +4402,19 @@ const mapExternalProfile = (row) => ({
       throw new Error(error.message || 'Unable to share this task with the selected group.');
     }
 
+    const sharedBaseId = data?.shared_task_id || data?.id || null;
+    if (sharedBaseId) {
+      const { error: durationSyncError } = await supabase
+        .from('tasks')
+        .update({ duration_minutes: normalizedDurationMinutes })
+        .eq('shared_task_id', sharedBaseId)
+        .eq('group_id', groupId);
+
+      if (durationSyncError && !isMissingColumnError(durationSyncError, 'duration_minutes')) {
+        console.log('Error syncing group task duration:', durationSyncError);
+      }
+    }
+
     const createdTask = {
       id: data.id,
       title: data.title,
@@ -4347,6 +4422,10 @@ const mapExternalProfile = (row) => ({
       priority: data.priority || 'medium',
       date: data.date,
       time: data.time,
+      durationMinutes: normalizeTaskDurationMinutes(
+        data.duration_minutes,
+        normalizedDurationMinutes
+      ),
       completed: Boolean(data.completed),
       createdAt: data.created_at,
       archivedAt: data.archived_at || null,
@@ -4367,23 +4446,36 @@ const mapExternalProfile = (row) => ({
 
     await ensureTaskParticipant(task.id, task.id, 'owner');
 
-    const { data, error } = await supabase
+    const insertPayload = pruneUndefined({
+      task_id: task.id,
+      from_user_id: authUser.id,
+      to_user_id: toUserId,
+      task_title: task.title,
+      task_description: task.description || null,
+      task_priority: task.priority || 'medium',
+      task_date: task.date || null,
+      task_time: task.time || null,
+      task_duration_minutes: normalizeTaskDurationMinutes(
+        task?.durationMinutes,
+        DEFAULT_TASK_DURATION_MINUTES
+      ),
+      status: 'pending',
+    });
+
+    let { data, error } = await supabase
       .from('task_invites')
-      .insert(
-        pruneUndefined({
-          task_id: task.id,
-          from_user_id: authUser.id,
-          to_user_id: toUserId,
-          task_title: task.title,
-          task_description: task.description || null,
-          task_priority: task.priority || 'medium',
-          task_date: task.date || null,
-          task_time: task.time || null,
-          status: 'pending',
-        })
-      )
+      .insert(insertPayload)
       .select()
       .single();
+
+    if (error && isMissingColumnError(error, 'task_duration_minutes')) {
+      const { task_duration_minutes: _ignoredDuration, ...legacyPayload } = insertPayload;
+      ({ data, error } = await supabase
+        .from('task_invites')
+        .insert(legacyPayload)
+        .select()
+        .single());
+    }
 
     if (error) {
       console.log('Error sending task invite:', error);
@@ -4403,13 +4495,24 @@ const mapExternalProfile = (row) => ({
       throw new Error('Invalid response.');
     }
 
-    const { data: invite, error: inviteError } = await supabase
+    const inviteSelectWithDuration =
+      'id, to_user_id, task_id, task_title, task_description, task_priority, task_date, task_time, task_duration_minutes, status';
+    const inviteSelectLegacy =
+      'id, to_user_id, task_id, task_title, task_description, task_priority, task_date, task_time, status';
+
+    let { data: invite, error: inviteError } = await supabase
       .from('task_invites')
-      .select(
-        'id, to_user_id, task_id, task_title, task_description, task_priority, task_date, task_time, status'
-      )
+      .select(inviteSelectWithDuration)
       .eq('id', inviteId)
       .single();
+
+    if (inviteError && isMissingColumnError(inviteError, 'task_duration_minutes')) {
+      ({ data: invite, error: inviteError } = await supabase
+        .from('task_invites')
+        .select(inviteSelectLegacy)
+        .eq('id', inviteId)
+        .single());
+    }
 
     if (inviteError || !invite) {
       console.log('Error loading task invite:', inviteError);
@@ -4426,19 +4529,35 @@ const mapExternalProfile = (row) => ({
       if (!invite.task_date || !invite.task_time) {
         throw new Error('This invite is missing a date/time and cannot be scheduled.');
       }
-      const { data: newRow, error: createError } = await supabase
+      const invitedDurationMinutes = normalizeTaskDurationMinutes(
+        invite.task_duration_minutes,
+        DEFAULT_TASK_DURATION_MINUTES
+      );
+      const taskInsertPayload = {
+        user_id: authUser.id,
+        title: invite.task_title,
+        description: invite.task_description || null,
+        priority: invite.task_priority || 'medium',
+        date: invite.task_date,
+        time: invite.task_time,
+        duration_minutes: invitedDurationMinutes,
+        completed: false,
+      };
+
+      let { data: newRow, error: createError } = await supabase
         .from('tasks')
-        .insert({
-          user_id: authUser.id,
-          title: invite.task_title,
-          description: invite.task_description || null,
-          priority: invite.task_priority || 'medium',
-          date: invite.task_date,
-          time: invite.task_time,
-          completed: false,
-        })
+        .insert(taskInsertPayload)
         .select()
         .single();
+
+      if (createError && isMissingColumnError(createError, 'duration_minutes')) {
+        const { duration_minutes: _ignoredDuration, ...legacyTaskInsertPayload } = taskInsertPayload;
+        ({ data: newRow, error: createError } = await supabase
+          .from('tasks')
+          .insert(legacyTaskInsertPayload)
+          .select()
+          .single());
+      }
 
       if (createError) {
         console.log('Error creating invited task:', createError);
@@ -4454,6 +4573,10 @@ const mapExternalProfile = (row) => ({
         priority: newRow.priority || 'medium',
         date: newRow.date,
         time: newRow.time,
+        durationMinutes: normalizeTaskDurationMinutes(
+          newRow.duration_minutes,
+          invitedDurationMinutes
+        ),
         completed: newRow.completed,
         createdAt: newRow.created_at,
         archivedAt: newRow.archived_at || null,
@@ -6151,22 +6274,55 @@ const isHabitCompletedToday = (habitId) => {
     currentStreakState,
   ]);
 
+const TASK_SELECT_FIELDS_BASE_DURATION =
+  'id,title,description,priority,date,time,duration_minutes,completed,created_at,shared_task_id';
+const TASK_SELECT_FIELDS_BASE_NO_DESC_DURATION =
+  'id,title,priority,date,time,duration_minutes,completed,created_at,shared_task_id';
+const TASK_SELECT_FIELDS_BASE_MINIMAL_DURATION =
+  'id,title,date,time,duration_minutes,completed,created_at,shared_task_id';
 const TASK_SELECT_FIELDS_BASE =
   'id,title,description,priority,date,time,completed,created_at,shared_task_id';
 const TASK_SELECT_FIELDS_BASE_NO_DESC =
   'id,title,priority,date,time,completed,created_at,shared_task_id';
 const TASK_SELECT_FIELDS_BASE_MINIMAL =
   'id,title,date,time,completed,created_at,shared_task_id';
+const TASK_SELECT_FIELDS_ARCHIVE_BASE_DURATION = `${TASK_SELECT_FIELDS_BASE_DURATION},archived_at`;
+const TASK_SELECT_FIELDS_ARCHIVE_BASE_NO_DESC_DURATION = `${TASK_SELECT_FIELDS_BASE_NO_DESC_DURATION},archived_at`;
+const TASK_SELECT_FIELDS_ARCHIVE_BASE_MINIMAL_DURATION = `${TASK_SELECT_FIELDS_BASE_MINIMAL_DURATION},archived_at`;
 const TASK_SELECT_FIELDS_ARCHIVE_BASE = `${TASK_SELECT_FIELDS_BASE},archived_at`;
 const TASK_SELECT_FIELDS_ARCHIVE_BASE_NO_DESC = `${TASK_SELECT_FIELDS_BASE_NO_DESC},archived_at`;
 const TASK_SELECT_FIELDS_ARCHIVE_BASE_MINIMAL = `${TASK_SELECT_FIELDS_BASE_MINIMAL},archived_at`;
+const TASK_SELECT_FIELDS_DURATION = `${TASK_SELECT_FIELDS_BASE_DURATION},notification_ids`;
+const TASK_SELECT_FIELDS_NO_DESC_DURATION = `${TASK_SELECT_FIELDS_BASE_NO_DESC_DURATION},notification_ids`;
+const TASK_SELECT_FIELDS_MINIMAL_DURATION = `${TASK_SELECT_FIELDS_BASE_MINIMAL_DURATION},notification_ids`;
 const TASK_SELECT_FIELDS = `${TASK_SELECT_FIELDS_BASE},notification_ids`;
 const TASK_SELECT_FIELDS_NO_DESC = `${TASK_SELECT_FIELDS_BASE_NO_DESC},notification_ids`;
 const TASK_SELECT_FIELDS_MINIMAL = `${TASK_SELECT_FIELDS_BASE_MINIMAL},notification_ids`;
+const TASK_SELECT_FIELDS_ARCHIVE_DURATION = `${TASK_SELECT_FIELDS_ARCHIVE_BASE_DURATION},notification_ids`;
+const TASK_SELECT_FIELDS_ARCHIVE_NO_DESC_DURATION = `${TASK_SELECT_FIELDS_ARCHIVE_BASE_NO_DESC_DURATION},notification_ids`;
+const TASK_SELECT_FIELDS_ARCHIVE_MINIMAL_DURATION = `${TASK_SELECT_FIELDS_ARCHIVE_BASE_MINIMAL_DURATION},notification_ids`;
 const TASK_SELECT_FIELDS_ARCHIVE = `${TASK_SELECT_FIELDS_ARCHIVE_BASE},notification_ids`;
 const TASK_SELECT_FIELDS_ARCHIVE_NO_DESC = `${TASK_SELECT_FIELDS_ARCHIVE_BASE_NO_DESC},notification_ids`;
 const TASK_SELECT_FIELDS_ARCHIVE_MINIMAL = `${TASK_SELECT_FIELDS_ARCHIVE_BASE_MINIMAL},notification_ids`;
 const withTaskGroupIdField = (selectFields) => `${selectFields},group_id`;
+
+const TASK_SELECT_VARIANTS_WITH_DURATION_ARCHIVE = [
+  TASK_SELECT_FIELDS_ARCHIVE_DURATION,
+  TASK_SELECT_FIELDS_ARCHIVE_NO_DESC_DURATION,
+  TASK_SELECT_FIELDS_ARCHIVE_MINIMAL_DURATION,
+  TASK_SELECT_FIELDS_ARCHIVE_BASE_DURATION,
+  TASK_SELECT_FIELDS_ARCHIVE_BASE_NO_DESC_DURATION,
+  TASK_SELECT_FIELDS_ARCHIVE_BASE_MINIMAL_DURATION,
+];
+
+const TASK_SELECT_VARIANTS_WITH_DURATION_LEGACY = [
+  TASK_SELECT_FIELDS_DURATION,
+  TASK_SELECT_FIELDS_NO_DESC_DURATION,
+  TASK_SELECT_FIELDS_MINIMAL_DURATION,
+  TASK_SELECT_FIELDS_BASE_DURATION,
+  TASK_SELECT_FIELDS_BASE_NO_DESC_DURATION,
+  TASK_SELECT_FIELDS_BASE_MINIMAL_DURATION,
+];
 
 const TASK_SELECT_VARIANTS_WITH_ARCHIVE = [
   TASK_SELECT_FIELDS_ARCHIVE,
@@ -6185,6 +6341,10 @@ const TASK_SELECT_VARIANTS_LEGACY = [
   TASK_SELECT_FIELDS_BASE_NO_DESC,
   TASK_SELECT_FIELDS_BASE_MINIMAL,
 ];
+const TASK_SELECT_VARIANTS_WITH_DURATION_ARCHIVE_GROUP =
+  TASK_SELECT_VARIANTS_WITH_DURATION_ARCHIVE.map(withTaskGroupIdField);
+const TASK_SELECT_VARIANTS_WITH_DURATION_LEGACY_GROUP =
+  TASK_SELECT_VARIANTS_WITH_DURATION_LEGACY.map(withTaskGroupIdField);
 const TASK_SELECT_VARIANTS_WITH_ARCHIVE_GROUP = TASK_SELECT_VARIANTS_WITH_ARCHIVE.map(
   withTaskGroupIdField
 );
@@ -6202,6 +6362,26 @@ const fetchTasksFromSupabase = async (userId) => {
       .order('created_at', { ascending: true });
 
   const attempts = [];
+  ['tasks_list', 'tasks'].forEach((table) => {
+    TASK_SELECT_VARIANTS_WITH_DURATION_ARCHIVE_GROUP.forEach((fields) => {
+      attempts.push({ table, fields });
+    });
+  });
+  ['tasks_list', 'tasks'].forEach((table) => {
+    TASK_SELECT_VARIANTS_WITH_DURATION_LEGACY_GROUP.forEach((fields) => {
+      attempts.push({ table, fields });
+    });
+  });
+  ['tasks_list', 'tasks'].forEach((table) => {
+    TASK_SELECT_VARIANTS_WITH_DURATION_ARCHIVE.forEach((fields) => {
+      attempts.push({ table, fields });
+    });
+  });
+  ['tasks_list', 'tasks'].forEach((table) => {
+    TASK_SELECT_VARIANTS_WITH_DURATION_LEGACY.forEach((fields) => {
+      attempts.push({ table, fields });
+    });
+  });
   ['tasks_list', 'tasks'].forEach((table) => {
     TASK_SELECT_VARIANTS_WITH_ARCHIVE_GROUP.forEach((fields) => {
       attempts.push({ table, fields });
@@ -6256,6 +6436,10 @@ const fetchTasksFromSupabase = async (userId) => {
     priority: t.priority || 'medium',
     date: t.date, // stored as date string YYYY-MM-DD
     time: t.time,
+    durationMinutes: normalizeTaskDurationMinutes(
+      t.duration_minutes,
+      DEFAULT_TASK_DURATION_MINUTES
+    ),
     completed: t.completed,
     createdAt: t.created_at,
     archivedAt: t.archived_at || null,
@@ -6325,21 +6509,37 @@ const fetchTasksFromSupabase = async (userId) => {
     throw new Error('A time is required to schedule a task.');
   }
 
-  const { data, error } = await supabase
+  const normalizedDurationMinutes = normalizeTaskDurationMinutes(
+    task?.durationMinutes,
+    DEFAULT_TASK_DURATION_MINUTES
+  );
+  const insertPayload = pruneUndefined({
+    user_id: authUser.id,
+    title: task.title,
+    description: task.description || null,
+    priority: task.priority || 'medium',
+    date: task.date,
+    time: task.time,
+    duration_minutes: normalizedDurationMinutes,
+    completed: false,
+    shared_task_id: task.sharedTaskId ?? undefined,
+    group_id: task.groupId ?? undefined,
+  });
+
+  let { data, error } = await supabase
     .from('tasks')
-    .insert(pruneUndefined({
-      user_id: authUser.id,
-      title: task.title,
-      description: task.description || null,
-      priority: task.priority || 'medium',
-      date: task.date,
-      time: task.time,
-      completed: false,
-      shared_task_id: task.sharedTaskId ?? undefined,
-      group_id: task.groupId ?? undefined,
-    }))
+    .insert(insertPayload)
     .select()
     .single();
+
+  if (error && isMissingColumnError(error, 'duration_minutes')) {
+    const { duration_minutes: _ignoredDuration, ...legacyPayload } = insertPayload;
+    ({ data, error } = await supabase
+      .from('tasks')
+      .insert(legacyPayload)
+      .select()
+      .single());
+  }
 
   if (error) {
     console.log('Error adding task:', error);
@@ -6353,6 +6553,10 @@ const fetchTasksFromSupabase = async (userId) => {
     priority: data.priority,
     date: data.date,
     time: data.time,
+    durationMinutes: normalizeTaskDurationMinutes(
+      data.duration_minutes,
+      normalizedDurationMinutes
+    ),
     completed: data.completed,
     createdAt: data.created_at,
     archivedAt: data.archived_at || null,
@@ -6377,20 +6581,51 @@ const fetchTasksFromSupabase = async (userId) => {
     ['priority', 'priority'],
     ['date', 'date'],
     ['time', 'time'],
+    ['durationMinutes', 'duration_minutes'],
     ['completed', 'completed'],
     ['archivedAt', 'archived_at'],
   ].forEach(([sourceKey, targetKey]) => {
     if (updates[sourceKey] !== undefined) {
-      updateData[targetKey] = updates[sourceKey];
+      updateData[targetKey] =
+        sourceKey === 'durationMinutes'
+          ? normalizeTaskDurationMinutes(
+              updates[sourceKey],
+              DEFAULT_TASK_DURATION_MINUTES
+            )
+          : updates[sourceKey];
     }
   });
 
+  const normalizedUpdates =
+    updates.durationMinutes !== undefined
+      ? {
+          ...updates,
+          durationMinutes: normalizeTaskDurationMinutes(
+            updates.durationMinutes,
+            DEFAULT_TASK_DURATION_MINUTES
+          ),
+        }
+      : updates;
+
   if (Object.keys(updateData).length > 0) {
-    const { error } = await supabase
+    let { error } = await supabase
       .from('tasks')
       .update(updateData)
       .eq('id', taskId)
       .eq('user_id', authUser.id);
+
+    if (error && isMissingColumnError(error, 'duration_minutes')) {
+      const { duration_minutes: _ignoredDuration, ...legacyUpdateData } = updateData;
+      if (Object.keys(legacyUpdateData).length) {
+        ({ error } = await supabase
+          .from('tasks')
+          .update(legacyUpdateData)
+          .eq('id', taskId)
+          .eq('user_id', authUser.id));
+      } else {
+        error = null;
+      }
+    }
 
     if (error) {
       console.log('Error updating task:', error);
@@ -6398,13 +6633,13 @@ const fetchTasksFromSupabase = async (userId) => {
   }
 
   setTasks((prev) =>
-    prev.map((t) => (t.id === taskId ? { ...t, ...updates } : t))
+    prev.map((t) => (t.id === taskId ? { ...t, ...normalizedUpdates } : t))
   );
   setArchivedTasks((prev) =>
-    prev.map((t) => (t.id === taskId ? { ...t, ...updates } : t))
+    prev.map((t) => (t.id === taskId ? { ...t, ...normalizedUpdates } : t))
   );
 
-  if (updates.completed === true) {
+  if (normalizedUpdates.completed === true) {
     await cancelItemNotifications('tasks', 'task', taskId);
   }
 };
@@ -6607,6 +6842,7 @@ const fetchTasksFromSupabase = async (userId) => {
         priority: 'medium',
         date: toLocalDateISO(eventStart),
         time: formatTaskTimeFromDate(eventStart, Boolean(event?.allDay)),
+        durationMinutes: deriveTaskDurationFromCalendarEvent(event),
       };
 
       if (!payload.date || !payload.time) {
@@ -6628,6 +6864,17 @@ const fetchTasksFromSupabase = async (userId) => {
         if (targetTask.date !== payload.date) updates.date = payload.date;
         if (normalizeTaskTimeKey(targetTask.time) !== normalizeTaskTimeKey(payload.time)) {
           updates.time = payload.time;
+        }
+        const existingDuration = normalizeTaskDurationMinutes(
+          targetTask.durationMinutes,
+          DEFAULT_TASK_DURATION_MINUTES
+        );
+        const incomingDuration = normalizeTaskDurationMinutes(
+          payload.durationMinutes,
+          DEFAULT_TASK_DURATION_MINUTES
+        );
+        if (existingDuration !== incomingDuration) {
+          updates.durationMinutes = incomingDuration;
         }
 
         if (Object.keys(updates).length) {
@@ -6661,11 +6908,16 @@ const fetchTasksFromSupabase = async (userId) => {
       tasksById.has(taskId)
     );
     await persistCalendarSyncMap(nextMap);
+    const overlapPairs = getTaskOverlapPairs(Array.from(tasksById.values()), {
+      includeCompleted: false,
+      fallbackDurationMinutes: DEFAULT_TASK_DURATION_MINUTES,
+    });
     return {
       scanned: uniqueEvents.length,
       imported,
       updated,
       skipped,
+      overlaps: overlapPairs.length,
     };
   };
 
@@ -6689,8 +6941,12 @@ const fetchTasksFromSupabase = async (userId) => {
         skipped += 1;
         continue;
       }
+      const durationMinutes = normalizeTaskDurationMinutes(
+        task?.durationMinutes,
+        CALENDAR_TASK_EXPORT_DURATION_MINUTES
+      );
       const endDate = new Date(
-        startDate.getTime() + CALENDAR_TASK_EXPORT_DURATION_MINUTES * 60 * 1000
+        startDate.getTime() + durationMinutes * 60 * 1000
       );
       const notes = withTaskIdMarkerInCalendarNotes(task.description || '', task.id);
       const eventPayload = {
