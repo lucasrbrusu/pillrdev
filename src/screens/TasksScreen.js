@@ -10,7 +10,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../utils/supabaseClient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons, Feather } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
 import { buildDateWithTime, formatTimeFromDate } from '../utils/notifications';
@@ -82,7 +82,6 @@ const TasksScreen = () => {
     tasks,
     friends,
     groups,
-    notes,
     addTask,
     shareTaskWithGroup,
     updateTask,
@@ -102,7 +101,6 @@ const TasksScreen = () => {
     themeName,
     themeColors,
     ensureTasksLoaded,
-    ensureNotesLoaded,
     ensureGroupDataLoaded,
   } = useApp();
   const isDark = themeName === 'dark';
@@ -211,9 +209,8 @@ const TasksScreen = () => {
 
   useEffect(() => {
     ensureTasksLoaded();
-    ensureNotesLoaded();
     ensureGroupDataLoaded();
-  }, [ensureGroupDataLoaded, ensureNotesLoaded, ensureTasksLoaded]);
+  }, [ensureGroupDataLoaded, ensureTasksLoaded]);
 
   const filteredTasks = useMemo(() => {
     let filtered = [...tasks];
@@ -552,24 +549,6 @@ const TasksScreen = () => {
     }
   };
 
-  useEffect(() => {
-    const targetId = route.params?.noteId;
-    if (!targetId) return;
-    const targetNote = notes.find((n) => n.id === targetId);
-    if (targetNote) {
-      if (targetNote.password && !unlockedNoteIds.includes(targetNote.id)) {
-        setNoteToUnlock(targetNote);
-        setShowUnlockModal(true);
-      } else {
-        setSelectedNote(targetNote);
-        setShowNoteDetailModal(true);
-        setNoteTitleDraft(targetNote.title || '');
-        setNoteContentDraft(targetNote.content || '');
-      }
-    }
-    navigation.setParams?.({ noteId: undefined });
-  }, [route.params?.noteId, notes, unlockedNoteIds, navigation]);
-
   const getPriorityColor = (priority) => {
     switch (priority) {
       case 'high':
@@ -650,7 +629,7 @@ const TasksScreen = () => {
           <View>
             <Text style={[styles.pageTitle, { color: themeColors.text }]}>Tasks</Text>
             <Text style={[styles.pageSubtitle, { color: themeColors.textSecondary }]}>
-              Plan your day and capture quick notes
+              Plan your day and stay on track
             </Text>
           </View>
         </View>
@@ -682,7 +661,7 @@ const TasksScreen = () => {
                 borderColor: tasksTheme.actionSecondaryBorder,
               },
             ]}
-            onPress={() => setShowNoteModal(true)}
+            onPress={() => navigation.navigate('Notes')}
             activeOpacity={0.85}
           >
             <Ionicons
@@ -696,7 +675,7 @@ const TasksScreen = () => {
                 { color: tasksTheme.actionSecondaryText },
               ]}
             >
-              Create Note
+              Notes
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -900,106 +879,6 @@ const TasksScreen = () => {
           )}
         </Card>
 
-        {/* Notes Section */}
-        <Card
-          style={[
-            styles.sectionCard,
-            styles.notesCard,
-            {
-              backgroundColor: tasksTheme.notesCardBg,
-              borderColor: tasksTheme.notesCardBorder,
-            },
-          ]}
-        >
-          <View style={styles.notesHeader}>
-            <Text style={[styles.sectionTitle, { color: tasksTheme.notesTitle }]}>Notes</Text>
-            <TouchableOpacity
-              style={[
-                styles.addNewButton,
-                {
-                  backgroundColor: tasksTheme.addNewBg,
-                  borderColor: tasksTheme.addNewBorder,
-                },
-              ]}
-            onPress={() => setShowNoteModal(true)}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.addNewText, { color: tasksTheme.addNewText }]}>Add new</Text>
-          </TouchableOpacity>
-        </View>
-
-          {notes.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="document-text-outline" size={48} color={tasksTheme.notesTitle} />
-              <Text style={styles.emptyTitle}>No notes yet</Text>
-              <Text style={styles.emptySubtitle}>Create a note to get started</Text>
-              <Button
-                title="Create Note"
-                variant="secondary"
-                icon="document-text-outline"
-                onPress={() => setShowNoteModal(true)}
-                style={styles.createNoteEmptyButton}
-              />
-            </View>
-          ) : (
-            notes.map((note) => (
-              <View key={note.id} style={styles.noteRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.noteItem,
-                    {
-                      backgroundColor: tasksTheme.noteItemBg,
-                      borderColor: tasksTheme.noteItemBorder,
-                    },
-                  ]}
-                  onPress={() => handleNotePress(note)}
-                  activeOpacity={0.7}
-                >
-                  <View
-                    style={[
-                      styles.noteIcon,
-                      { backgroundColor: tasksTheme.noteIconBg },
-                    ]}
-                  >
-                    <Feather name="file-text" size={18} color={tasksTheme.noteIconColor} />
-                  </View>
-                  <View style={styles.noteInfo}>
-                    <Text style={styles.noteTitle} numberOfLines={1}>
-                      {note.title}
-                    </Text>
-                    {note.password && (
-                      <View style={styles.lockBadge}>
-                        <Ionicons name="lock-closed" size={12} color={tasksTheme.noteLockColor} />
-                        <Text style={[styles.lockBadgeText, { color: tasksTheme.noteLockColor }]}>
-                          Locked
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                  <Ionicons
-                    name="chevron-forward"
-                    size={18}
-                    color={tasksTheme.noteChevron}
-                  />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.lockButton,
-                    { backgroundColor: tasksTheme.noteLockBg, borderColor: tasksTheme.noteItemBorder },
-                  ]}
-                  onPress={() => handleManageSecurity(note)}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons
-                    name={note.password ? 'lock-closed' : 'lock-open'}
-                    size={18}
-                    color={note.password ? tasksTheme.noteLockColor : themeColors.textSecondary}
-                  />
-                </TouchableOpacity>
-              </View>
-            ))
-          )}
-        </Card>
       </PlatformScrollView>
 
         {/* Add Task Modal */}

@@ -14,6 +14,7 @@ import AppTutorialOverlay from '../components/AppTutorialOverlay';
 import HomeScreen from '../screens/HomeScreen';
 import HabitsScreen from '../screens/HabitsScreen';
 import TasksScreen from '../screens/TasksScreen';
+import NotesScreen from '../screens/NotesScreen';
 import HealthScreen from '../screens/HealthScreen';
 import RoutineScreen from '../screens/RoutineScreen';
 import RoutineDetailScreen from '../screens/RoutineDetailScreen';
@@ -396,6 +397,7 @@ const Navigation = () => {
             name="BudgetGroupInsight"
             component={BudgetGroupInsightScreen}
           />
+          <Stack.Screen name="Notes" component={NotesScreen} />
           <Stack.Screen name="Calendar" component={CalendarScreen} />
           <Stack.Screen name="TaskArchive" component={ArchiveTasksScreen} />
           <Stack.Screen name="RoutineDetail" component={RoutineDetailScreen} />
