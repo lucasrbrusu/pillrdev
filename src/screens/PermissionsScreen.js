@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
 import { Card } from '../components';
-import { colors, spacing, borderRadius, typography } from '../utils/theme';
+import { colors, spacing, typography } from '../utils/theme';
 
 const PermissionsScreen = () => {
   const insets = useSafeAreaInsets();
@@ -26,7 +26,6 @@ const PermissionsScreen = () => {
     connectHealthIntegration,
     disconnectHealthIntegration,
     setHealthNutritionSyncEnabled,
-    syncHealthMetricsFromPlatform,
     userSettings,
     setCalendarSyncEnabled,
     hasCalendarPermission,
@@ -39,33 +38,26 @@ const PermissionsScreen = () => {
     healthConnection?.providerLabel ||
     (Platform.OS === 'ios' ? 'Apple Health' : 'Health Connect');
   const canWriteNutritionToHealth = Boolean(healthConnection?.canWriteNutrition);
+  const stepsSyncEnabled = Boolean(healthConnection?.isConnected);
   const nutritionSyncEnabled =
     Boolean(healthConnection?.syncNutritionToHealth) && canWriteNutritionToHealth;
-  const connectButtonTitle = healthConnection?.isConnected
-    ? `Reconnect ${healthProviderLabel}`
-    : `Connect ${healthProviderLabel}`;
   const lastHealthSyncText = healthConnection?.lastSyncedAt
     ? new Date(healthConnection.lastSyncedAt).toLocaleString()
     : 'Not synced yet';
 
-  const handleConnectHealth = async () => {
+  const handleToggleStepsSync = async (enabled) => {
     try {
       setIsUpdatingHealthPermissions(true);
-      await connectHealthIntegration({ syncNutritionToHealth: nutritionSyncEnabled });
-      await syncHealthMetricsFromPlatform({ force: true });
+      if (enabled) {
+        await connectHealthIntegration({ syncNutritionToHealth: nutritionSyncEnabled });
+      } else {
+        await disconnectHealthIntegration();
+      }
     } catch (err) {
-      Alert.alert('Unable to connect', err?.message || 'Please try again.');
-    } finally {
-      setIsUpdatingHealthPermissions(false);
-    }
-  };
-
-  const handleDisconnectHealth = async () => {
-    try {
-      setIsUpdatingHealthPermissions(true);
-      await disconnectHealthIntegration();
-    } catch (err) {
-      Alert.alert('Unable to disconnect', err?.message || 'Please try again.');
+      Alert.alert(
+        enabled ? 'Unable to enable steps sync' : 'Unable to disable steps sync',
+        err?.message || 'Please try again.'
+      );
     } finally {
       setIsUpdatingHealthPermissions(false);
     }
@@ -131,35 +123,21 @@ const PermissionsScreen = () => {
             <Text style={styles.permissionItemText}>{t('Nutrition totals (optional write)')}</Text>
           </View>
 
-          <TouchableOpacity
-            style={[
-              styles.connectHealthButton,
-              { backgroundColor: themeColors.primary },
-              isUpdatingHealthPermissions && styles.buttonDisabled,
-            ]}
-            onPress={handleConnectHealth}
-            disabled={isUpdatingHealthPermissions}
-          >
-            <Text style={styles.connectHealthButtonText}>
-              {isUpdatingHealthPermissions ? t('Updating...') : connectButtonTitle}
-            </Text>
-          </TouchableOpacity>
-
-          {healthConnection?.isConnected && (
-            <TouchableOpacity
-              style={[
-                styles.disconnectHealthButton,
-                { borderColor: themeColors.border, backgroundColor: themeColors.card },
-                isUpdatingHealthPermissions && styles.buttonDisabled,
-              ]}
-              onPress={handleDisconnectHealth}
-              disabled={isUpdatingHealthPermissions}
-            >
-              <Text style={[styles.disconnectHealthButtonText, { color: themeColors.text }]}>
-                {t('Disconnect')}
+          <View style={styles.stepsToggleRow}>
+            <View style={styles.toggleTextWrap}>
+              <Text style={styles.toggleTitle}>{`Enable ${healthProviderLabel} steps sync`}</Text>
+              <Text style={styles.toggleSubtitle}>
+                When enabled, steps sync automatically while app is open and in background
+                (best effort every ~15 minutes).
               </Text>
-            </TouchableOpacity>
-          )}
+            </View>
+            <Switch
+              value={stepsSyncEnabled}
+              onValueChange={handleToggleStepsSync}
+              disabled={isUpdatingHealthPermissions}
+              trackColor={{ false: '#9CA3AF', true: themeColors.primary }}
+            />
+          </View>
 
           <View style={styles.nutritionToggleRow}>
             <View style={styles.toggleTextWrap}>
@@ -175,7 +153,7 @@ const PermissionsScreen = () => {
             <Switch
               value={nutritionSyncEnabled}
               onValueChange={handleToggleNutritionSync}
-              disabled={!healthConnection?.isConnected || !canWriteNutritionToHealth || isUpdatingHealthPermissions}
+              disabled={!stepsSyncEnabled || !canWriteNutritionToHealth || isUpdatingHealthPermissions}
               trackColor={{ false: '#9CA3AF', true: themeColors.primary }}
             />
           </View>
@@ -278,32 +256,12 @@ const createStyles = (themeColors) =>
       marginLeft: spacing.sm,
       flex: 1,
     },
-    connectHealthButton: {
-      marginTop: spacing.sm,
-      borderRadius: borderRadius.md,
-      paddingVertical: spacing.md,
+    stepsToggleRow: {
+      flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
-    },
-    buttonDisabled: {
-      opacity: 0.65,
-    },
-    connectHealthButtonText: {
-      ...typography.bodySmall,
-      color: '#FFFFFF',
-      fontWeight: '700',
-    },
-    disconnectHealthButton: {
+      justifyContent: 'space-between',
       marginTop: spacing.sm,
-      borderRadius: borderRadius.md,
-      borderWidth: 1,
-      paddingVertical: spacing.sm,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    disconnectHealthButtonText: {
-      ...typography.bodySmall,
-      fontWeight: '600',
+      marginBottom: spacing.sm,
     },
     nutritionToggleRow: {
       flexDirection: 'row',

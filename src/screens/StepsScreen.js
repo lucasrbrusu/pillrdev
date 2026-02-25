@@ -1,8 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
+import {
+  useNavigation,
+  useRoute,
+  useFocusEffect,
+  useIsFocused,
+} from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { Pedometer } from 'expo-sensors';
 import { useApp } from '../context/AppContext';
 import { Card, Modal, Button, Input, PlatformDatePicker, PlatformScrollView } from '../components';
 import { borderRadius, spacing, typography, shadows } from '../utils/theme';
@@ -57,16 +63,19 @@ const formatDateTime = (value) => {
   });
 };
 
+const LIVE_STEPS_PERSIST_DEBOUNCE_MS = 12000;
+const LIVE_STEPS_PERSIST_MIN_DELTA = 8;
+
 const StepsScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const route = useRoute();
+  const isFocused = useIsFocused();
   const {
     themeColors,
     healthConnection,
     healthDailyMetrics,
     ensureHealthLoaded,
-    syncHealthMetricsFromPlatform,
     upsertHealthDailyMetricForDate,
   } = useApp();
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
@@ -83,7 +92,15 @@ const StepsScreen = () => {
   const [showEntryModal, setShowEntryModal] = useState(false);
   const [stepsInput, setStepsInput] = useState('');
   const [weekOffset, setWeekOffset] = useState(0);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [liveTodaySteps, setLiveTodaySteps] = useState(null);
+
+  const liveWatchSubscriptionRef = useRef(null);
+  const livePersistTimeoutRef = useRef(null);
+  const livePendingStepsRef = useRef(null);
+  const livePersistInFlightRef = useRef(false);
+  const liveLastPersistedStepsRef = useRef(0);
+  const liveRunningStepsRef = useRef(0);
+  const selectedTotalRef = useRef(0);
 
   useEffect(() => {
     setSelectedDate(initialDate);
@@ -100,6 +117,18 @@ const StepsScreen = () => {
   const selectedDateKey = toDateKey(selectedDate);
   const selectedMetric = healthDailyMetrics?.[selectedDateKey] || null;
   const selectedTotal = Math.max(0, Math.round(Number(selectedMetric?.steps) || 0));
+  const todayDateKey = toDateKey(new Date());
+  const isViewingToday = selectedDateKey === todayDateKey;
+  const liveSelectedTotal =
+    isViewingToday && Number.isFinite(liveTodaySteps)
+      ? Math.max(selectedTotal, Math.round(liveTodaySteps))
+      : selectedTotal;
+
+  useEffect(() => {
+    selectedTotalRef.current = selectedTotal;
+    liveLastPersistedStepsRef.current = selectedTotal;
+    liveRunningStepsRef.current = selectedTotal;
+  }, [selectedDateKey, selectedTotal]);
 
   const weekStart = useMemo(() => {
     const anchorDate = addDays(selectedDate, -weekOffset * 7);
@@ -141,6 +170,136 @@ const StepsScreen = () => {
     [weekDays]
   );
 
+  useEffect(() => {
+    if (!isViewingToday) {
+      setLiveTodaySteps(null);
+    }
+  }, [isViewingToday]);
+
+  const flushLiveSnapshot = useCallback(async () => {
+    if (!isViewingToday || livePersistInFlightRef.current) return;
+
+    const nextSteps = Math.max(0, Math.round(Number(livePendingStepsRef.current) || 0));
+    const delta = Math.abs(nextSteps - (liveLastPersistedStepsRef.current || 0));
+    if (!Number.isFinite(nextSteps) || delta < LIVE_STEPS_PERSIST_MIN_DELTA) {
+      return;
+    }
+
+    livePersistInFlightRef.current = true;
+    try {
+      await upsertHealthDailyMetricForDate(selectedDateKey, {
+        steps: nextSteps,
+        source: 'platform_health_live',
+      });
+      liveLastPersistedStepsRef.current = nextSteps;
+    } catch (err) {
+      console.log('Error persisting live pedometer steps:', err);
+    } finally {
+      livePersistInFlightRef.current = false;
+    }
+  }, [isViewingToday, selectedDateKey, upsertHealthDailyMetricForDate]);
+
+  const queueLiveSnapshotPersist = useCallback(
+    (stepsValue) => {
+      if (!isViewingToday) return;
+      livePendingStepsRef.current = Math.max(0, Math.round(Number(stepsValue) || 0));
+      if (livePersistTimeoutRef.current) return;
+      livePersistTimeoutRef.current = setTimeout(() => {
+        livePersistTimeoutRef.current = null;
+        void flushLiveSnapshot();
+      }, LIVE_STEPS_PERSIST_DEBOUNCE_MS);
+    },
+    [flushLiveSnapshot, isViewingToday]
+  );
+
+  useEffect(() => {
+    if (!isFocused || !isViewingToday || !healthConnection?.isConnected) return undefined;
+
+    let isCancelled = false;
+
+    const clearLiveWatch = () => {
+      if (liveWatchSubscriptionRef.current) {
+        liveWatchSubscriptionRef.current.remove();
+        liveWatchSubscriptionRef.current = null;
+      }
+    };
+
+    const startLiveWatch = async () => {
+      try {
+        const isPedometerAvailable = await Pedometer.isAvailableAsync();
+        if (!isPedometerAvailable || isCancelled) return;
+        let lastRawStepCount = null;
+
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        let baselineSteps = selectedTotalRef.current;
+
+        try {
+          const todayStepSnapshot = await Pedometer.getStepCountAsync(startOfToday, new Date());
+          const snapshotSteps = Math.max(
+            0,
+            Math.round(Number(todayStepSnapshot?.steps) || 0)
+          );
+          baselineSteps = Math.max(baselineSteps, snapshotSteps);
+        } catch (error) {
+          // Ignore `getStepCountAsync` failures and keep live updates from baseline.
+        }
+
+        if (isCancelled) return;
+
+        liveRunningStepsRef.current = Math.max(selectedTotalRef.current, baselineSteps);
+        setLiveTodaySteps((prev) => {
+          const previous = Math.max(0, Math.round(Number(prev) || 0));
+          return Math.max(previous, liveRunningStepsRef.current);
+        });
+        queueLiveSnapshotPersist(liveRunningStepsRef.current);
+
+        liveWatchSubscriptionRef.current = Pedometer.watchStepCount((result) => {
+          const rawStepCount = Math.max(0, Math.round(Number(result?.steps) || 0));
+          if (lastRawStepCount === null) {
+            lastRawStepCount = rawStepCount;
+            return;
+          }
+
+          const delta =
+            rawStepCount >= lastRawStepCount
+              ? rawStepCount - lastRawStepCount
+              : rawStepCount;
+          lastRawStepCount = rawStepCount;
+          if (delta <= 0) return;
+
+          const nextSteps = Math.max(
+            selectedTotalRef.current,
+            liveRunningStepsRef.current + delta
+          );
+          liveRunningStepsRef.current = nextSteps;
+          setLiveTodaySteps(nextSteps);
+          queueLiveSnapshotPersist(nextSteps);
+        });
+      } catch (err) {
+        console.log('Error starting pedometer live updates:', err);
+      }
+    };
+
+    startLiveWatch();
+
+    return () => {
+      isCancelled = true;
+      clearLiveWatch();
+      if (livePersistTimeoutRef.current) {
+        clearTimeout(livePersistTimeoutRef.current);
+        livePersistTimeoutRef.current = null;
+      }
+      void flushLiveSnapshot();
+    };
+  }, [
+    flushLiveSnapshot,
+    healthConnection?.isConnected,
+    isFocused,
+    isViewingToday,
+    queueLiveSnapshotPersist,
+  ]);
+
   const handleSaveEntry = async () => {
     const parsedSteps = Math.round(Number(stepsInput));
     if (!Number.isFinite(parsedSteps) || parsedSteps < 0) {
@@ -161,32 +320,17 @@ const StepsScreen = () => {
     }
   };
 
-  const handleSyncFromHealth = async () => {
-    if (!healthConnection?.isConnected) {
-      Alert.alert('Health not connected', 'Connect your health permissions in Profile -> Permissions.');
-      return;
-    }
-    try {
-      setIsSyncing(true);
-      const result = await syncHealthMetricsFromPlatform({ force: true });
-      if (!result?.synced && result?.reason) {
-        Alert.alert('Sync skipped', String(result.reason));
-      }
-    } catch (err) {
-      console.log('Error syncing health metrics:', err);
-      Alert.alert('Unable to sync', 'Please try again.');
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const selectedEntries = selectedMetric
+  const selectedEntries = (selectedMetric || (isViewingToday && Number.isFinite(liveTodaySteps)))
     ? [
         {
           id: `${selectedDateKey}-snapshot`,
-          steps: selectedTotal,
-          source: selectedMetric.source || 'platform_health',
-          updatedAt: selectedMetric.updatedAt,
+          steps: liveSelectedTotal,
+          source:
+            selectedMetric?.source ||
+            (isViewingToday && Number.isFinite(liveTodaySteps)
+              ? 'platform_health_live'
+              : 'platform_health'),
+          updatedAt: selectedMetric?.updatedAt || new Date().toISOString(),
         },
       ]
     : [];
@@ -210,7 +354,7 @@ const StepsScreen = () => {
           <TouchableOpacity
             style={styles.addButton}
             onPress={() => {
-              setStepsInput(String(selectedTotal || ''));
+              setStepsInput(String(liveSelectedTotal || ''));
               setShowEntryModal(true);
             }}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -235,19 +379,19 @@ const StepsScreen = () => {
 
         <Card style={styles.totalCard}>
           <Text style={styles.totalLabel}>Total steps for this day</Text>
-          <Text style={styles.totalValue}>{formatStepsNumber(selectedTotal)}</Text>
+          <Text style={styles.totalValue}>{formatStepsNumber(liveSelectedTotal)}</Text>
           <Text style={styles.totalMeta}>
-            Source: {selectedMetric?.source || (healthConnection?.isConnected ? 'health snapshot pending' : 'manual')}
+            Source:{' '}
+            {isViewingToday && Number.isFinite(liveTodaySteps)
+              ? 'platform_health_live'
+              : selectedMetric?.source ||
+                (healthConnection?.isConnected ? 'health snapshot pending' : 'manual')}
           </Text>
-          <View style={styles.syncActionRow}>
-            <Button
-              title={isSyncing ? 'Syncing...' : `Sync from ${healthConnection?.providerLabel || 'Health app'}`}
-              variant="secondary"
-              onPress={handleSyncFromHealth}
-              disabled={isSyncing}
-              style={styles.syncButton}
-            />
-          </View>
+          <Text style={styles.totalMetaSecondary}>
+            {healthConnection?.isConnected
+              ? 'Auto sync runs while the app is open and in background (best effort every ~15 minutes).'
+              : 'Enable health permission in Profile -> Permissions for automatic syncing.'}
+          </Text>
         </Card>
 
         <Card style={styles.chartCard}>
@@ -314,14 +458,16 @@ const StepsScreen = () => {
                 <View>
                   <Text style={styles.entryValue}>{formatStepsNumber(entry.steps)} steps</Text>
                   <Text style={styles.entryMeta}>
-                    {entry.source || 'unknown'} • {formatDateTime(entry.updatedAt)}
+                    {entry.source || 'unknown'} - {formatDateTime(entry.updatedAt)}
                   </Text>
                 </View>
                 <Ionicons name="walk-outline" size={16} color={themeColors.primary} />
               </View>
             ))
           ) : (
-            <Text style={styles.entriesEmpty}>No snapshot for this day yet. Tap sync to import steps.</Text>
+            <Text style={styles.entriesEmpty}>
+              No snapshot for this day yet. Enable health permission in Profile -> Permissions to auto sync.
+            </Text>
           )}
         </Card>
       </PlatformScrollView>
@@ -464,11 +610,10 @@ const createStyles = (themeColors) =>
       ...typography.caption,
       color: themeColors.textSecondary,
     },
-    syncActionRow: {
-      marginTop: spacing.md,
-    },
-    syncButton: {
-      marginTop: 0,
+    totalMetaSecondary: {
+      ...typography.caption,
+      color: themeColors.textSecondary,
+      marginTop: spacing.sm,
     },
     chartCard: {
       marginBottom: spacing.lg,
@@ -601,3 +746,4 @@ const createStyles = (themeColors) =>
   });
 
 export default StepsScreen;
+

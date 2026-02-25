@@ -91,7 +91,6 @@ const FriendProfileScreen = () => {
 
   const profileTheme = useMemo(
     () => ({
-      heroGradient: isDark ? ['#0F172A', '#312E81'] : ['#60A5FA', '#A855F7'],
       cardBg: isDark ? '#0B1020' : '#FFFFFF',
       cardBorder: isDark ? 'rgba(148, 163, 184, 0.25)' : '#E2E8F0',
       headerText: '#FFFFFF',
@@ -143,7 +142,10 @@ const FriendProfileScreen = () => {
     [profileTheme]
   );
 
-  const themedStyles = useMemo(() => createStyles(themeColors || colors), [themeColors]);
+  const themedStyles = useMemo(
+    () => createStyles(themeColors || colors, isDark),
+    [themeColors, isDark]
+  );
   const isPremiumFriend = useMemo(() => {
     const plan = (profileData?.plan || '').toLowerCase();
     return plan === 'premium' || plan === 'pro';
@@ -422,7 +424,7 @@ const FriendProfileScreen = () => {
   const renderAvatar = () => {
     if (profileData?.avatarUrl) {
       return (
-        <View style={[themedStyles.avatarFrame, { borderColor: profileTheme.statusBorder }]}>
+        <View style={[themedStyles.avatarFrame, { borderColor: profileTheme.cardBorder }]}>
           <Image
             source={{ uri: profileData.avatarUrl }}
             style={themedStyles.avatarImage}
@@ -431,7 +433,7 @@ const FriendProfileScreen = () => {
       );
     }
     return (
-      <View style={[themedStyles.avatarFrame, { borderColor: profileTheme.statusBorder }]}>
+      <View style={[themedStyles.avatarFrame, { borderColor: profileTheme.cardBorder }]}>
         <View style={themedStyles.avatarFallback}>
           <Text style={themedStyles.avatarInitial}>
             {getInitial(profileData?.name, profileData?.username)}
@@ -441,75 +443,86 @@ const FriendProfileScreen = () => {
     );
   };
 
-  return (
-    <View style={[themedStyles.container, { paddingTop: insets.top || spacing.lg }]}>
-      <View style={themedStyles.header}>
-        <TouchableOpacity
-          style={themedStyles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Ionicons name="chevron-back" size={22} color={themedStyles.iconColor} />
-        </TouchableOpacity>
-        <Text style={themedStyles.title}>Friend Profile</Text>
-        <View style={themedStyles.headerSpacer} />
-      </View>
+  const heroMetaText = loadingSharedActivities
+    ? `${mutualGroups.length} mutual groups`
+    : `${mutualGroups.length} mutual groups - ${mutualActivities.length} shared activities`;
+  const relationshipStatusLabel = blockedBy ? 'Locked' : blocked ? 'Blocked' : 'Connected';
 
+  return (
+    <View style={themedStyles.container}>
       <ScrollView
         style={themedStyles.scroll}
         contentContainerStyle={themedStyles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         {loadingProfile ? (
-          <View style={themedStyles.loadingState}>
+          <View
+            style={[
+              themedStyles.loadingState,
+              { paddingTop: (insets.top || spacing.lg) + spacing.xl },
+            ]}
+          >
             <ActivityIndicator size="large" color={themeColors?.primary || colors.primary} />
           </View>
         ) : loadError ? (
-          <Text style={themedStyles.errorText}>{loadError}</Text>
+          <Text
+            style={[
+              themedStyles.errorText,
+              { marginTop: (insets.top || spacing.lg) + spacing.lg },
+            ]}
+          >
+            {loadError}
+          </Text>
         ) : (
           <>
-            {blockedBy ? (
-              <View style={themedStyles.notice}>
-                <Feather name="slash" size={16} color={colors.danger || '#d9534f'} />
-                <Text style={themedStyles.noticeText}>
-                  This user has blocked you. You cannot interact with them.
-                </Text>
-              </View>
-            ) : null}
-
-            <View
-              style={[
-                themedStyles.heroCard,
-                { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder },
-              ]}
-            >
-              <LinearGradient colors={profileTheme.heroGradient} style={themedStyles.heroHeader}>
-                <View style={themedStyles.heroHeaderRow}>
-                  <View
-                    style={[
-                      themedStyles.heroIconBadge,
-                      { backgroundColor: profileTheme.iconBg },
-                    ]}
+            <View style={[themedStyles.hero, { paddingTop: insets.top || spacing.lg }]}>
+              <View style={themedStyles.heroInner}>
+                <View style={themedStyles.heroTopRow}>
+                  <TouchableOpacity
+                    style={themedStyles.heroIconButton}
+                    onPress={() => navigation.goBack()}
                   >
-                    <Ionicons name="person" size={18} color={profileTheme.headerText} />
-                  </View>
-                  <View style={themedStyles.heroHeaderText}>
-                    <Text style={[themedStyles.heroTitle, { color: profileTheme.headerText }]}>
-                      Friend Profile
-                    </Text>
-                    <Text
-                      style={[themedStyles.heroSubtitle, { color: profileTheme.headerSubText }]}
+                    <Ionicons name="chevron-back" size={22} color={themedStyles.heroIconColor} />
+                  </TouchableOpacity>
+                  <View style={themedStyles.heroActions}>
+                    <TouchableOpacity
+                      style={themedStyles.heroIconButton}
+                      onPress={() => setReportVisible(true)}
+                      disabled={blockedBy}
                     >
-                      Stay connected and check progress
-                    </Text>
+                      <Feather
+                        name="flag"
+                        size={16}
+                        color={blockedBy ? themeColors?.textLight || colors.textLight : themedStyles.heroIconColor}
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={themedStyles.heroIconButton}
+                      onPress={handleBlockToggle}
+                      disabled={blocking || blockedBy}
+                    >
+                      {blocking ? (
+                        <ActivityIndicator size="small" color={themeColors?.primary || colors.primary} />
+                      ) : (
+                        <Feather
+                          name={blocked ? 'unlock' : 'slash'}
+                          size={16}
+                          color={
+                            blocking || blockedBy
+                              ? themeColors?.textLight || colors.textLight
+                              : themedStyles.heroIconColor
+                          }
+                        />
+                      )}
+                    </TouchableOpacity>
                   </View>
                 </View>
-              </LinearGradient>
-              <View style={themedStyles.heroBody}>
-                <View style={themedStyles.profileHeader}>
+
+                <View style={themedStyles.heroContent}>
                   {renderAvatar()}
-                  <View style={themedStyles.profileInfo}>
+                  <View style={themedStyles.heroTextWrap}>
                     <View style={themedStyles.nameRow}>
-                      <Text style={themedStyles.profileName} numberOfLines={1}>
+                      <Text style={themedStyles.heroProfileName} numberOfLines={1}>
                         {profileData?.name || profileData?.username || 'Unknown user'}
                       </Text>
                       {isPremiumFriend ? (
@@ -532,40 +545,63 @@ const FriendProfileScreen = () => {
                         </View>
                       ) : null}
                     </View>
-                    <Text style={themedStyles.profileHandle}>
+                    <Text style={themedStyles.heroHandle}>
                       {profileData?.username ? `@${profileData.username}` : 'No username'}
                     </Text>
-                    <View style={themedStyles.statusRow}>
-                      {mutualGroups.length > 0 ? (
-                        <View
-                          style={[
-                            themedStyles.statusPill,
-                            {
-                              backgroundColor: profileTheme.statusBg,
-                              borderColor: profileTheme.statusBorder,
-                            },
-                          ]}
-                        >
-                          <Ionicons
-                            name="people"
-                            size={12}
-                            color={profileTheme.statusText}
-                          />
-                          <Text
-                            style={[
-                              themedStyles.statusText,
-                              { color: profileTheme.statusText },
-                            ]}
-                          >
-                            {mutualGroups.length} mutual
-                          </Text>
-                        </View>
-                      ) : null}
-                    </View>
+                    <Text style={themedStyles.heroMeta}>{heroMetaText}</Text>
                   </View>
                 </View>
               </View>
             </View>
+
+            <Card
+              style={[
+                themedStyles.sectionCard,
+                themedStyles.profileStatsCard,
+                { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder },
+              ]}
+            >
+              <View style={themedStyles.sectionHeaderRow}>
+                <View
+                  style={[
+                    themedStyles.sectionIcon,
+                    { backgroundColor: profileTheme.statusBg },
+                  ]}
+                >
+                  <Ionicons name="sparkles" size={16} color={profileTheme.statusText} />
+                </View>
+                <Text style={themedStyles.sectionTitle}>Connection snapshot</Text>
+              </View>
+              <View style={themedStyles.statsGrid}>
+                <View style={[themedStyles.statTile, themedStyles.statWarm]}>
+                  <Text style={themedStyles.statValue}>{mutualGroups.length}</Text>
+                  <Text style={themedStyles.statLabel}>Mutual groups</Text>
+                </View>
+                <View style={[themedStyles.statTile, themedStyles.statMint]}>
+                  <Text style={themedStyles.statValue}>
+                    {loadingSharedActivities ? '...' : mutualActivities.length}
+                  </Text>
+                  <Text style={themedStyles.statLabel}>Shared activities</Text>
+                </View>
+                <View style={[themedStyles.statTile, themedStyles.statSky]}>
+                  <Text style={themedStyles.statValue}>{sharedTaskIds.length}</Text>
+                  <Text style={themedStyles.statLabel}>Shared tasks</Text>
+                </View>
+                <View style={[themedStyles.statTile, themedStyles.statLilac]}>
+                  <Text style={themedStyles.statValue}>{relationshipStatusLabel}</Text>
+                  <Text style={themedStyles.statLabel}>Status</Text>
+                </View>
+              </View>
+            </Card>
+
+            {blockedBy ? (
+              <View style={themedStyles.notice}>
+                <Feather name="slash" size={16} color={colors.danger || '#d9534f'} />
+                <Text style={themedStyles.noticeText}>
+                  This user has blocked you. You cannot interact with them.
+                </Text>
+              </View>
+            ) : null}
 
             <Card
               style={[
@@ -934,7 +970,7 @@ const FriendProfileScreen = () => {
   );
 };
 
-const createStyles = (themeColorsParam = colors) => {
+const createStyles = (themeColorsParam = colors, isDark = false) => {
   const baseText = themeColorsParam?.text || colors.text;
   const subdued = themeColorsParam?.textSecondary || colors.textSecondary;
   const accent = themeColorsParam?.primary || colors.primary;
@@ -943,16 +979,34 @@ const createStyles = (themeColorsParam = colors) => {
       flex: 1,
       backgroundColor: themeColorsParam?.background || colors.background,
     },
-    header: {
+    iconColor: baseText,
+    scroll: {
+      flex: 1,
+    },
+    scrollContent: {
+      paddingBottom: spacing.xxxl,
+    },
+    hero: {
+      paddingBottom: spacing.sm,
+    },
+    heroInner: {
+      paddingBottom: spacing.md,
+    },
+    heroTopRow: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: spacing.lg,
       paddingBottom: spacing.md,
     },
-    backButton: {
-      width: 44,
-      height: 44,
+    heroActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    heroIconButton: {
+      width: 40,
+      height: 40,
       borderRadius: borderRadius.full,
       alignItems: 'center',
       justifyContent: 'center',
@@ -960,109 +1014,55 @@ const createStyles = (themeColorsParam = colors) => {
       borderWidth: 1,
       borderColor: themeColorsParam?.border || colors.border,
     },
-    iconColor: baseText,
-    title: {
-      ...typography.h3,
-      color: baseText,
-    },
-    headerSpacer: {
-      width: 44,
-      height: 44,
-    },
-    scroll: {
-      flex: 1,
-    },
-    scrollContent: {
+    heroIconColor: baseText,
+    heroContent: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
       paddingHorizontal: spacing.lg,
-      paddingBottom: spacing.xxxl,
+      paddingBottom: spacing.xl,
+    },
+    heroTextWrap: {
+      flex: 1,
+      gap: 2,
+    },
+    heroProfileName: {
+      ...typography.h2,
+      color: baseText,
+      maxWidth: '84%',
+    },
+    heroHandle: {
+      ...typography.body,
+      color: subdued,
+    },
+    heroMeta: {
+      ...typography.caption,
+      color: subdued,
+      marginTop: spacing.xs,
     },
     loadingState: {
       alignItems: 'center',
       justifyContent: 'center',
       paddingVertical: spacing.xl,
+      marginHorizontal: spacing.lg,
     },
     errorText: {
       ...typography.body,
       color: colors.danger || '#d9534f',
       textAlign: 'center',
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.lg,
     },
     sectionCard: {
       marginBottom: spacing.md,
+      marginHorizontal: spacing.lg,
       borderRadius: borderRadius.xl,
+      ...shadows.small,
     },
-    heroCard: {
+    profileStatsCard: {
+      marginTop: spacing.xs,
       marginBottom: spacing.lg,
-      borderRadius: borderRadius.xl,
       borderWidth: 1,
-      overflow: 'hidden',
-      ...shadows.medium,
-    },
-    heroHeader: {
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.lg,
-      minHeight: 104,
-      justifyContent: 'center',
-    },
-    heroHeaderRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-    },
-    heroIconBadge: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginRight: spacing.md,
-    },
-    heroHeaderText: {
-      flex: 1,
-    },
-    heroTitle: {
-      ...typography.h2,
-    },
-    heroSubtitle: {
-      ...typography.bodySmall,
-      marginTop: 2,
-    },
-    heroBody: {
-      padding: spacing.lg,
-    },
-    profileHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.md,
-    },
-    profileInfo: {
-      flex: 1,
-      gap: spacing.xs,
-    },
-    profileName: {
-      ...typography.h3,
-      color: baseText,
-    },
-    profileHandle: {
-      ...typography.body,
-      color: subdued,
-    },
-    statusRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: spacing.sm,
-      marginTop: spacing.sm,
-    },
-    statusPill: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.xs,
-      borderRadius: borderRadius.full,
-      borderWidth: 1,
-      paddingVertical: 4,
-      paddingHorizontal: spacing.sm,
-    },
-    statusText: {
-      ...typography.caption,
-      fontWeight: '600',
     },
     sectionTitle: {
       ...typography.h3,
@@ -1105,6 +1105,39 @@ const createStyles = (themeColorsParam = colors) => {
     sectionActionText: {
       ...typography.caption,
       fontWeight: '600',
+    },
+    statsGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+    },
+    statTile: {
+      flexBasis: '48%',
+      flexGrow: 1,
+      padding: spacing.md,
+      borderRadius: borderRadius.lg,
+    },
+    statValue: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: baseText,
+    },
+    statLabel: {
+      ...typography.caption,
+      color: subdued,
+      marginTop: 4,
+    },
+    statWarm: {
+      backgroundColor: isDark ? '#392F2A' : '#FCEFE2',
+    },
+    statMint: {
+      backgroundColor: isDark ? '#25372F' : '#E7FAEE',
+    },
+    statSky: {
+      backgroundColor: isDark ? '#253347' : '#E8F1FF',
+    },
+    statLilac: {
+      backgroundColor: isDark ? '#332E43' : '#F2E9FF',
     },
     mutualCard: {
       paddingTop: spacing.lg,
@@ -1235,6 +1268,7 @@ const createStyles = (themeColorsParam = colors) => {
       borderWidth: 1,
       padding: spacing.lg,
       marginBottom: spacing.lg,
+      marginHorizontal: spacing.lg,
     },
     actionButton: {
       flex: 1,
@@ -1381,6 +1415,7 @@ const createStyles = (themeColorsParam = colors) => {
       borderRadius: borderRadius.md,
       padding: spacing.md,
       marginBottom: spacing.md,
+      marginHorizontal: spacing.lg,
     },
     noticeText: {
       ...typography.body,

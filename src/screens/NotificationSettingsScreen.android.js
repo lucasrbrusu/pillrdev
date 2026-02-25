@@ -125,6 +125,20 @@ const NotificationSettingsScreen = () => {
           </View>
           <View style={styles.row}>
             <View style={styles.rowCopy}>
+              <Text style={styles.rowTitle}>{t('Routine reminders')}</Text>
+              <Text style={styles.rowSubtitle}>
+                {t('Reminders when routines are scheduled to start')}
+              </Text>
+            </View>
+            <Switch
+              value={userSettings.routineRemindersEnabled}
+              onValueChange={(val) => handleToggle('routineRemindersEnabled', val)}
+              trackColor={{ true: colors.primary, false: colors.border }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+          <View style={styles.row}>
+            <View style={styles.rowCopy}>
               <Text style={styles.rowTitle}>{t('Health reminders')}</Text>
               <Text style={styles.rowSubtitle}>
                 {t('Hydration, sleep, and movement nudges')}

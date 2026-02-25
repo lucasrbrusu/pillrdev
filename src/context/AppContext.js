@@ -43,6 +43,10 @@ import {
   writeDailyNutritionToHealth,
 } from '../utils/healthBridge';
 import {
+  registerHealthMetricsBackgroundTask,
+  unregisterHealthMetricsBackgroundTask,
+} from '../utils/healthBackgroundSync';
+import {
   DEFAULT_TASK_DURATION_MINUTES,
   getTaskOverlapPairs,
   normalizeTaskDurationMinutes,
@@ -232,6 +236,7 @@ const defaultUserSettings = {
   notificationsEnabled: true,
   habitRemindersEnabled: true,
   taskRemindersEnabled: true,
+  routineRemindersEnabled: true,
   healthRemindersEnabled: true,
   calendarSyncEnabled: false,
   defaultCurrencyCode: 'USD',
@@ -247,7 +252,7 @@ const IOS_MAX_SCHEDULED_NOTIFICATIONS = 60;
 // Poll less frequently to reduce Supabase egress (friend/user status checks).
 const STATUS_POLL_INTERVAL_MS = 5 * 60 * 1000;
 const PRESENCE_WRITE_INTERVAL_MS = 2 * 60 * 1000;
-const HEALTH_METRICS_AUTO_SYNC_INTERVAL_MS = 10 * 60 * 1000;
+const HEALTH_METRICS_AUTO_SYNC_INTERVAL_MS = 15 * 60 * 1000;
 const DATA_REFRESH_TTL_MS = 5 * 60 * 1000;
 const PROFILE_CACHE_TTL_MS = 30 * 60 * 1000;
 const PUSH_REGISTRATION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -1200,6 +1205,7 @@ const buildNotificationPlanSignature = ({
   authUserId,
   notificationsEnabled,
   taskRemindersEnabled,
+  routineRemindersEnabled,
   habitRemindersEnabled,
   healthRemindersEnabled,
   hasNotificationPermission,
@@ -1215,6 +1221,7 @@ const buildNotificationPlanSignature = ({
     authUserId || '',
     notificationsEnabled ? '1' : '0',
     taskRemindersEnabled ? '1' : '0',
+    routineRemindersEnabled ? '1' : '0',
     habitRemindersEnabled ? '1' : '0',
     healthRemindersEnabled ? '1' : '0',
     hasNotificationPermission ? '1' : '0',
@@ -8229,10 +8236,19 @@ const connectHealthIntegration = useCallback(
       lastSyncedAt: null,
     });
 
-    await syncHealthMetricsFromPlatform({ force: true, connectionOverride: nextConnection });
-    await upsertNutritionDailyTotalForDate(toLocalDateISO(new Date()));
+    const todayISO = toLocalDateISO(new Date());
+    void syncHealthMetricsFromPlatform({ force: true, connectionOverride: nextConnection }).catch(
+      (err) => {
+        console.log('Error syncing health metrics after connect:', err);
+      }
+    );
+    void upsertNutritionDailyTotalForDate(todayISO).catch((err) => {
+      console.log('Error saving nutrition totals after connect:', err);
+    });
     if (nextConnection?.syncNutritionToHealth) {
-      await syncNutritionDailyTotalToHealth(toLocalDateISO(new Date()));
+      void syncNutritionDailyTotalToHealth(todayISO).catch((err) => {
+        console.log('Error syncing nutrition totals to health after connect:', err);
+      });
     }
 
     return nextConnection;
@@ -11372,6 +11388,8 @@ const mapProfileRow = (row) => {
     notificationsEnabled: row?.notifications_enabled ?? defaultUserSettings.notificationsEnabled,
     habitRemindersEnabled: row?.habit_reminders_enabled ?? defaultUserSettings.habitRemindersEnabled,
     taskRemindersEnabled: row?.task_reminders_enabled ?? defaultUserSettings.taskRemindersEnabled,
+    routineRemindersEnabled:
+      row?.routine_reminders_enabled ?? defaultUserSettings.routineRemindersEnabled,
     healthRemindersEnabled: row?.health_reminders_enabled ?? defaultUserSettings.healthRemindersEnabled,
     calendarSyncEnabled:
       row?.calendar_sync_enabled ?? defaultUserSettings.calendarSyncEnabled,
@@ -11381,10 +11399,14 @@ const mapProfileRow = (row) => {
   const fetchUserSettings = async (userId) => {
     if (!userId) return null;
     const baseSelectFields =
+      'id, user_id, theme_name, notifications_enabled, habit_reminders_enabled, task_reminders_enabled, routine_reminders_enabled, health_reminders_enabled, default_currency_code';
+    const legacySelectFields =
       'id, user_id, theme_name, notifications_enabled, habit_reminders_enabled, task_reminders_enabled, health_reminders_enabled, default_currency_code';
     const selectVariants = [
       `${baseSelectFields}, calendar_sync_enabled`,
       baseSelectFields,
+      `${legacySelectFields}, calendar_sync_enabled`,
+      legacySelectFields,
     ];
     let row = null;
     let lastError = null;
@@ -11407,7 +11429,10 @@ const mapProfileRow = (row) => {
         break;
       }
 
-      if (isMissingColumnError(error, 'calendar_sync_enabled')) {
+      if (
+        isMissingColumnError(error, 'calendar_sync_enabled') ||
+        isMissingColumnError(error, 'routine_reminders_enabled')
+      ) {
         continue;
       }
 
@@ -11447,6 +11472,10 @@ const mapProfileRow = (row) => {
       notifications_enabled: overrides.notificationsEnabled ?? userSettings.notificationsEnabled ?? defaultUserSettings.notificationsEnabled,
       habit_reminders_enabled: overrides.habitRemindersEnabled ?? userSettings.habitRemindersEnabled ?? defaultUserSettings.habitRemindersEnabled,
       task_reminders_enabled: overrides.taskRemindersEnabled ?? userSettings.taskRemindersEnabled ?? defaultUserSettings.taskRemindersEnabled,
+      routine_reminders_enabled:
+        overrides.routineRemindersEnabled ??
+        userSettings.routineRemindersEnabled ??
+        defaultUserSettings.routineRemindersEnabled,
       health_reminders_enabled: overrides.healthRemindersEnabled ?? userSettings.healthRemindersEnabled ?? defaultUserSettings.healthRemindersEnabled,
       calendar_sync_enabled:
         overrides.calendarSyncEnabled ??
@@ -12477,6 +12506,7 @@ const mapProfileRow = (row) => {
           authUserId: authUser?.id,
           notificationsEnabled: userSettings.notificationsEnabled,
           taskRemindersEnabled: userSettings.taskRemindersEnabled,
+          routineRemindersEnabled: userSettings.routineRemindersEnabled,
           habitRemindersEnabled: userSettings.habitRemindersEnabled,
           healthRemindersEnabled: userSettings.healthRemindersEnabled,
           hasNotificationPermission,
@@ -12496,6 +12526,9 @@ const mapProfileRow = (row) => {
         candidates.push(...buildTaskNotificationCandidates());
         candidates.push(...buildChoreNotificationCandidates());
         candidates.push(...buildReminderNotificationCandidates());
+      }
+
+      if (userSettings.routineRemindersEnabled) {
         candidates.push(...buildRoutineNotificationCandidates());
       }
 
@@ -12528,6 +12561,7 @@ const mapProfileRow = (row) => {
         authUserId: authUser?.id,
         notificationsEnabled: userSettings.notificationsEnabled,
         taskRemindersEnabled: userSettings.taskRemindersEnabled,
+        routineRemindersEnabled: userSettings.routineRemindersEnabled,
         habitRemindersEnabled: userSettings.habitRemindersEnabled,
         healthRemindersEnabled: userSettings.healthRemindersEnabled,
         hasNotificationPermission,
@@ -12615,6 +12649,7 @@ const mapProfileRow = (row) => {
     streakFrozen,
     userSettings.notificationsEnabled,
     userSettings.taskRemindersEnabled,
+    userSettings.routineRemindersEnabled,
     userSettings.habitRemindersEnabled,
     userSettings.healthRemindersEnabled,
   ]);
@@ -12688,6 +12723,32 @@ const mapProfileRow = (row) => {
     );
     return () => clearTimeout(timeoutId);
   }, [isLoading, rescheduleAllNotifications]);
+
+  useEffect(() => {
+    const syncHealthBackgroundTaskRegistration = async () => {
+      if (!authUser?.id || !healthConnection?.isConnected) {
+        await unregisterHealthMetricsBackgroundTask();
+        return;
+      }
+
+      const registration = await registerHealthMetricsBackgroundTask();
+      if (
+        registration &&
+        !registration.registered &&
+        registration.reason &&
+        registration.reason !== 'background_runtime_unavailable'
+      ) {
+        console.log(
+          'Health background task registration skipped:',
+          registration.reason
+        );
+      }
+    };
+
+    syncHealthBackgroundTaskRegistration().catch((err) => {
+      console.log('Error syncing health background task registration:', err);
+    });
+  }, [authUser?.id, healthConnection?.isConnected]);
 
   useEffect(() => {
     if (!authUser?.id || !healthConnection?.isConnected) return undefined;

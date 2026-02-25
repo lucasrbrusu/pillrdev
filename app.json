@@ -51,6 +51,7 @@
     },
     "plugins": [
       "expo-notifications",
+      "expo-background-fetch",
       "expo-calendar",
       "expo-camera",
       "expo-web-browser",

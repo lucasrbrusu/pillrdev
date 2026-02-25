@@ -1,6 +1,11 @@
 import { Platform } from 'react-native';
 
 const HEALTH_LINK_MODULE = 'react-native-health-link';
+const DEFAULT_BRIDGE_TIMEOUT_MS = 12000;
+const AVAILABILITY_TIMEOUT_MS = 8000;
+const PERMISSION_TIMEOUT_MS = 45000;
+const READ_TIMEOUT_MS = 5000;
+const WRITE_TIMEOUT_MS = 5000;
 
 let cachedHealthLinkModule = null;
 let didTryLoadHealthLinkModule = false;
@@ -95,6 +100,33 @@ const getSampleValue = (sample = {}) => {
   return null;
 };
 
+const withTimeout = (promiseLike, timeoutMs, timeoutReason) => {
+  const resolvedTimeout =
+    Math.max(1, asFiniteNumber(timeoutMs, DEFAULT_BRIDGE_TIMEOUT_MS) || DEFAULT_BRIDGE_TIMEOUT_MS);
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(timeoutReason || 'health_bridge_timeout'));
+    }, resolvedTimeout);
+
+    Promise.resolve(promiseLike)
+      .then((result) => {
+        clearTimeout(timeoutId);
+        resolve(result);
+      })
+      .catch((error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
+};
+
+const isTimeoutError = (error, timeoutReason) =>
+  Boolean(
+    timeoutReason &&
+      typeof error?.message === 'string' &&
+      error.message.toLowerCase() === String(timeoutReason).toLowerCase()
+  );
+
 const getProviderFromPlatform = () =>
   Platform.OS === 'ios' ? 'apple_health' : 'health_connect';
 
@@ -188,12 +220,19 @@ const readSamples = async (dataType, dateValue = new Date()) => {
 
   for (const options of optionCandidates) {
     try {
-      const result = await moduleRef.read(dataType, options);
+      const result = await withTimeout(
+        moduleRef.read(dataType, options),
+        READ_TIMEOUT_MS,
+        'health_read_timeout'
+      );
       const rows = toArray(result);
       if (rows.length || result !== undefined) {
         return rows;
       }
     } catch (err) {
+      if (isTimeoutError(err, 'health_read_timeout')) {
+        break;
+      }
       // Try the next argument shape.
     }
   }
@@ -223,10 +262,17 @@ const writeSample = async (dataType, payload = {}) => {
 
   for (const candidate of payloadCandidates) {
     try {
-      const result = await moduleRef.write(dataType, candidate);
+      const result = await withTimeout(
+        moduleRef.write(dataType, candidate),
+        WRITE_TIMEOUT_MS,
+        'health_write_timeout'
+      );
       if (result === false) continue;
       return true;
     } catch (err) {
+      if (isTimeoutError(err, 'health_write_timeout')) {
+        return false;
+      }
       // Try next payload shape.
     }
   }
@@ -259,7 +305,11 @@ export const checkHealthAvailability = async () => {
   }
 
   try {
-    const result = await moduleRef.isAvailable();
+    const result = await withTimeout(
+      moduleRef.isAvailable(),
+      AVAILABILITY_TIMEOUT_MS,
+      'health_availability_timeout'
+    );
     if (typeof result === 'boolean') {
       return {
         available: result,
@@ -333,11 +383,32 @@ export const requestHealthPermissions = async ({
     writePermissions.push(permissionSchema.nutrition);
   }
 
+  const requestedPermissionCount = readPermissions.length + writePermissions.length;
+  if (!requestedPermissionCount) {
+    return {
+      granted: false,
+      reason: 'health_permissions_not_supported',
+      capabilities: {
+        canReadSteps: Boolean(dataTypeSchema.steps),
+        canReadActiveCalories: Boolean(dataTypeSchema.activeCalories),
+        canWriteNutrition: false,
+      },
+      metadata: {
+        readPermissionsRequested: 0,
+        writePermissionsRequested: 0,
+      },
+    };
+  }
+
   try {
-    const initResult = await moduleRef.initializeHealth({
-      read: readPermissions,
-      write: writePermissions,
-    });
+    const initResult = await withTimeout(
+      moduleRef.initializeHealth({
+        read: readPermissions,
+        write: writePermissions,
+      }),
+      PERMISSION_TIMEOUT_MS,
+      'health_permission_timeout'
+    );
     const granted =
       typeof initResult === 'boolean'
         ? initResult
@@ -488,4 +559,3 @@ export const writeDailyNutritionToHealth = async ({
     skippedFields,
   };
 };
-

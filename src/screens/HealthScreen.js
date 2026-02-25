@@ -15,7 +15,10 @@ import {
   spacing,
   typography,
 } from '../utils/theme';
-import { lookupFoodByBarcode } from '../utils/foodBarcodeLookup';
+import {
+  lookupFoodByBarcode,
+  searchFoodsByQuery,
+} from '../utils/foodBarcodeLookup';
 import { toLocalDateKey } from '../utils/insights';
 
 
@@ -221,6 +224,11 @@ const HealthScreen = () => {
   const [foodGramsEaten, setFoodGramsEaten] = useState('');
   const [foodBasis, setFoodBasis] = useState(null);
   const [showScannerModal, setShowScannerModal] = useState(false);
+  const [showFoodSearchModal, setShowFoodSearchModal] = useState(false);
+  const [foodSearchQuery, setFoodSearchQuery] = useState('');
+  const [foodSearchResults, setFoodSearchResults] = useState([]);
+  const [isSearchingFoods, setIsSearchingFoods] = useState(false);
+  const [foodSearchMessage, setFoodSearchMessage] = useState('');
   const [hasScanned, setHasScanned] = useState(false);
   const [scannerMessage, setScannerMessage] = useState('');
   const [showMoodModal, setShowMoodModal] = useState(false);
@@ -233,6 +241,7 @@ const HealthScreen = () => {
   const confettiAnim = useRef(new Animated.Value(0)).current;
   const plantAnim = useRef(new Animated.Value(0)).current;
   const restoreFoodModalRef = useRef(false);
+  const restoreFoodModalFromSearchRef = useRef(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
 
   const moodOptions = MOOD_OPTIONS;
@@ -425,50 +434,121 @@ const HealthScreen = () => {
     }
   };
 
-  const handleBarCodeScanned = async ({ data, type }) => {
-  if (isLookingUpBarcode) return;
-
-  setHasScanned(true);
-  setIsLookingUpBarcode(true);
-  setScannerMessage('Looking up product…');
-
-  try {
-    const match = await lookupFoodByBarcode(data, { localMap: BARCODE_FOOD_MAP });
-
-    if (match) {
-      applyScannedFood(match);
-
-      // Optional: show whether values are per serving or per 100g
-      const basisNote =
-        match.source === 'openfoodfacts'
-          ? ` (per ${match.basis}${match.servingSize ? ` • ${match.servingSize}` : ''})`
-          : '';
-
-      setScannerMessage(`Food details added${basisNote}.`);
-      setShowScannerModal(false);
-      if (restoreFoodModalRef.current) {
-        restoreFoodModalRef.current = false;
-        setTimeout(() => setShowFoodModal(true), 0);
-      }
-
-      // reset scan lock for next time
-      setHasScanned(false);
+  const handleSearchFoods = async () => {
+    const query = foodSearchQuery.trim();
+    if (query.length < 2) {
+      setFoodSearchResults([]);
+      setFoodSearchMessage('Enter at least 2 characters to search.');
       return;
     }
 
-    setScannerMessage(
-      'No product found for that barcode. Try another item or fill manually.'
-    );
-    setTimeout(() => setHasScanned(false), 1200);
-  } catch (err) {
-    console.log('Barcode lookup error:', err);
-    setScannerMessage('Lookup failed (network/API). Please try again.');
-    setTimeout(() => setHasScanned(false), 1200);
-  } finally {
-    setIsLookingUpBarcode(false);
-  }
-};
+    setIsSearchingFoods(true);
+    setFoodSearchMessage('');
 
+    try {
+      const results = await searchFoodsByQuery(query, {
+        localMap: BARCODE_FOOD_MAP,
+        limit: 24,
+      });
+      setFoodSearchResults(results);
+      if (!results.length) {
+        setFoodSearchMessage('No foods found. Try a different search term.');
+      }
+    } catch (err) {
+      console.log('Food search error:', err);
+      setFoodSearchResults([]);
+      setFoodSearchMessage('Food search failed. Please try again.');
+    } finally {
+      setIsSearchingFoods(false);
+    }
+  };
+
+  const handleOpenFoodSearch = () => {
+    const nextQuery = foodName.trim();
+    if (nextQuery) setFoodSearchQuery(nextQuery);
+    setFoodSearchResults([]);
+    setFoodSearchMessage('');
+    setIsSearchingFoods(false);
+
+    restoreFoodModalFromSearchRef.current = showFoodModal;
+    if (showFoodModal) {
+      setShowFoodModal(false);
+      setTimeout(() => setShowFoodSearchModal(true), 0);
+    } else {
+      setShowFoodSearchModal(true);
+    }
+  };
+
+  const handleSelectFoodSearchResult = (food) => {
+    if (!food) return;
+    applyScannedFood(food);
+
+    setShowFoodSearchModal(false);
+    setFoodSearchResults([]);
+    setFoodSearchMessage('');
+    setIsSearchingFoods(false);
+
+    if (restoreFoodModalFromSearchRef.current) {
+      restoreFoodModalFromSearchRef.current = false;
+      setTimeout(() => setShowFoodModal(true), 0);
+    }
+  };
+
+  const handleCloseFoodSearch = () => {
+    setShowFoodSearchModal(false);
+    setFoodSearchQuery('');
+    setFoodSearchResults([]);
+    setFoodSearchMessage('');
+    setIsSearchingFoods(false);
+
+    if (restoreFoodModalFromSearchRef.current) {
+      restoreFoodModalFromSearchRef.current = false;
+      setTimeout(() => setShowFoodModal(true), 0);
+    }
+  };
+
+  const handleBarCodeScanned = async ({ data }) => {
+    if (isLookingUpBarcode) return;
+
+    setHasScanned(true);
+    setIsLookingUpBarcode(true);
+    setScannerMessage('Looking up product...');
+
+    try {
+      const match = await lookupFoodByBarcode(data, { localMap: BARCODE_FOOD_MAP });
+
+      if (match) {
+        applyScannedFood(match);
+
+        const basisParts = [];
+        if (match.basis) basisParts.push(`per ${match.basis}`);
+        if (match.servingSize) basisParts.push(match.servingSize);
+        const basisNote = basisParts.length ? ` (${basisParts.join(', ')})` : '';
+        const sourceNote = match.sourceLabel ? ` from ${match.sourceLabel}` : '';
+
+        setScannerMessage(`Food details added${sourceNote}${basisNote}.`);
+        setShowScannerModal(false);
+        if (restoreFoodModalRef.current) {
+          restoreFoodModalRef.current = false;
+          setTimeout(() => setShowFoodModal(true), 0);
+        }
+
+        setHasScanned(false);
+        return;
+      }
+
+      setScannerMessage(
+        'No product found for that barcode. Try another item or fill manually.'
+      );
+      setTimeout(() => setHasScanned(false), 1200);
+    } catch (err) {
+      console.log('Barcode lookup error:', err);
+      setScannerMessage('Lookup failed (network/API). Please try again.');
+      setTimeout(() => setHasScanned(false), 1200);
+    } finally {
+      setIsLookingUpBarcode(false);
+    }
+  };
 
   const handleOpenScanner = async () => {
     setScannerMessage('');
@@ -2142,11 +2222,19 @@ const HealthScreen = () => {
             label="Fat (g)"
             value={foodFat}
             onChangeText={setFoodFat}
-          placeholder="Optional"
-          keyboardType="numeric"
-          containerStyle={[styles.macroInput, styles.macroInputLast]}
+            placeholder="Optional"
+            keyboardType="numeric"
+            containerStyle={[styles.macroInput, styles.macroInputLast]}
+          />
+        </View>
+
+        <Button
+          title="Search Foods"
+          icon="search-outline"
+          onPress={handleOpenFoodSearch}
+          style={styles.searchButton}
+          variant="secondary"
         />
-      </View>
 
         <Button
           title="Scan Barcode"
@@ -2230,6 +2318,105 @@ const HealthScreen = () => {
             style={styles.modalButton}
           />
         </View>
+      </Modal>
+
+      {/* Food Search Modal */}
+      <Modal
+        visible={showFoodSearchModal}
+        onClose={handleCloseFoodSearch}
+        title="Search Foods"
+        fullScreen
+      >
+        <Input
+          label="Food search"
+          value={foodSearchQuery}
+          onChangeText={setFoodSearchQuery}
+          placeholder="e.g., Chicken breast"
+          autoCapitalize="none"
+        />
+
+        <Button
+          title="Search"
+          icon="search-outline"
+          onPress={handleSearchFoods}
+          loading={isSearchingFoods}
+          style={styles.foodSearchActionButton}
+        />
+
+        {!foodSearchResults.length && !foodSearchMessage && (
+          <Text style={[styles.foodSearchHint, { color: themeColors.textSecondary }]}>
+            Search Open Food Facts and USDA FoodData Central, then tap a result to autofill.
+          </Text>
+        )}
+
+        {!!foodSearchMessage && (
+          <Text style={[styles.foodSearchMessage, { color: themeColors.textSecondary }]}>
+            {foodSearchMessage}
+          </Text>
+        )}
+
+        {!!foodSearchResults.length && (
+          <View style={styles.foodSearchResults}>
+            {foodSearchResults.map((food, idx) => {
+              const caloriesValue = Number(food?.calories);
+              const caloriesLabel = Number.isFinite(caloriesValue)
+                ? `${Math.round(caloriesValue)} cal`
+                : 'Calories N/A';
+              const sourceLabel = food?.sourceLabel || food?.source || 'Food API';
+              const servingText = food?.servingSize
+                ? `Serving: ${food.servingSize}${food?.basis ? ` (${food.basis})` : ''}`
+                : food?.basis
+                ? `Basis: ${food.basis}`
+                : null;
+
+              return (
+                <TouchableOpacity
+                  key={
+                    food?.id ||
+                    food?.externalId ||
+                    `${food?.source || 'food'}-${food?.name || 'item'}-${idx}`
+                  }
+                  style={[
+                    styles.foodSearchItem,
+                    {
+                      backgroundColor: themeColors.inputBackground,
+                      borderColor: themeColors.border,
+                    },
+                  ]}
+                  onPress={() => handleSelectFoodSearchResult(food)}
+                  activeOpacity={0.85}
+                >
+                  <View style={styles.foodSearchItemHeader}>
+                    <Text style={[styles.foodSearchItemName, { color: themeColors.text }]}>
+                      {food.name}
+                    </Text>
+                    <Text style={[styles.foodSearchItemCalories, { color: themeColors.text }]}>
+                      {caloriesLabel}
+                    </Text>
+                  </View>
+                  <Text style={[styles.foodSearchItemMeta, { color: themeColors.textSecondary }]}>
+                    {sourceLabel}
+                  </Text>
+                  <Text style={[styles.foodSearchItemMeta, { color: themeColors.textSecondary }]}>
+                    Protein: {formatMacroValue(food.proteinGrams)} | Carbs: {formatMacroValue(food.carbsGrams)} | Fat: {formatMacroValue(food.fatGrams)}
+                  </Text>
+                  {!!servingText && (
+                    <Text style={[styles.foodSearchItemMeta, { color: themeColors.textSecondary }]}>
+                      {servingText}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
+        <Button
+          title="Back to Add Meal"
+          variant="secondary"
+          onPress={handleCloseFoodSearch}
+          style={styles.foodSearchBackButton}
+        />
       </Modal>
 
       {/* Barcode Scanner Modal */}
@@ -3923,8 +4110,53 @@ const createStyles = (themeColors) => StyleSheet.create({
   macroInputLast: {
     marginRight: 0,
   },
+  searchButton: {
+    marginBottom: spacing.sm,
+  },
   scanButton: {
     marginBottom: spacing.md,
+  },
+  foodSearchActionButton: {
+    marginBottom: spacing.md,
+  },
+  foodSearchHint: {
+    ...typography.bodySmall,
+    marginBottom: spacing.md,
+  },
+  foodSearchMessage: {
+    ...typography.bodySmall,
+    marginBottom: spacing.md,
+  },
+  foodSearchResults: {
+    marginBottom: spacing.md,
+  },
+  foodSearchItem: {
+    borderWidth: 1,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  foodSearchItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  foodSearchItemName: {
+    ...typography.body,
+    flex: 1,
+    marginRight: spacing.sm,
+  },
+  foodSearchItemCalories: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+  },
+  foodSearchItemMeta: {
+    ...typography.caption,
+    marginTop: 2,
+  },
+  foodSearchBackButton: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.lg,
   },
   historySection: {
     marginBottom: spacing.lg,
