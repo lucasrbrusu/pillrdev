@@ -22,8 +22,11 @@ import {
 import { readAppUsageByDay, readFocusSessions } from '../utils/insightsTracking';
 import { colors, borderRadius, spacing, typography, shadows } from '../utils/theme';
 
-const MAX_HISTORY = 4;
+const MAX_WEEK_MONTH_HISTORY = 4;
+const MAX_DAILY_HISTORY = 14;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const getMaxHistoryForTab = (tab) =>
+  tab === 'daily' ? MAX_DAILY_HISTORY : MAX_WEEK_MONTH_HISTORY;
 
 const sum = (arr) => arr.reduce((acc, n) => acc + (Number(n) || 0), 0);
 
@@ -257,7 +260,8 @@ export default function InsightsScreen() {
   );
 
   const isPremium = !!profile?.isPremium;
-  const [tab, setTab] = React.useState('weekly'); // weekly | monthly
+  const [tab, setTab] = React.useState('weekly'); // daily | weekly | monthly
+  const [dayOffset, setDayOffset] = React.useState(0);
   const [weekOffset, setWeekOffset] = React.useState(0);
   const [monthOffset, setMonthOffset] = React.useState(0);
   const [focusSessions, setFocusSessions] = React.useState([]);
@@ -302,19 +306,28 @@ export default function InsightsScreen() {
     };
   }, [userId]);
 
-  const activeOffset = tab === 'weekly' ? weekOffset : monthOffset;
+  const maxHistory = getMaxHistoryForTab(tab);
+  const activeOffset =
+    tab === 'daily' ? dayOffset : tab === 'weekly' ? weekOffset : monthOffset;
   const setActiveOffset = (next) => {
-    const clamped = clamp(next, 0, MAX_HISTORY);
-    if (tab === 'weekly') setWeekOffset(clamped);
+    const clamped = clamp(next, 0, maxHistory);
+    if (tab === 'daily') setDayOffset(clamped);
+    else if (tab === 'weekly') setWeekOffset(clamped);
     else setMonthOffset(clamped);
   };
 
   const rangeStart = React.useMemo(() => {
+    if (tab === 'daily') {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      return addDays(todayStart, -dayOffset);
+    }
     if (tab === 'weekly') return startOfWeekMonday(new Date(), weekOffset);
     return startOfMonth(new Date(), monthOffset);
-  }, [tab, weekOffset, monthOffset]);
+  }, [tab, dayOffset, weekOffset, monthOffset]);
 
   const rangeEndExclusive = React.useMemo(() => {
+    if (tab === 'daily') return addDays(rangeStart, 1);
     if (tab === 'weekly') return addDays(rangeStart, 7);
     return addMonths(rangeStart, 1);
   }, [tab, rangeStart]);
@@ -456,6 +469,7 @@ export default function InsightsScreen() {
   );
 
   const prevRangeStart = React.useMemo(() => {
+    if (tab === 'daily') return addDays(rangeStart, -1);
     if (tab === 'weekly') return addDays(rangeStart, -7);
     return addMonths(rangeStart, -1);
   }, [tab, rangeStart]);
@@ -516,7 +530,7 @@ export default function InsightsScreen() {
     : 'rgba(148, 163, 184, 0.2)';
   const donutTrack = isDark ? 'rgba(255,255,255,0.12)' : '#F1F0F7';
 
-  const focusTargetHours = tab === 'weekly' ? 6 : 24;
+  const focusTargetHours = tab === 'daily' ? 1 : tab === 'weekly' ? 6 : 24;
 
   const computeProductivityScore = React.useCallback(
     (data, days) => {
@@ -581,12 +595,17 @@ export default function InsightsScreen() {
       1,
       Math.round((rangeEndExclusive.getTime() - rangeStart.getTime()) / DAY_MS)
     );
-    const bucketSize = tab === 'weekly' ? 1 : 7;
+    const bucketSize = tab === 'monthly' ? 7 : 1;
     const bucketCount = Math.max(1, Math.ceil(dayCount / bucketSize));
 
     const labels = Array.from({ length: bucketCount }).map((_, index) => {
       if (bucketSize === 1) {
         const date = addDays(rangeStart, index);
+        if (tab === 'daily') {
+          return activeOffset === 0
+            ? 'Today'
+            : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        }
         return date.toLocaleDateString(undefined, { weekday: 'short' });
       }
       return `W${index + 1}`;
@@ -632,7 +651,7 @@ export default function InsightsScreen() {
         { label: 'Chores', values: choresBuckets, color: accent.chores },
       ],
     };
-  }, [tasks, habits, chores, rangeStart, rangeEndExclusive, tab, accent]);
+  }, [tasks, habits, chores, rangeStart, rangeEndExclusive, tab, activeOffset, accent]);
 
   const focusHours = Math.round(insights.focusMs / (60 * 60 * 1000));
 
@@ -800,6 +819,23 @@ export default function InsightsScreen() {
   );
 
   const insightMessage = React.useMemo(() => {
+    if (tab === 'daily') {
+      const completedWork =
+        insights.tasksCompletedCount +
+        insights.habitCheckinsCount +
+        insights.choresCompletedCount;
+      if (completedWork >= 5) {
+        return 'Strong day so far. Keep this pace and close your remaining priorities.';
+      }
+      if (insights.focusMs > 0) {
+        return `You logged ${formatDurationHuman(insights.focusMs)} of focus today. One more deep-work block can lift your score.`;
+      }
+      if (completedWork > 0) {
+        return 'Good start today. One more completed item can boost your momentum.';
+      }
+      return 'No activity logged yet today. Start with your top priority task to build momentum.';
+    }
+
     const focusChange = getPercentChange(insights.focusMs, prevInsights.focusMs);
     if (focusChange !== null && focusChange >= 10) {
       return `Your focus time is up ${focusChange}% from last period. Keep protecting deep work blocks.`;
@@ -809,7 +845,7 @@ export default function InsightsScreen() {
       return `You're most productive on ${bestLabel}. Consider scheduling your most important tasks then.`;
     }
     return 'Small wins add up. Aim for one meaningful task each day to build momentum.';
-  }, [activityData, insights.focusMs, prevInsights.focusMs]);
+  }, [tab, activityData, insights, prevInsights.focusMs]);
 
   const productivityDeltaText =
     productivityDelta === null
@@ -822,9 +858,26 @@ export default function InsightsScreen() {
       ? 'trending-up'
       : 'trending-down';
 
-  const rangeTitle =
-    activeOffset === 0 ? 'Current period' : `${activeOffset} back`;
-  const activityTitle = tab === 'weekly' ? 'Weekly Activity' : 'Monthly Activity';
+  const rangeTitle = React.useMemo(() => {
+    if (tab === 'daily') {
+      if (activeOffset === 0) return 'Today';
+      if (activeOffset === 1) return '1 day back';
+      return `${activeOffset} days back`;
+    }
+    return activeOffset === 0 ? 'Current period' : `${activeOffset} back`;
+  }, [tab, activeOffset]);
+  const activityTitle =
+    tab === 'daily'
+      ? 'Daily Activity'
+      : tab === 'weekly'
+        ? 'Weekly Activity'
+        : 'Monthly Activity';
+  const insightTitle =
+    tab === 'daily'
+      ? 'Insight of the Day'
+      : tab === 'weekly'
+        ? 'Insight of the Week'
+        : 'Insight of the Month';
 
   const goPrev = () => setActiveOffset(activeOffset + 1);
   const goNext = () => setActiveOffset(activeOffset - 1);
@@ -846,6 +899,13 @@ export default function InsightsScreen() {
 
       <View style={styles.tabs}>
         <TabPill
+          label="Daily"
+          active={tab === 'daily'}
+          onPress={() => setTab('daily')}
+          styles={styles}
+          gradient={gradients.tab}
+        />
+        <TabPill
           label="Weekly"
           active={tab === 'weekly'}
           onPress={() => setTab('weekly')}
@@ -864,8 +924,8 @@ export default function InsightsScreen() {
       <View style={styles.rangeCard}>
         <TouchableOpacity
           onPress={goPrev}
-          disabled={activeOffset >= MAX_HISTORY}
-          style={[styles.rangeButton, activeOffset >= MAX_HISTORY && styles.rangeButtonDisabled]}
+          disabled={activeOffset >= maxHistory}
+          style={[styles.rangeButton, activeOffset >= maxHistory && styles.rangeButtonDisabled]}
         >
           <Ionicons name="chevron-back" size={18} color={textColor} />
         </TouchableOpacity>
@@ -899,7 +959,7 @@ export default function InsightsScreen() {
             </View>
             <Text style={styles.lockedTitle}>Become a Premium member to access your insights!</Text>
             <Text style={styles.lockedSubtitle}>
-              Weekly and monthly reports help you track progress across tasks, habits, sleep, focus mode, and more.
+              Daily, weekly, and monthly reports help you track progress across tasks, habits, sleep, focus mode, and more.
             </Text>
             <Button
               title="Upgrade to Premium"
@@ -1055,7 +1115,7 @@ export default function InsightsScreen() {
                 <View style={styles.insightIconWrap}>
                   <Ionicons name="bulb" size={18} color="#FFFFFF" />
                 </View>
-                <Text style={styles.insightTitle}>Insight of the Week</Text>
+                <Text style={styles.insightTitle}>{insightTitle}</Text>
               </View>
               <Text style={styles.insightText}>{insightMessage}</Text>
             </LinearGradient>

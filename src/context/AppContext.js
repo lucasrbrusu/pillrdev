@@ -247,6 +247,7 @@ const IOS_MAX_SCHEDULED_NOTIFICATIONS = 60;
 // Poll less frequently to reduce Supabase egress (friend/user status checks).
 const STATUS_POLL_INTERVAL_MS = 5 * 60 * 1000;
 const PRESENCE_WRITE_INTERVAL_MS = 2 * 60 * 1000;
+const HEALTH_METRICS_AUTO_SYNC_INTERVAL_MS = 10 * 60 * 1000;
 const DATA_REFRESH_TTL_MS = 5 * 60 * 1000;
 const PROFILE_CACHE_TTL_MS = 30 * 60 * 1000;
 const PUSH_REGISTRATION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -7912,8 +7913,19 @@ const syncHealthMetricsFromPlatform = useCallback(
       }
 
       const todayISO = toLocalDateISO(new Date());
-      if (!force && effectiveConnection?.lastSyncedDate === todayISO) {
-        return { synced: false, reason: 'already_synced_today', date: todayISO };
+      const lastSyncedAtMs = effectiveConnection?.lastSyncedAt
+        ? new Date(effectiveConnection.lastSyncedAt).getTime()
+        : null;
+      if (!force && Number.isFinite(lastSyncedAtMs)) {
+        const elapsedMs = Date.now() - lastSyncedAtMs;
+        if (elapsedMs >= 0 && elapsedMs < HEALTH_METRICS_AUTO_SYNC_INTERVAL_MS) {
+          return {
+            synced: false,
+            reason: 'synced_recently',
+            retryAfterMs: HEALTH_METRICS_AUTO_SYNC_INTERVAL_MS - elapsedMs,
+            date: todayISO,
+          };
+        }
       }
 
       const [stepsResult, activeCaloriesResult] = await Promise.all([
@@ -12467,8 +12479,50 @@ const mapProfileRow = (row) => {
   }, [isLoading, rescheduleAllNotifications]);
 
   useEffect(() => {
-    if (!authUser?.id || !healthConnection?.isConnected) return;
-    syncHealthMetricsFromPlatform();
+    if (!authUser?.id || !healthConnection?.isConnected) return undefined;
+
+    let isCancelled = false;
+    let intervalId = null;
+
+    const tick = async () => {
+      if (isCancelled || appStateRef.current !== 'active') return;
+      try {
+        await syncHealthMetricsFromPlatform();
+      } catch (err) {
+        console.log('Error auto syncing health metrics:', err);
+      }
+    };
+
+    const startPolling = () => {
+      if (intervalId) return;
+      tick();
+      intervalId = setInterval(tick, HEALTH_METRICS_AUTO_SYNC_INTERVAL_MS);
+    };
+
+    const stopPolling = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    if (AppState.currentState === 'active') {
+      startPolling();
+    }
+
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    });
+
+    return () => {
+      isCancelled = true;
+      stopPolling();
+      sub?.remove?.();
+    };
   }, [authUser?.id, healthConnection?.isConnected, syncHealthMetricsFromPlatform]);
 
   useEffect(() => {
@@ -12479,13 +12533,12 @@ const mapProfileRow = (row) => {
       if (prevState !== 'active' && nextState === 'active') {
         rescheduleAllNotifications();
         registerPushTokenIfNeeded(true);
-        syncHealthMetricsFromPlatform();
       }
     };
 
     const sub = AppState.addEventListener('change', onStateChange);
     return () => sub?.remove?.();
-  }, [authUser?.id, rescheduleAllNotifications, registerPushTokenIfNeeded, syncHealthMetricsFromPlatform]);
+  }, [authUser?.id, rescheduleAllNotifications, registerPushTokenIfNeeded]);
 
   // COMPUTED VALUES
   const getCurrentStreak = () => currentStreak;

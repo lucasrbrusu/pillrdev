@@ -348,7 +348,7 @@ const CalendarScreen = () => {
               activeOpacity={0.85}
             >
               <Ionicons
-                name={calendarSyncAction === 'export' ? 'hourglass-outline' : 'upload-outline'}
+                name={calendarSyncAction === 'export' ? 'hourglass-outline' : 'share-outline'}
                 size={18}
                 color={colors.primary}
               />

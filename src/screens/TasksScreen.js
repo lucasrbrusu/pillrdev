@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   Alert,
   TextInput,
+  Animated,
+  Easing,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../utils/supabaseClient';
@@ -51,6 +53,21 @@ const TASK_QUICK_DATES = [
   { label: 'Today', offset: 0 },
   { label: 'Tomorrow', offset: 1 },
   { label: 'Next Week', offset: 7 },
+];
+const TASK_WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const TASK_MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 
 const TASK_QUICK_TIMES = ['09:00', '12:00', '15:00', '18:00', '20:00'];
@@ -110,6 +127,10 @@ const TasksScreen = () => {
     themeColors,
     ensureTasksLoaded,
     ensureGroupDataLoaded,
+    userSettings,
+    importTasksFromDeviceCalendar,
+    exportTasksToDeviceCalendar,
+    undoImportedCalendarTasks,
   } = useApp();
   const isDark = themeName === 'dark';
   const tasksTheme = useMemo(
@@ -160,7 +181,15 @@ const TasksScreen = () => {
     [isDark, themeColors]
   );
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
+  const calendarTransitionProgress = useRef(new Animated.Value(0)).current;
+  const calendarChevronProgress = useRef(new Animated.Value(0)).current;
 
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [isCalendarView, setIsCalendarView] = useState(false);
+  const [isCalendarTransitioning, setIsCalendarTransitioning] = useState(false);
+  const [showCalendarSettings, setShowCalendarSettings] = useState(false);
+  const [calendarSyncAction, setCalendarSyncAction] = useState(null);
   const [activeTab, setActiveTab] = useState('All Tasks');
   const [filterType, setFilterType] = useState('Date');
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -231,6 +260,57 @@ const TasksScreen = () => {
     ensureGroupDataLoaded();
   }, [ensureGroupDataLoaded, ensureTasksLoaded]);
 
+  const weekDays = useMemo(() => {
+    const days = [];
+    const startOfWeek = new Date(currentDate);
+    startOfWeek.setDate(currentDate.getDate() - currentDate.getDay());
+
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(startOfWeek);
+      day.setDate(startOfWeek.getDate() + i);
+      days.push(day);
+    }
+
+    return days;
+  }, [currentDate]);
+
+  const goToPreviousWeek = () => {
+    const nextDate = new Date(currentDate);
+    nextDate.setDate(currentDate.getDate() - 7);
+    setCurrentDate(nextDate);
+  };
+
+  const goToNextWeek = () => {
+    const nextDate = new Date(currentDate);
+    nextDate.setDate(currentDate.getDate() + 7);
+    setCurrentDate(nextDate);
+  };
+
+  const goToToday = () => {
+    const today = new Date();
+    setCurrentDate(today);
+    setSelectedDate(today);
+  };
+
+  const isToday = (date) => date.toDateString() === new Date().toDateString();
+
+  const isSelectedDate = (date) =>
+    date.toDateString() === selectedDate.toDateString();
+
+  const hasTasksOnDate = (date) =>
+    (tasks || []).some((task) => {
+      if (isTaskPastArchiveWindow(task)) return false;
+      if (!task?.date) return false;
+      const dateVal = new Date(task.date);
+      if (Number.isNaN(dateVal.getTime())) return false;
+      return dateVal.toDateString() === date.toDateString();
+    });
+
+  const handleDaySelect = (day) => {
+    setSelectedDate(day);
+    setCurrentDate(day);
+  };
+
   const filteredTasks = useMemo(() => {
     let filtered = [...tasks];
     filtered = filtered.filter((task) => !isTaskPastArchiveWindow(task));
@@ -252,6 +332,13 @@ const TasksScreen = () => {
         break;
     }
 
+    filtered = filtered.filter((task) => {
+      if (!task?.date) return false;
+      const taskDate = new Date(task.date);
+      if (Number.isNaN(taskDate.getTime())) return false;
+      return taskDate.toDateString() === selectedDate.toDateString();
+    });
+
     // Sort by filter
     switch (filterType) {
       case 'Priority':
@@ -270,7 +357,7 @@ const TasksScreen = () => {
     }
 
     return filtered;
-  }, [tasks, activeTab, filterType]);
+  }, [tasks, activeTab, filterType, selectedDate]);
 
   const activeScheduledTasks = useMemo(
     () =>
@@ -287,6 +374,89 @@ const TasksScreen = () => {
         fallbackDurationMinutes: DEFAULT_TASK_DURATION_MINUTES,
       }),
     [activeScheduledTasks]
+  );
+
+  const selectedDateOverlapPairs = useMemo(() => {
+    const selectedDateKey = selectedDate.toDateString();
+    return taskOverlapPairs.filter((pair) => {
+      if (!pair?.a?.date) return false;
+      const pairDate = new Date(pair.a.date);
+      if (Number.isNaN(pairDate.getTime())) return false;
+      return pairDate.toDateString() === selectedDateKey;
+    });
+  }, [selectedDate, taskOverlapPairs]);
+
+  const parseHour = (timeString) => {
+    if (!timeString) return null;
+    const trimmed = String(timeString).trim();
+
+    const match12 = /^(\d{1,2}):(\d{2})\s*(am|pm)$/i.exec(trimmed);
+    if (match12) {
+      let hour = parseInt(match12[1], 10) % 12;
+      if (match12[3].toLowerCase() === 'pm') hour += 12;
+      return { hour, minutes: parseInt(match12[2], 10) };
+    }
+
+    const match24 = /^(\d{1,2}):(\d{2})/.exec(trimmed);
+    if (match24) {
+      return {
+        hour: parseInt(match24[1], 10),
+        minutes: parseInt(match24[2], 10),
+      };
+    }
+
+    return null;
+  };
+
+  const selectedDateTasks = useMemo(() => {
+    const selectedKey = selectedDate.toDateString();
+    return (tasks || [])
+      .filter((task) => {
+        if (isTaskPastArchiveWindow(task)) return false;
+        if (!task?.date) return false;
+        const dateVal = new Date(task.date);
+        if (Number.isNaN(dateVal.getTime())) return false;
+        return dateVal.toDateString() === selectedKey;
+      })
+      .sort((a, b) => {
+        const aParsed = parseHour(a.time);
+        const bParsed = parseHour(b.time);
+        if (!aParsed && !bParsed) return 0;
+        if (!aParsed) return 1;
+        if (!bParsed) return -1;
+        const aMinutes = aParsed.hour * 60 + aParsed.minutes;
+        const bMinutes = bParsed.hour * 60 + bParsed.minutes;
+        return aMinutes - bMinutes;
+      });
+  }, [selectedDate, tasks]);
+
+  const upcomingDatedTasks = useMemo(() => {
+    const selectedStart = new Date(selectedDate);
+    selectedStart.setHours(0, 0, 0, 0);
+
+    return (tasks || [])
+      .filter((task) => {
+        if (isTaskPastArchiveWindow(task)) return false;
+        if (!task?.date) return false;
+        const dateVal = new Date(task.date);
+        if (Number.isNaN(dateVal.getTime())) return false;
+        return dateVal >= selectedStart;
+      })
+      .sort((a, b) => {
+        const dateDiff = new Date(a.date) - new Date(b.date);
+        if (dateDiff !== 0) return dateDiff;
+        const aParsed = parseHour(a.time);
+        const bParsed = parseHour(b.time);
+        if (!aParsed && !bParsed) return 0;
+        if (!aParsed) return 1;
+        if (!bParsed) return -1;
+        return aParsed.hour * 60 + aParsed.minutes - (bParsed.hour * 60 + bParsed.minutes);
+      });
+  }, [selectedDate, tasks]);
+
+  const timeSlots = useMemo(
+    () => Array.from({ length: 24 }, (_, i) => `${i.toString().padStart(2, '0')}:00`),
+    []
   );
 
   const draftTaskOverlaps = useMemo(() => {
@@ -706,6 +876,16 @@ const TasksScreen = () => {
     });
   };
 
+  const formatListDate = (dateString) => {
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return 'No date';
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
+
   const formatISODate = (date) => date.toISOString().split('T')[0];
 
   const handleSelectDate = (date) => {
@@ -741,6 +921,141 @@ const TasksScreen = () => {
     }
   };
 
+  const handleToggleTaskCompletionInline = async (taskId, evt) => {
+    evt?.stopPropagation?.();
+    await toggleTaskCompletion(taskId);
+  };
+
+  const handleImportCalendarEvents = async () => {
+    if (calendarSyncAction) return;
+    if (!userSettings?.calendarSyncEnabled) {
+      Alert.alert(
+        'Calendar access required',
+        'Enable calendar import/export in Settings -> Permissions first.'
+      );
+      return;
+    }
+
+    try {
+      setCalendarSyncAction('import');
+      const result = await importTasksFromDeviceCalendar();
+      Alert.alert(
+        'Import complete',
+        `Scanned ${result.scanned} events.\nImported ${result.imported} tasks.\nUpdated ${result.updated} tasks.\nSkipped ${result.skipped}.\nOverlaps detected ${result.overlaps || 0}.`
+      );
+    } catch (err) {
+      Alert.alert('Import failed', err?.message || 'Unable to import calendar events.');
+    } finally {
+      setCalendarSyncAction(null);
+    }
+  };
+
+  const handleExportTasksToCalendar = async () => {
+    if (calendarSyncAction) return;
+    if (!userSettings?.calendarSyncEnabled) {
+      Alert.alert(
+        'Calendar access required',
+        'Enable calendar import/export in Settings -> Permissions first.'
+      );
+      return;
+    }
+
+    try {
+      setCalendarSyncAction('export');
+      const result = await exportTasksToDeviceCalendar();
+      Alert.alert(
+        'Export complete',
+        `Processed ${result.total} tasks.\nCreated ${result.exported} events.\nUpdated ${result.updated} events.\nSkipped ${result.skipped}.`
+      );
+    } catch (err) {
+      Alert.alert('Export failed', err?.message || 'Unable to export tasks to calendar.');
+    } finally {
+      setCalendarSyncAction(null);
+    }
+  };
+
+  const runUndoImportedTasks = async () => {
+    if (calendarSyncAction) return;
+    try {
+      setCalendarSyncAction('undo');
+      const result = await undoImportedCalendarTasks();
+      Alert.alert(
+        'Undo import complete',
+        `Tracked ${result.tracked} imported tasks.\nRemoved ${result.removed} tasks.\nMissing ${result.missing}.`
+      );
+    } catch (err) {
+      Alert.alert('Undo failed', err?.message || 'Unable to undo imported calendar tasks.');
+    } finally {
+      setCalendarSyncAction(null);
+    }
+  };
+
+  const handleUndoImportedTasks = () => {
+    if (calendarSyncAction) return;
+    Alert.alert(
+      'Undo calendar import',
+      'This removes all tasks created by calendar import from Tasks and Calendar. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Undo import', style: 'destructive', onPress: runUndoImportedTasks },
+      ]
+    );
+  };
+
+  const handleOpenCalendarFromArrow = () => {
+    if (isCalendarTransitioning) return;
+    const nextIsCalendarView = !isCalendarView;
+
+    setIsCalendarTransitioning(true);
+    Animated.timing(calendarChevronProgress, {
+      toValue: nextIsCalendarView ? 1 : 0,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+
+    Animated.timing(calendarTransitionProgress, {
+      toValue: 1,
+      duration: 170,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished) {
+        setIsCalendarTransitioning(false);
+        return;
+      }
+
+      setIsCalendarView(nextIsCalendarView);
+      if (!nextIsCalendarView) {
+        setShowCalendarSettings(false);
+      }
+
+      Animated.timing(calendarTransitionProgress, {
+        toValue: 0,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start(() => setIsCalendarTransitioning(false));
+    });
+  };
+
+  const viewContentOpacity = calendarTransitionProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0],
+  });
+  const viewContentTranslateY = calendarTransitionProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -20],
+  });
+  const chevronRotate = calendarChevronProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '180deg'],
+  });
+  const chevronScale = calendarTransitionProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0.92],
+  });
+
   return (
     <View style={[styles.container, { paddingTop: insets.top, backgroundColor: tasksTheme.background }]}>
       <PlatformScrollView
@@ -752,281 +1067,570 @@ const TasksScreen = () => {
         bounces
       >
         <View style={styles.headerRow}>
-          <View>
+          <View style={styles.headerIntro}>
             <Text style={[styles.pageTitle, { color: themeColors.text }]}>Tasks</Text>
             <Text style={[styles.pageSubtitle, { color: themeColors.textSecondary }]}>
               Plan your day and stay on track
             </Text>
           </View>
-        </View>
-
-        {/* Action Buttons */}
-        <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={styles.actionPrimary}
-            onPress={() => setShowTaskModal(true)}
-            activeOpacity={0.85}
-          >
-            <LinearGradient
-              colors={tasksTheme.actionGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.actionPrimaryGradient}
-            >
-              <Ionicons name="add" size={18} color={tasksTheme.actionText} />
-              <Text style={[styles.actionPrimaryText, { color: tasksTheme.actionText }]}>
-                Add Task
-              </Text>
-            </LinearGradient>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.actionSecondary,
-              {
-                backgroundColor: tasksTheme.actionSecondaryBg,
-                borderColor: tasksTheme.actionSecondaryBorder,
-              },
-            ]}
-            onPress={() => navigation.navigate('Notes')}
-            activeOpacity={0.85}
-          >
-            <Ionicons
-              name="document-text-outline"
-              size={18}
-              color={tasksTheme.actionSecondaryText}
-            />
-            <Text
-              style={[
-                styles.actionSecondaryText,
-                { color: tasksTheme.actionSecondaryText },
-              ]}
-            >
-              Notes
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.calendarButton,
-              {
-                backgroundColor: tasksTheme.calendarBg,
-                borderColor: tasksTheme.calendarBorder,
-              },
-            ]}
-            onPress={() => navigation.navigate('Calendar')}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="calendar-outline" size={20} color={tasksTheme.calendarIcon} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Tabs */}
-        <View style={[styles.tabsRow, { borderBottomColor: tasksTheme.tabsBorder }]}>
-          {tabs.map((tab) => (
+          <View style={styles.headerActions}>
             <TouchableOpacity
-              key={tab}
               style={[
-                styles.tab,
-                activeTab === tab && [
-                  styles.tabActive,
-                  { borderBottomColor: tasksTheme.tabActive },
-                ],
-              ]}
-              onPress={() => setActiveTab(tab)}
-            >
-              <Text
-                style={[
-                  styles.tabText,
-                  { color: tasksTheme.tabText },
-                  activeTab === tab && [
-                    styles.tabTextActive,
-                    { color: tasksTheme.tabTextActive },
-                  ],
-                ]}
-              >
-                {tab}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Filters */}
-        <View style={styles.filterRow}>
-          <View
-            style={[
-              styles.filterIcon,
-              {
-                backgroundColor: tasksTheme.filterIconBg,
-                borderColor: tasksTheme.filterIconBorder,
-              },
-            ]}
-          >
-            <Ionicons name="filter-outline" size={18} color={tasksTheme.filterIconColor} />
-          </View>
-          {filters.map((filter) => (
-            <TouchableOpacity
-              key={filter}
-              style={[
-                styles.filterChip,
+                styles.headerIconButton,
                 {
-                  backgroundColor: tasksTheme.filterChipBg,
-                  borderColor: tasksTheme.filterChipBorder,
+                  backgroundColor: tasksTheme.actionSecondaryBg,
+                  borderColor: tasksTheme.actionSecondaryBorder,
                 },
-                filterType === filter && [
-                  styles.filterChipActive,
-                  {
-                    backgroundColor: tasksTheme.filterChipActiveBg,
-                    borderColor: tasksTheme.filterChipActiveBorder,
-                  },
-                ],
               ]}
-              onPress={() => setFilterType(filter)}
+              onPress={() => setShowCalendarSettings((prev) => !prev)}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name="settings-outline"
+                size={20}
+                color={tasksTheme.actionSecondaryText}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.headerIconButton,
+                {
+                  backgroundColor: tasksTheme.actionSecondaryBg,
+                  borderColor: tasksTheme.actionSecondaryBorder,
+                },
+              ]}
+              onPress={() => navigation.navigate('Notes')}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name="document-text-outline"
+                size={20}
+                color={tasksTheme.actionSecondaryText}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerAddButton}
+              onPress={() => setShowTaskModal(true)}
+              activeOpacity={0.85}
+            >
+              <LinearGradient
+                colors={tasksTheme.actionGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.headerAddButtonGradient}
+              >
+                <Ionicons name="add" size={22} color={tasksTheme.actionText} />
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.dateSelectorHeader}>
+          <TouchableOpacity onPress={goToPreviousWeek} style={styles.dateSelectorNavButton}>
+            <Ionicons name="chevron-back" size={20} color={themeColors.text} />
+          </TouchableOpacity>
+          <Text style={[styles.dateSelectorMonthTitle, { color: themeColors.text }]}>
+            {TASK_MONTH_NAMES[currentDate.getMonth()]} {currentDate.getFullYear()}
+          </Text>
+          <TouchableOpacity onPress={goToNextWeek} style={styles.dateSelectorNavButton}>
+            <Ionicons name="chevron-forward" size={20} color={themeColors.text} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.weekContainer}>
+          {weekDays.map((day, index) => (
+            <TouchableOpacity
+              key={`${day.toDateString()}-${index}`}
+              style={[
+                styles.dayColumn,
+                isSelectedDate(day) && styles.dayColumnSelected,
+              ]}
+              onPress={() => handleDaySelect(day)}
+              activeOpacity={0.85}
             >
               <Text
                 style={[
-                  styles.filterText,
-                  { color: tasksTheme.filterChipText },
-                  filterType === filter && [
-                    styles.filterTextActive,
-                    { color: tasksTheme.filterChipTextActive },
+                  styles.dayName,
+                  { color: themeColors.textSecondary },
+                  isSelectedDate(day) && { color: themeColors.primary },
+                ]}
+              >
+                {TASK_WEEKDAY_LABELS[day.getDay()]}
+              </Text>
+              <View
+                style={[
+                  styles.dayNumber,
+                  isToday(day) && [styles.dayNumberToday, { backgroundColor: themeColors.text }],
+                  isSelectedDate(day) && [
+                    styles.dayNumberSelected,
+                    { backgroundColor: themeColors.primary },
                   ],
                 ]}
               >
-                {filter}
-              </Text>
+                <Text
+                  style={[
+                    styles.dayNumberText,
+                    { color: themeColors.text },
+                    (isToday(day) || isSelectedDate(day)) && styles.dayNumberTextOnAccent,
+                  ]}
+                >
+                  {day.getDate()}
+                </Text>
+              </View>
+              {hasTasksOnDate(day) && (
+                <View style={[styles.taskIndicator, { backgroundColor: themeColors.primary }]} />
+              )}
             </TouchableOpacity>
           ))}
         </View>
 
-        {taskOverlapPairs.length > 0 && (
-          <Card style={[styles.overlapWarningCard, { borderColor: themeColors.warning }]}>
-            <View style={styles.overlapWarningHeader}>
-              <Ionicons name="warning-outline" size={16} color={themeColors.warning} />
-              <Text style={[styles.overlapWarningTitle, { color: themeColors.warning }]}>
-                Overlap warning
-              </Text>
-            </View>
-            <Text style={[styles.overlapWarningText, { color: themeColors.textSecondary }]}>
-              {taskOverlapPairs.length} schedule conflict{taskOverlapPairs.length === 1 ? '' : 's'} detected.
+        <View style={styles.dateSelectorMetaRow}>
+          <Text style={[styles.dateSelectorSelectedText, { color: themeColors.textSecondary }]}>
+            {selectedDate.toLocaleDateString('en-US', {
+              weekday: 'long',
+              month: 'long',
+              day: 'numeric',
+            })}
+          </Text>
+          <TouchableOpacity onPress={goToToday} activeOpacity={0.85}>
+            <Text style={[styles.dateSelectorTodayText, { color: themeColors.primary }]}>Today</Text>
+          </TouchableOpacity>
+        </View>
+
+        {showCalendarSettings && (
+          <Card
+            style={[
+              styles.calendarSettingsCard,
+              {
+                borderColor: tasksTheme.tasksCardBorder,
+                backgroundColor: tasksTheme.tasksCardBg,
+              },
+            ]}
+          >
+            <Text style={[styles.calendarSettingsTitle, { color: themeColors.text }]}>Calendar Settings</Text>
+            <Text style={[styles.calendarSettingsSubtitle, { color: themeColors.textSecondary }]}>
+              Import and export your calendar events with tasks.
             </Text>
-            {taskOverlapPairs.slice(0, 2).map((pair) => (
-              <Text
-                key={`${pair.a?.id || 'a'}-${pair.b?.id || 'b'}`}
-                style={[styles.overlapWarningText, { color: themeColors.textSecondary }]}
-              >
-                {pair.a?.title || 'Task'} overlaps {pair.b?.title || 'Task'} ({formatTaskTimeRangeLabel(pair.a)} vs{' '}
-                {formatTaskTimeRangeLabel(pair.b)})
+            <Text style={[styles.calendarSettingsStatusText, { color: themeColors.textLight }]}>
+              {userSettings?.calendarSyncEnabled
+                ? 'Calendar sync is enabled.'
+                : 'Enable calendar sync in Settings -> Permissions first.'}
+            </Text>
+
+            <TouchableOpacity
+              style={[
+                styles.calendarSettingsActionButton,
+                {
+                  borderColor: tasksTheme.taskItemBorder,
+                  backgroundColor: tasksTheme.taskItemBg,
+                },
+                calendarSyncAction && styles.calendarSettingsActionDisabled,
+              ]}
+              onPress={handleImportCalendarEvents}
+              disabled={Boolean(calendarSyncAction)}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name={calendarSyncAction === 'import' ? 'hourglass-outline' : 'download-outline'}
+                size={18}
+                color={themeColors.primary}
+              />
+              <Text style={[styles.calendarSettingsActionText, { color: themeColors.primary }]}>
+                {calendarSyncAction === 'import' ? 'Importing...' : 'Import Calendar'}
               </Text>
-            ))}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.calendarSettingsActionButton,
+                {
+                  borderColor: tasksTheme.taskItemBorder,
+                  backgroundColor: tasksTheme.taskItemBg,
+                },
+                calendarSyncAction && styles.calendarSettingsActionDisabled,
+              ]}
+              onPress={handleExportTasksToCalendar}
+              disabled={Boolean(calendarSyncAction)}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name={calendarSyncAction === 'export' ? 'hourglass-outline' : 'share-outline'}
+                size={18}
+                color={themeColors.primary}
+              />
+              <Text style={[styles.calendarSettingsActionText, { color: themeColors.primary }]}>
+                {calendarSyncAction === 'export' ? 'Exporting...' : 'Export Calendar'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.calendarSettingsActionButton,
+                styles.calendarSettingsDangerButton,
+                calendarSyncAction && styles.calendarSettingsActionDisabled,
+              ]}
+              onPress={handleUndoImportedTasks}
+              disabled={Boolean(calendarSyncAction)}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name={calendarSyncAction === 'undo' ? 'hourglass-outline' : 'trash-outline'}
+                size={18}
+                color={themeColors.danger}
+              />
+              <Text style={[styles.calendarSettingsActionText, { color: themeColors.danger }]}>
+                {calendarSyncAction === 'undo' ? 'Undoing...' : 'Undo import'}
+              </Text>
+            </TouchableOpacity>
           </Card>
         )}
 
-        {/* Tasks List */}
-        <Card
+        <TouchableOpacity
+          style={styles.openCalendarChevron}
+          onPress={handleOpenCalendarFromArrow}
+          disabled={isCalendarTransitioning}
+          activeOpacity={0.85}
+        >
+          <Animated.View
+            style={{
+              transform: [{ rotate: chevronRotate }, { scale: chevronScale }],
+            }}
+          >
+            <Ionicons name="chevron-down" size={20} color={themeColors.textSecondary} />
+          </Animated.View>
+        </TouchableOpacity>
+
+        <Animated.View
           style={[
-            styles.sectionCard,
-            styles.tasksCard,
+            styles.viewSwapContent,
             {
-              backgroundColor: tasksTheme.tasksCardBg,
-              borderColor: tasksTheme.tasksCardBorder,
+              opacity: viewContentOpacity,
+              transform: [{ translateY: viewContentTranslateY }],
             },
           ]}
         >
-          <View style={styles.sectionHeaderRow}>
-            <Text style={[styles.sectionTitle, { color: tasksTheme.tasksTitle, marginBottom: 0 }]}>
-              Tasks
-            </Text>
-            <TouchableOpacity
-              style={[styles.archiveButton, { borderColor: tasksTheme.taskItemBorder }]}
-              onPress={() => navigation.navigate('TaskArchive')}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="archive-outline" size={16} color={tasksTheme.tasksTitle} />
-              <Text style={[styles.archiveButtonText, { color: tasksTheme.tasksTitle }]}>
-                Archive
-              </Text>
-            </TouchableOpacity>
-          </View>
-          {filteredTasks.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons
-                name="calendar-outline"
-                size={48}
-                color={tasksTheme.tasksTitle}
-              />
-              <Text style={styles.emptyTitle}>No tasks yet</Text>
-              <Text style={styles.emptySubtitle}>
-                Create your first task to get started
-              </Text>
-            </View>
-          ) : (
-            filteredTasks.map((task) => (
-              <TouchableOpacity
-                key={task.id}
-                style={[
-                  styles.taskItem,
-                  {
-                    backgroundColor: tasksTheme.taskItemBg,
-                    borderColor: tasksTheme.taskItemBorder,
-                  },
-                ]}
-                onPress={() => handleTaskPress(task)}
-                activeOpacity={0.7}
-              >
-                <TouchableOpacity
-                  style={[
-                    styles.checkbox,
-                    {
-                      borderColor: tasksTheme.taskItemBorder,
-                      backgroundColor: tasksTheme.checkboxBg,
-                    },
-                    task.completed && styles.checkboxChecked,
-                  ]}
-                  onPress={() => toggleTaskCompletion(task.id)}
-                >
-                  {task.completed && (
-                    <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                  )}
-                </TouchableOpacity>
-                <View style={styles.taskContent}>
-                  <Text
+          {!isCalendarView ? (
+            <>
+              {/* Tabs */}
+              <View style={[styles.tabsRow, { borderBottomColor: tasksTheme.tabsBorder }]}>
+                {tabs.map((tab) => (
+                  <TouchableOpacity
+                    key={tab}
                     style={[
-                      styles.taskTitle,
-                      task.completed && styles.taskTitleCompleted,
+                      styles.tab,
+                      activeTab === tab && [
+                        styles.tabActive,
+                        { borderBottomColor: tasksTheme.tabActive },
+                      ],
                     ]}
-                    numberOfLines={1}
+                    onPress={() => setActiveTab(tab)}
                   >
-                    {task.title}
-                  </Text>
-                  <View style={styles.taskMeta}>
-                    {(() => {
-                      const badge = getPriorityBadgeStyles(task.priority);
-                      return (
-                        <View
-                          style={[
-                            styles.priorityBadge,
-                            { backgroundColor: badge.backgroundColor },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.priorityText,
-                              { color: badge.textColor },
-                            ]}
-                          >
-                            {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
-                          </Text>
-                        </View>
-                      );
-                    })()}
-                    <Text style={[styles.taskDate, { color: tasksTheme.taskDate }]}>
-                      {formatDate(task.date)} | {formatTaskTimeRangeLabel(task)}
+                    <Text
+                      style={[
+                        styles.tabText,
+                        { color: tasksTheme.tabText },
+                        activeTab === tab && [
+                          styles.tabTextActive,
+                          { color: tasksTheme.tabTextActive },
+                        ],
+                      ]}
+                    >
+                      {tab}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Filters */}
+              <View style={styles.filterRow}>
+                <View
+                  style={[
+                    styles.filterIcon,
+                    {
+                      backgroundColor: tasksTheme.filterIconBg,
+                      borderColor: tasksTheme.filterIconBorder,
+                    },
+                  ]}
+                >
+                  <Ionicons name="filter-outline" size={18} color={tasksTheme.filterIconColor} />
+                </View>
+                {filters.map((filter) => (
+                  <TouchableOpacity
+                    key={filter}
+                    style={[
+                      styles.filterChip,
+                      {
+                        backgroundColor: tasksTheme.filterChipBg,
+                        borderColor: tasksTheme.filterChipBorder,
+                      },
+                      filterType === filter && [
+                        styles.filterChipActive,
+                        {
+                          backgroundColor: tasksTheme.filterChipActiveBg,
+                          borderColor: tasksTheme.filterChipActiveBorder,
+                        },
+                      ],
+                    ]}
+                    onPress={() => setFilterType(filter)}
+                  >
+                    <Text
+                      style={[
+                        styles.filterText,
+                        { color: tasksTheme.filterChipText },
+                        filterType === filter && [
+                          styles.filterTextActive,
+                          { color: tasksTheme.filterChipTextActive },
+                        ],
+                      ]}
+                    >
+                      {filter}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {selectedDateOverlapPairs.length > 0 && (
+                <Card style={[styles.overlapWarningCard, { borderColor: themeColors.warning }]}>
+                  <View style={styles.overlapWarningHeader}>
+                    <Ionicons name="warning-outline" size={16} color={themeColors.warning} />
+                    <Text style={[styles.overlapWarningTitle, { color: themeColors.warning }]}>
+                      Overlap warning
                     </Text>
                   </View>
+                  <Text style={[styles.overlapWarningText, { color: themeColors.textSecondary }]}>
+                    {selectedDateOverlapPairs.length} schedule conflict
+                    {selectedDateOverlapPairs.length === 1 ? '' : 's'} detected.
+                  </Text>
+                  {selectedDateOverlapPairs.slice(0, 2).map((pair) => (
+                    <Text
+                      key={`${pair.a?.id || 'a'}-${pair.b?.id || 'b'}`}
+                      style={[styles.overlapWarningText, { color: themeColors.textSecondary }]}
+                    >
+                      {pair.a?.title || 'Task'} overlaps {pair.b?.title || 'Task'} ({formatTaskTimeRangeLabel(pair.a)} vs{' '}
+                      {formatTaskTimeRangeLabel(pair.b)})
+                    </Text>
+                  ))}
+                </Card>
+              )}
+
+              {/* Tasks List */}
+              <Card
+                style={[
+                  styles.sectionCard,
+                  styles.tasksCard,
+                  {
+                    backgroundColor: tasksTheme.tasksCardBg,
+                    borderColor: tasksTheme.tasksCardBorder,
+                  },
+                ]}
+              >
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={[styles.sectionTitle, { color: tasksTheme.tasksTitle, marginBottom: 0 }]}>
+                    Tasks
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.archiveButton, { borderColor: tasksTheme.taskItemBorder }]}
+                    onPress={() => navigation.navigate('TaskArchive')}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons name="archive-outline" size={16} color={tasksTheme.tasksTitle} />
+                    <Text style={[styles.archiveButtonText, { color: tasksTheme.tasksTitle }]}>
+                      Archive
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-              </TouchableOpacity>
-            ))
+                {filteredTasks.length === 0 ? (
+                  <View style={styles.emptyState}>
+                    <Ionicons
+                      name="calendar-outline"
+                      size={48}
+                      color={tasksTheme.tasksTitle}
+                    />
+                    <Text style={styles.emptyTitle}>No tasks for this day</Text>
+                    <Text style={styles.emptySubtitle}>
+                      Pick another date or create a task for this day
+                    </Text>
+                  </View>
+                ) : (
+                  filteredTasks.map((task) => (
+                    <TouchableOpacity
+                      key={task.id}
+                      style={[
+                        styles.taskItem,
+                        {
+                          backgroundColor: tasksTheme.taskItemBg,
+                          borderColor: tasksTheme.taskItemBorder,
+                        },
+                      ]}
+                      onPress={() => handleTaskPress(task)}
+                      activeOpacity={0.7}
+                    >
+                      <TouchableOpacity
+                        style={[
+                          styles.checkbox,
+                          {
+                            borderColor: tasksTheme.taskItemBorder,
+                            backgroundColor: tasksTheme.checkboxBg,
+                          },
+                          task.completed && styles.checkboxChecked,
+                        ]}
+                        onPress={() => toggleTaskCompletion(task.id)}
+                      >
+                        {task.completed && (
+                          <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                        )}
+                      </TouchableOpacity>
+                      <View style={styles.taskContent}>
+                        <Text
+                          style={[
+                            styles.taskTitle,
+                            task.completed && styles.taskTitleCompleted,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {task.title}
+                        </Text>
+                        <View style={styles.taskMeta}>
+                          {(() => {
+                            const badge = getPriorityBadgeStyles(task.priority);
+                            return (
+                              <View
+                                style={[
+                                  styles.priorityBadge,
+                                  { backgroundColor: badge.backgroundColor },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.priorityText,
+                                    { color: badge.textColor },
+                                  ]}
+                                >
+                                  {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
+                                </Text>
+                              </View>
+                            );
+                          })()}
+                          <Text style={[styles.taskDate, { color: tasksTheme.taskDate }]}>
+                            {formatDate(task.date)} | {formatTaskTimeRangeLabel(task)}
+                          </Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  ))
+                )}
+              </Card>
+            </>
+          ) : (
+            <>
+              <Card
+                style={[
+                  styles.sectionCard,
+                  styles.tasksCard,
+                  {
+                    backgroundColor: tasksTheme.tasksCardBg,
+                    borderColor: tasksTheme.tasksCardBorder,
+                  },
+                ]}
+              >
+                <Text style={[styles.sectionTitle, { color: tasksTheme.tasksTitle }]}>Day Timeline</Text>
+                {timeSlots.map((time) => {
+                  const slotHour = parseInt(time.split(':')[0], 10);
+                  const tasksAtTime = selectedDateTasks.filter((task) => {
+                    const parsed = parseHour(task.time);
+                    return parsed?.hour === slotHour;
+                  });
+
+                  return (
+                    <View key={time} style={[styles.calendarTimelineSlot, { borderBottomColor: tasksTheme.taskItemBorder }]}>
+                      <Text style={[styles.calendarTimelineLabel, { color: themeColors.textLight }]}>{time}</Text>
+                      <View style={styles.calendarTimelineSlotContent}>
+                        {tasksAtTime.map((task) => (
+                          <View
+                            key={task.id}
+                            style={[
+                              styles.calendarTimelineTask,
+                              {
+                                borderLeftColor: getPriorityColor(task.priority),
+                                backgroundColor: tasksTheme.taskItemBg,
+                              },
+                            ]}
+                          >
+                            <TouchableOpacity onPress={() => handleTaskPress(task)} activeOpacity={0.8}>
+                              <Text style={[styles.calendarTimelineTaskTitle, { color: themeColors.text }]} numberOfLines={1}>
+                                {task.title}
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[
+                                styles.calendarInlineCompleteButton,
+                                task.completed && styles.calendarInlineCompleteButtonDone,
+                              ]}
+                              onPress={(evt) => handleToggleTaskCompletionInline(task.id, evt)}
+                              activeOpacity={0.85}
+                            >
+                              <Text
+                                style={[
+                                  styles.calendarInlineCompleteButtonText,
+                                  task.completed && { color: themeColors.success },
+                                ]}
+                              >
+                                {task.completed ? 'Done' : 'Complete'}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  );
+                })}
+              </Card>
+
+              <Card
+                style={[
+                  styles.sectionCard,
+                  styles.tasksCard,
+                  {
+                    backgroundColor: tasksTheme.tasksCardBg,
+                    borderColor: tasksTheme.tasksCardBorder,
+                  },
+                ]}
+              >
+                <Text style={[styles.sectionTitle, { color: tasksTheme.tasksTitle }]}>Upcoming Tasks</Text>
+                {upcomingDatedTasks.length === 0 ? (
+                  <View style={styles.emptyState}>
+                    <Ionicons name="calendar-outline" size={32} color={tasksTheme.tasksTitle} />
+                    <Text style={styles.emptyText}>No upcoming tasks</Text>
+                  </View>
+                ) : (
+                  upcomingDatedTasks.map((task) => (
+                    <View key={task.id} style={[styles.calendarListTaskItem, { borderBottomColor: tasksTheme.taskItemBorder }]}>
+                      <View style={styles.calendarListTaskInfo}>
+                        <Text style={[styles.taskTitle, { color: themeColors.text }]} numberOfLines={1}>
+                          {task.title}
+                        </Text>
+                        <Text style={[styles.calendarListTaskMeta, { color: themeColors.textSecondary }]}>
+                          {formatListDate(task.date)}
+                          {task.time ? ` | ${formatTaskTimeRangeLabel(task)}` : ''}
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.priorityBadge,
+                          { backgroundColor: `${getPriorityColor(task.priority)}20` },
+                        ]}
+                      >
+                        <Text style={[styles.priorityText, { color: getPriorityColor(task.priority) }]}>
+                          {task.priority || 'none'}
+                        </Text>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </Card>
+            </>
           )}
-        </Card>
+        </Animated.View>
 
       </PlatformScrollView>
 
@@ -1885,8 +2489,40 @@ const createStyles = (themeColors) => {
     flexGrow: 1,
   },
   headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginTop: spacing.sm,
     marginBottom: spacing.md,
+  },
+  headerIntro: {
+    flex: 1,
+    marginRight: spacing.md,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  headerIconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerAddButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    overflow: 'hidden',
+    ...shadows.small,
+  },
+  headerAddButtonGradient: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pageTitle: {
     ...typography.h1,
@@ -1951,6 +2587,185 @@ const createStyles = (themeColors) => {
     justifyContent: 'center',
     marginLeft: spacing.sm,
     marginBottom: spacing.sm,
+  },
+  dateSelectorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  dateSelectorNavButton: {
+    width: 34,
+    height: 34,
+    borderRadius: borderRadius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dateSelectorMonthTitle: {
+    ...typography.h3,
+  },
+  weekContainer: {
+    flexDirection: 'row',
+    marginBottom: spacing.xs,
+  },
+  dayColumn: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    marginHorizontal: 2,
+    borderRadius: borderRadius.md,
+  },
+  dayColumnSelected: {
+    backgroundColor: `${themeColors.primary}1A`,
+  },
+  dayName: {
+    ...typography.caption,
+    marginBottom: spacing.xs,
+  },
+  dayNumber: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayNumberToday: {
+    backgroundColor: themeColors.text,
+  },
+  dayNumberSelected: {
+    backgroundColor: themeColors.primary,
+  },
+  dayNumberText: {
+    ...typography.body,
+    fontWeight: '600',
+  },
+  dayNumberTextOnAccent: {
+    color: '#FFFFFF',
+  },
+  taskIndicator: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginTop: spacing.xs,
+  },
+  dateSelectorMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  dateSelectorSelectedText: {
+    ...typography.bodySmall,
+    fontWeight: '600',
+  },
+  dateSelectorTodayText: {
+    ...typography.bodySmall,
+    fontWeight: '700',
+  },
+  openCalendarChevron: {
+    alignSelf: 'center',
+    width: 32,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+  },
+  calendarSettingsCard: {
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+  },
+  calendarSettingsTitle: {
+    ...typography.body,
+    fontWeight: '700',
+    marginBottom: spacing.xs,
+  },
+  calendarSettingsSubtitle: {
+    ...typography.bodySmall,
+  },
+  calendarSettingsStatusText: {
+    ...typography.caption,
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  calendarSettingsActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+    gap: spacing.sm,
+  },
+  calendarSettingsActionDisabled: {
+    opacity: 0.6,
+  },
+  calendarSettingsActionText: {
+    ...typography.bodySmall,
+    fontWeight: '700',
+  },
+  calendarSettingsDangerButton: {
+    borderColor: `${themeColors.danger}55`,
+    backgroundColor: `${themeColors.danger}10`,
+  },
+  viewSwapContent: {
+    flex: 1,
+  },
+  calendarTimelineSlot: {
+    flexDirection: 'row',
+    minHeight: 44,
+    borderBottomWidth: 1,
+  },
+  calendarTimelineLabel: {
+    width: 50,
+    ...typography.caption,
+    paddingTop: spacing.sm,
+  },
+  calendarTimelineSlotContent: {
+    flex: 1,
+    paddingVertical: spacing.xs,
+  },
+  calendarTimelineTask: {
+    borderLeftWidth: 3,
+    borderRadius: borderRadius.sm,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  calendarTimelineTaskTitle: {
+    ...typography.bodySmall,
+  },
+  calendarInlineCompleteButton: {
+    marginTop: spacing.xs,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.full,
+    backgroundColor: `${themeColors.primary}1A`,
+    alignSelf: 'flex-start',
+  },
+  calendarInlineCompleteButtonDone: {
+    backgroundColor: `${themeColors.success}22`,
+  },
+  calendarInlineCompleteButtonText: {
+    ...typography.caption,
+    color: themeColors.primary,
+    fontWeight: '700',
+  },
+  calendarListTaskItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+  },
+  calendarListTaskInfo: {
+    flex: 1,
+    marginRight: spacing.md,
+  },
+  calendarListTaskMeta: {
+    ...typography.caption,
   },
   tabsRow: {
     flexDirection: 'row',
