@@ -46,6 +46,7 @@ const Modal = ({
   const contentBottomPadding = bottomInset + spacing.xl;
   const headerTopOffset = fullScreen ? Math.max(insets.top, spacing.lg) : 0;
   const contentTopPadding = 0;
+  const shouldUseStaticContent = scrollEnabled === false;
 
   const clampScrollOffset = React.useCallback((value) => {
     const maxOffset = Math.max(
@@ -121,11 +122,12 @@ const Modal = ({
   }, []);
 
   const handleTouchEndCapture = React.useCallback(() => {
+    if (scrollEnabled === false) return;
     scheduleFocusedInputScroll();
-  }, [scheduleFocusedInputScroll]);
+  }, [scheduleFocusedInputScroll, scrollEnabled]);
 
   React.useEffect(() => {
-    if (!visible) return undefined;
+    if (!visible || scrollEnabled === false) return undefined;
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
     const handleKeyboardShow = (event) => {
@@ -151,7 +153,7 @@ const Modal = ({
       hideSub.remove();
       frameSub?.remove();
     };
-  }, [clearPendingFocusScroll, scrollFocusedInputIntoView, visible]);
+  }, [clearPendingFocusScroll, scrollEnabled, scrollFocusedInputIntoView, visible]);
   const panResponder = React.useMemo(() => {
     if (!swipeToCloseEnabled || !onClose) return null;
     return PanResponder.create({
@@ -219,30 +221,61 @@ const Modal = ({
             </View>
           )}
           {fullScreen ? (
-            <ScrollView
-              ref={scrollRef}
-              style={[styles.content, styles.fullScreenContent, contentStyle]}
-              contentContainerStyle={[
-                styles.fullScreenContentContainer,
-                { paddingBottom: contentBottomPadding, paddingTop: contentTopPadding },
-                contentContainerStyle,
-              ]}
-              showsVerticalScrollIndicator
-              bounces={false}
-              alwaysBounceVertical={false}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-              nestedScrollEnabled
-              overScrollMode="never"
-              scrollEventThrottle={16}
-              onScroll={handleScroll}
-              onLayout={handleLayout}
-              onContentSizeChange={handleContentSizeChange}
-              onTouchEndCapture={handleTouchEndCapture}
-              scrollEnabled={scrollEnabled}
-            >
-              {children}
-            </ScrollView>
+            shouldUseStaticContent ? (
+              <View
+                style={[styles.content, styles.fullScreenContent, contentStyle]}
+                onLayout={handleLayout}
+              >
+                <View
+                  style={[
+                    styles.fullScreenContentContainer,
+                    { paddingBottom: contentBottomPadding, paddingTop: contentTopPadding },
+                    contentContainerStyle,
+                  ]}
+                >
+                  {children}
+                </View>
+              </View>
+            ) : (
+              <ScrollView
+                ref={scrollRef}
+                style={[styles.content, styles.fullScreenContent, contentStyle]}
+                contentContainerStyle={[
+                  styles.fullScreenContentContainer,
+                  { paddingBottom: contentBottomPadding, paddingTop: contentTopPadding },
+                  contentContainerStyle,
+                ]}
+                showsVerticalScrollIndicator
+                bounces={false}
+                alwaysBounceVertical={false}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                nestedScrollEnabled
+                overScrollMode="never"
+                scrollEventThrottle={16}
+                onScroll={handleScroll}
+                onLayout={handleLayout}
+                onContentSizeChange={handleContentSizeChange}
+                onTouchEndCapture={handleTouchEndCapture}
+                scrollEnabled={scrollEnabled}
+              >
+                {children}
+              </ScrollView>
+            )
+          ) : shouldUseStaticContent ? (
+            <View style={[styles.content, contentStyle]} onLayout={handleLayout}>
+              <View
+                style={[
+                  {
+                    paddingBottom: contentBottomPadding,
+                    paddingTop: contentTopPadding,
+                  },
+                  contentContainerStyle,
+                ]}
+              >
+                {children}
+              </View>
+            </View>
           ) : (
             <ScrollView
               ref={scrollRef}

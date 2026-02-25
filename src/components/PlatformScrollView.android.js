@@ -7,6 +7,7 @@ const PlatformScrollView = React.forwardRef(
       children,
       contentContainerStyle,
       scrollEnabled,
+      keyboardAutoScrollEnabled = true,
       onScroll,
       onLayout,
       onContentSizeChange,
@@ -77,15 +78,21 @@ const PlatformScrollView = React.forwardRef(
     }, [clampScrollOffset]);
 
     const scheduleFocusedInputScroll = React.useCallback(() => {
+      if (!keyboardAutoScrollEnabled) return;
       if (!keyboardHeightRef.current) return;
       clearPendingFocusScroll();
       focusedInputTimeoutRef.current = setTimeout(() => {
         focusedInputTimeoutRef.current = null;
         scrollFocusedInputIntoView(keyboardHeightRef.current);
       }, 60);
-    }, [clearPendingFocusScroll, scrollFocusedInputIntoView]);
+    }, [clearPendingFocusScroll, keyboardAutoScrollEnabled, scrollFocusedInputIntoView]);
 
     React.useEffect(() => {
+      if (!keyboardAutoScrollEnabled) {
+        clearPendingFocusScroll();
+        keyboardHeightRef.current = 0;
+        return undefined;
+      }
       const handleKeyboardShow = (event) => {
         const nextHeight = event?.endCoordinates?.height || 0;
         keyboardHeightRef.current = nextHeight;
@@ -103,7 +110,7 @@ const PlatformScrollView = React.forwardRef(
         showSub.remove();
         hideSub.remove();
       };
-    }, [clearPendingFocusScroll, scrollFocusedInputIntoView]);
+    }, [clearPendingFocusScroll, keyboardAutoScrollEnabled, scrollFocusedInputIntoView]);
 
     return (
       <ScrollView
@@ -131,7 +138,9 @@ const PlatformScrollView = React.forwardRef(
         }}
         onTouchEndCapture={(event) => {
           onTouchEndCapture?.(event);
-          scheduleFocusedInputScroll();
+          if (keyboardAutoScrollEnabled) {
+            scheduleFocusedInputScroll();
+          }
         }}
         scrollEventThrottle={16}
         {...rest}

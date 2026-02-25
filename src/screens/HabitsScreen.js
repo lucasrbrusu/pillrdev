@@ -498,7 +498,16 @@ const SwipeHabitCard = ({
 }) => {
   const actionTileCount = achieved ? 2 : 3;
   const ACTION_RAIL_WIDTH = spacing.sm + actionTileCount * (64 + spacing.sm);
-  const FILL_SWIPE_DISTANCE = 165;
+  const FILL_SWIPE_DISTANCE = 210;
+  const SWIPE_CAPTURE_DISTANCE = 12;
+  const HORIZONTAL_INTENT_RATIO = 1.2;
+  const ACTION_OPEN_DISTANCE = 56;
+  const ACTION_OPEN_VELOCITY = -0.45;
+  const ACTION_CLOSE_DISTANCE = 40;
+  const ACTION_CLOSE_VELOCITY = 0.4;
+  const PROGRESS_COMMIT_DISTANCE = 24;
+  const PROGRESS_COMMIT_RATIO_FLOOR = 0.03;
+  const PROGRESS_EASING = 1.2;
   const { width: windowWidth } = useWindowDimensions();
   const rowWidth = Math.max(1, windowWidth - spacing.lg * 2);
   const canSwipeProgress = isInteractive && !achieved;
@@ -525,11 +534,11 @@ const SwipeHabitCard = ({
       const remaining = Math.max(0, 1 - base);
       if (remaining <= 0) return 1;
 
-      const swipeProgress = clamp(dx / FILL_SWIPE_DISTANCE, 0, 1);
+      const swipeProgress = clamp(dx / FILL_SWIPE_DISTANCE, 0, 1) ** PROGRESS_EASING;
       const delta = swipeProgress * remaining;
       return clamp(base + delta, base, 1);
     },
-    [FILL_SWIPE_DISTANCE]
+    [FILL_SWIPE_DISTANCE, PROGRESS_EASING]
   );
 
   const flushDragFillToState = useCallback(() => {
@@ -611,8 +620,8 @@ const SwipeHabitCard = ({
     Animated.spring(translateX, {
       toValue: 0,
       useNativeDriver: true,
-      speed: 22,
-      bounciness: 7,
+      speed: 19,
+      bounciness: 5,
     }).start(() => setActionsOpen(false));
   }, [translateX]);
 
@@ -620,8 +629,8 @@ const SwipeHabitCard = ({
     Animated.spring(translateX, {
       toValue: -ACTION_RAIL_WIDTH,
       useNativeDriver: true,
-      speed: 22,
-      bounciness: 7,
+      speed: 19,
+      bounciness: 5,
     }).start(() => setActionsOpen(true));
   }, [ACTION_RAIL_WIDTH, translateX]);
 
@@ -629,7 +638,10 @@ const SwipeHabitCard = ({
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, g) => {
-          if (Math.abs(g.dx) <= Math.abs(g.dy) || Math.abs(g.dx) <= 7) return false;
+          const absDx = Math.abs(g.dx);
+          const absDy = Math.abs(g.dy);
+          if (absDx < SWIPE_CAPTURE_DISTANCE) return false;
+          if (absDx <= absDy * HORIZONTAL_INTENT_RATIO) return false;
           if (actionsOpen && canSwipeActions) return true;
           if (g.dx < 0) return canSwipeActions;
           return canSwipeProgress;
@@ -674,7 +686,7 @@ const SwipeHabitCard = ({
 
           if (actionsOpen) {
             clearDragFillPreview();
-            const shouldClose = g.dx > 32 || g.vx > 0.35;
+            const shouldClose = g.dx > ACTION_CLOSE_DISTANCE || g.vx > ACTION_CLOSE_VELOCITY;
             if (shouldClose) {
               closeActions();
             } else {
@@ -690,7 +702,7 @@ const SwipeHabitCard = ({
               return;
             }
             clearDragFillPreview();
-            const shouldOpen = g.dx < -42 || g.vx < -0.35;
+            const shouldOpen = g.dx < -ACTION_OPEN_DISTANCE || g.vx < ACTION_OPEN_VELOCITY;
             if (shouldOpen) {
               openActions();
             } else {
@@ -699,19 +711,27 @@ const SwipeHabitCard = ({
             return;
           }
 
-          if (g.dx >= 12 && canSwipeProgress) {
+          if (g.dx >= PROGRESS_COMMIT_DISTANCE && canSwipeProgress) {
             const targetRatio = Math.max(
               dragFillRatioRef.current,
               getSwipeTargetRatio(g.dx, swipeStartRatioRef.current)
             );
             const ratioDelta = targetRatio - swipeStartRatioRef.current;
-            if (ratioDelta < 0.012) {
+            if (ratioDelta < PROGRESS_COMMIT_RATIO_FLOOR) {
+              clearDragFillPreview();
+              closeActions();
+              return;
+            }
+            const goalValue = getGoalValue(habit);
+            const currentAmount = Math.max(0, parseNumber(progress, 0));
+            const nextAmount = Math.round(goalValue * targetRatio);
+            if (nextAmount <= currentAmount) {
               clearDragFillPreview();
               closeActions();
               return;
             }
             setDragFillPreview(targetRatio, { instant: true });
-            onSwipeAdd(habit, Math.max(1, Math.round(getGoalValue(habit) * targetRatio)));
+            onSwipeAdd(habit, nextAmount);
             clearDragFillPreview({ deferMs: 120 });
             closeActions();
             return;
@@ -732,6 +752,14 @@ const SwipeHabitCard = ({
       }),
     [
       ACTION_RAIL_WIDTH,
+      ACTION_CLOSE_DISTANCE,
+      ACTION_CLOSE_VELOCITY,
+      ACTION_OPEN_DISTANCE,
+      ACTION_OPEN_VELOCITY,
+      HORIZONTAL_INTENT_RATIO,
+      PROGRESS_COMMIT_DISTANCE,
+      PROGRESS_COMMIT_RATIO_FLOOR,
+      SWIPE_CAPTURE_DISTANCE,
       actionsOpen,
       canSwipeActions,
       canSwipeProgress,
@@ -746,6 +774,7 @@ const SwipeHabitCard = ({
       ratio,
       setDragFillPreview,
       translateX,
+      progress,
     ]
   );
 
@@ -759,7 +788,7 @@ const SwipeHabitCard = ({
     : 0;
   const overdoneVisual = overdone && !achieved;
   const isAndroid = Platform.OS === 'android';
-  const displayRatio = clamp(isAndroid ? ratio : Math.max(ratio, dragFillRatio), 0, 1);
+  const displayRatio = clamp(Math.max(ratio, dragFillRatio), 0, 1);
   const visualFillRatio = overdoneVisual ? 0 : completed ? 1 : displayRatio;
   const fillWidth = rowWidth * visualFillRatio;
   const habitColor = habit.color || palette.habits;
@@ -1018,10 +1047,30 @@ const HabitsScreen = () => {
     [isDark, themeColors]
   );
   const styles = useMemo(() => createStyles(palette), [palette]);
+  const [isHabitsHydrating, setIsHabitsHydrating] = useState(true);
 
   useEffect(() => {
-    ensureHabitsLoaded();
-  }, [ensureHabitsLoaded]);
+    let isActive = true;
+
+    const hydrateHabits = async () => {
+      if (!authUser?.id) {
+        if (isActive) setIsHabitsHydrating(false);
+        return;
+      }
+
+      setIsHabitsHydrating(true);
+      try {
+        await ensureHabitsLoaded();
+      } finally {
+        if (isActive) setIsHabitsHydrating(false);
+      }
+    };
+
+    hydrateHabits();
+    return () => {
+      isActive = false;
+    };
+  }, [authUser?.id, ensureHabitsLoaded]);
 
   const hasCompletedHabitsTutorial = profile?.hasCompletedHabitsTutorial === true;
   const shouldShowHabitsTutorial = profile?.hasCompletedHabitsTutorial === false;
@@ -1647,6 +1696,7 @@ const HabitsScreen = () => {
   };
 
   const applyProgress = async (habit, amountValue) => {
+    if (isHabitsHydrating) return;
     if (hasHabitReachedEndDate(habit, new Date())) return;
     const amount = Math.max(0, parseNumber(amountValue, 0));
     const localKey = `${habit.id}|${selectedDateKey}`;
@@ -2141,8 +2191,9 @@ const HabitsScreen = () => {
                 overdone={overdone}
                 streakFrozen={streakFrozen}
                 freezeEligible={isSelectedDateToday}
-                isInteractive={isSelectedDateToday && !lifecycleCompleted}
+                isInteractive={!isHabitsHydrating && isSelectedDateToday && !lifecycleCompleted}
                 onTap={(item) => {
+                  if (isHabitsHydrating && !lifecycleCompleted) return;
                   if (item.__isGroupHabit) {
                     setActiveHabitId(null);
                     setActiveGroupHabitId(item.id);

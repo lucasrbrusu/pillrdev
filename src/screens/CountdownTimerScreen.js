@@ -26,8 +26,9 @@ const RING_INNER_SIZE = RING_SIZE - RING_STROKE * 2 - 16;
 
 const CountdownTimerScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
-  const { themeColors } = useApp();
-  const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
+  const { themeColors, themeName } = useApp();
+  const isDark = themeName === 'dark';
+  const styles = React.useMemo(() => createStyles(themeColors, isDark), [themeColors, isDark]);
   const [durationMs, setDurationMs] = React.useState(5 * 60 * 1000);
   const [remainingMs, setRemainingMs] = React.useState(5 * 60 * 1000);
   const [isRunning, setIsRunning] = React.useState(false);
@@ -52,6 +53,7 @@ const CountdownTimerScreen = ({ navigation }) => {
   const iconColor = themeColors.textSecondary || colors.textSecondary;
   const accent = themeColors.primary || colors.primary;
   const accentGradient = ['#8B5CF6', '#EC4899'];
+  const ringTrackColor = isDark ? '#2E2A38' : '#EEE7F7';
   const ringRadius = (RING_SIZE - RING_STROKE) / 2;
   const ringCircumference = 2 * Math.PI * ringRadius;
   const progress =
@@ -277,7 +279,7 @@ const CountdownTimerScreen = ({ navigation }) => {
                   cx={RING_SIZE / 2}
                   cy={RING_SIZE / 2}
                   r={ringRadius}
-                  stroke="#EEE7F7"
+                  stroke={ringTrackColor}
                   strokeWidth={RING_STROKE}
                   fill="none"
                 />
@@ -413,11 +415,25 @@ const CountdownTimerScreen = ({ navigation }) => {
   );
 };
 
-const createStyles = (themeColorsParam = colors) =>
-  StyleSheet.create({
+const createStyles = (themeColorsParam = colors, isDark = false) => {
+  const backgroundColor = themeColorsParam.background || colors.background;
+  const cardColor = themeColorsParam.card || colors.card;
+  const borderColor = themeColorsParam.border || colors.border;
+  const textColor = themeColorsParam.text || colors.text;
+  const textSecondaryColor = themeColorsParam.textSecondary || colors.textSecondary;
+  const pageBg = isDark ? backgroundColor : '#F6F2FF';
+  const raisedSurface = isDark ? '#171A24' : '#F2F4F9';
+  const raisedSurfaceActive = isDark ? '#22263A' : '#F2E8FF';
+  const panelSurface = isDark ? '#191A24' : '#F5F6FB';
+  const panelSurfaceAlt = isDark ? '#222334' : '#F8F3FF';
+  const tintSurface = isDark ? '#2A2B42' : '#EFE7FF';
+  const titleShadow = isDark ? undefined : shadows.large;
+  const cardShadow = isDark ? undefined : shadows.medium;
+
+  return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: '#F6F2FF',
+      backgroundColor: pageBg,
     },
     scrollContent: {
       paddingHorizontal: spacing.xl,
@@ -434,7 +450,9 @@ const createStyles = (themeColorsParam = colors) =>
       borderRadius: 12,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: '#FFFFFF',
+      backgroundColor: cardColor,
+      borderWidth: 1,
+      borderColor,
       ...shadows.small,
     },
     headerTitle: {
@@ -448,20 +466,22 @@ const createStyles = (themeColorsParam = colors) =>
       borderRadius: 10,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: '#F2E8FF',
+      backgroundColor: raisedSurfaceActive,
       marginRight: spacing.sm,
     },
     title: {
       ...typography.h3,
       fontSize: 18,
-      color: themeColorsParam.text || colors.text,
+      color: textColor,
     },
     timerCard: {
-      backgroundColor: '#FFFFFF',
+      backgroundColor: cardColor,
+      borderWidth: 1,
+      borderColor,
       borderRadius: 24,
       padding: spacing.xl,
       alignItems: 'center',
-      ...shadows.large,
+      ...(titleShadow || {}),
     },
     timerRingWrap: {
       marginTop: spacing.sm,
@@ -479,7 +499,7 @@ const createStyles = (themeColorsParam = colors) =>
       width: RING_INNER_SIZE,
       height: RING_INNER_SIZE,
       borderRadius: RING_INNER_SIZE / 2,
-      backgroundColor: '#FFFFFF',
+      backgroundColor: cardColor,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -487,7 +507,7 @@ const createStyles = (themeColorsParam = colors) =>
       ...typography.h1,
       fontSize: 34,
       fontWeight: '700',
-      color: themeColorsParam.text || colors.text,
+      color: textColor,
     },
     timerActions: {
       flexDirection: 'row',
@@ -500,11 +520,13 @@ const createStyles = (themeColorsParam = colors) =>
       borderRadius: 16,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: '#F2F4F9',
+      backgroundColor: raisedSurface,
+      borderWidth: 1,
+      borderColor,
       ...shadows.small,
     },
     iconButtonActive: {
-      backgroundColor: '#F2E8FF',
+      backgroundColor: raisedSurfaceActive,
     },
     iconButtonDisabled: {
       opacity: 0.5,
@@ -523,16 +545,18 @@ const createStyles = (themeColorsParam = colors) =>
     },
     sectionCard: {
       marginTop: spacing.lg,
-      backgroundColor: '#FFFFFF',
+      backgroundColor: cardColor,
+      borderWidth: 1,
+      borderColor,
       borderRadius: 24,
       padding: spacing.lg,
-      ...shadows.medium,
+      ...(cardShadow || {}),
     },
     sectionTitle: {
       ...typography.h3,
       fontSize: 18,
       fontWeight: '700',
-      color: themeColorsParam.text || colors.text,
+      color: textColor,
       marginBottom: spacing.md,
     },
     presetGrid: {
@@ -546,7 +570,9 @@ const createStyles = (themeColorsParam = colors) =>
     },
     presetButton: {
       borderRadius: 16,
-      backgroundColor: '#F5F6FB',
+      backgroundColor: panelSurface,
+      borderWidth: 1,
+      borderColor,
       paddingVertical: spacing.md,
       alignItems: 'center',
     },
@@ -559,7 +585,7 @@ const createStyles = (themeColorsParam = colors) =>
     presetText: {
       ...typography.body,
       fontWeight: '600',
-      color: themeColorsParam.textSecondary || colors.textSecondary,
+      color: textSecondaryColor,
     },
     presetTextActive: {
       ...typography.body,
@@ -576,11 +602,13 @@ const createStyles = (themeColorsParam = colors) =>
     },
     timeLabel: {
       ...typography.caption,
-      color: themeColorsParam.textSecondary || colors.textSecondary,
+      color: textSecondaryColor,
       marginBottom: spacing.xs,
     },
     timeValueCard: {
-      backgroundColor: '#F8F3FF',
+      backgroundColor: panelSurfaceAlt,
+      borderWidth: 1,
+      borderColor,
       borderRadius: 18,
       paddingVertical: spacing.md,
       alignItems: 'center',
@@ -589,7 +617,7 @@ const createStyles = (themeColorsParam = colors) =>
     timeInput: {
       fontSize: 26,
       fontWeight: '700',
-      color: themeColorsParam.text || colors.text,
+      color: textColor,
       textAlign: 'center',
       paddingVertical: 0,
       minWidth: 40,
@@ -605,7 +633,7 @@ const createStyles = (themeColorsParam = colors) =>
       borderRadius: 10,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: '#EFE7FF',
+      backgroundColor: tintSurface,
     },
     customButton: {
       marginTop: spacing.lg,
@@ -622,5 +650,6 @@ const createStyles = (themeColorsParam = colors) =>
       color: '#FFFFFF',
     },
   });
+};
 
 export default CountdownTimerScreen;

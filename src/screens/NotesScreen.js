@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Keyboard,
   StyleSheet,
   Text,
   TextInput,
@@ -98,6 +99,11 @@ const NotesScreen = () => {
   const [securityError, setSecurityError] = useState('');
   const [noteTitle, setNoteTitle] = useState('');
   const [noteContent, setNoteContent] = useState('');
+  const [noteBodyViewportHeight, setNoteBodyViewportHeight] = useState(0);
+  const [noteTitleHeight, setNoteTitleHeight] = useState(0);
+  const [noteContentMeasuredHeight, setNoteContentMeasuredHeight] = useState(0);
+  const [isNoteEditing, setIsNoteEditing] = useState(false);
+  const noteContentInputRef = useRef(null);
 
   const sortedNotes = useMemo(
     () =>
@@ -111,6 +117,17 @@ const NotesScreen = () => {
   const totalLockedNotes = useMemo(
     () => sortedNotes.filter((note) => !!note.password).length,
     [sortedNotes]
+  );
+  const noteContentMinHeight = useMemo(() => {
+    if (!noteBodyViewportHeight) return 260;
+    const verticalPadding = spacing.md + spacing.xxxl;
+    const availableHeight =
+      noteBodyViewportHeight - noteTitleHeight - verticalPadding - spacing.md;
+    return Math.max(260, availableHeight);
+  }, [noteBodyViewportHeight, noteTitleHeight]);
+  const noteContentHeight = useMemo(
+    () => Math.max(noteContentMinHeight, noteContentMeasuredHeight + spacing.md),
+    [noteContentMinHeight, noteContentMeasuredHeight]
   );
 
   useEffect(() => {
@@ -144,6 +161,10 @@ const NotesScreen = () => {
     setSelectedNote(null);
     setNoteTitleDraft('');
     setNoteContentDraft('');
+    setNoteBodyViewportHeight(0);
+    setNoteTitleHeight(0);
+    setNoteContentMeasuredHeight(0);
+    setIsNoteEditing(false);
   };
 
   const handleNotePress = (note) => {
@@ -154,6 +175,7 @@ const NotesScreen = () => {
     }
     setSelectedNote(note);
     setShowNoteDetailModal(true);
+    setIsNoteEditing(false);
     setNoteTitleDraft(note.title || '');
     setNoteContentDraft(note.content || '');
   };
@@ -193,10 +215,25 @@ const NotesScreen = () => {
     setShowUnlockModal(false);
     setShowNoteDetailModal(true);
     setSelectedNote(noteToUnlock);
+    setIsNoteEditing(false);
     setNoteTitleDraft(noteToUnlock.title || '');
     setNoteContentDraft(noteToUnlock.content || '');
     setUnlockedNoteIds([...unlockedNoteIds, noteToUnlock.id]);
     setNoteToUnlock(null);
+  };
+
+  const handleSetNoteViewMode = () => {
+    if (!isNoteEditing) return;
+    setIsNoteEditing(false);
+    Keyboard.dismiss();
+  };
+
+  const handleSetNoteEditMode = () => {
+    if (isNoteEditing) return;
+    setIsNoteEditing(true);
+    setTimeout(() => {
+      noteContentInputRef.current?.focus();
+    }, 0);
   };
 
   const handleManageSecurity = (note) => {
@@ -477,48 +514,118 @@ const NotesScreen = () => {
         onClose={closeNoteDetail}
         title=""
         fullScreen
+        hideHeader
         showCloseButton={false}
+        scrollEnabled={false}
       >
         {selectedNote && (
           <View style={styles.noteDetailContainer}>
-            <View style={styles.noteDetailHeader}>
-              <TouchableOpacity onPress={closeNoteDetail} style={styles.noteHeaderButton}>
-                <Text style={styles.noteHeaderButtonText}>Cancel</Text>
+            <View
+              style={[
+                styles.noteDetailHeader,
+                { paddingTop: Math.max(insets.top, spacing.sm) },
+              ]}
+            >
+              <TouchableOpacity
+                onPress={closeNoteDetail}
+                style={[styles.noteHeaderButton, styles.noteHeaderBackButton]}
+                accessibilityLabel="Close note"
+              >
+                <Ionicons name="chevron-back" size={20} color={themeColors.text} />
               </TouchableOpacity>
               <View style={styles.noteHeaderActions}>
                 <TouchableOpacity
+                  onPress={isNoteEditing ? handleSetNoteViewMode : handleSetNoteEditMode}
+                  style={styles.noteModeToggleButton}
+                  accessibilityLabel={
+                    isNoteEditing ? 'Switch to view mode' : 'Switch to edit mode'
+                  }
+                >
+                  <Text style={styles.noteModeToggleText}>
+                    {isNoteEditing ? 'View' : 'Edit'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
                   onPress={handleDeleteNote}
                   style={[styles.noteHeaderButton, styles.noteDeleteButton]}
+                  accessibilityLabel="Delete note"
                 >
-                  <Text style={styles.noteDeleteText}>Delete</Text>
+                  <Ionicons name="trash-outline" size={19} color={themeColors.danger} />
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={handleSaveNote}
                   style={[styles.noteHeaderButton, styles.noteDoneButton]}
+                  accessibilityLabel="Save note"
                 >
-                  <Text style={styles.noteDoneText}>Done</Text>
+                  <Ionicons name="checkmark" size={20} color={themeColors.primary} />
                 </TouchableOpacity>
               </View>
             </View>
-            <View style={styles.noteEditBody}>
-              <TextInput
-                value={noteTitleDraft}
-                onChangeText={setNoteTitleDraft}
-                placeholder="Title"
-                placeholderTextColor={themeColors.textSecondary}
-                style={styles.noteEditTitle}
-              />
-              <TextInput
-                value={noteContentDraft}
-                onChangeText={setNoteContentDraft}
-                placeholder="Start writing..."
-                placeholderTextColor={themeColors.textSecondary}
-                style={styles.noteEditContent}
-                multiline
-                autoFocus
-                textAlignVertical="top"
-              />
-            </View>
+            <PlatformScrollView
+              style={styles.noteEditBody}
+              contentContainerStyle={styles.noteEditBodyContent}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="none"
+              keyboardAutoScrollEnabled={false}
+              showsVerticalScrollIndicator={false}
+              onLayout={(event) =>
+                setNoteBodyViewportHeight(event?.nativeEvent?.layout?.height || 0)
+              }
+            >
+              {isNoteEditing ? (
+                <>
+                  <TextInput
+                    value={noteTitleDraft}
+                    onChangeText={setNoteTitleDraft}
+                    placeholder="Title"
+                    placeholderTextColor={themeColors.textSecondary}
+                    style={styles.noteEditTitle}
+                    onLayout={(event) =>
+                      setNoteTitleHeight(event?.nativeEvent?.layout?.height || 0)
+                    }
+                  />
+                  <TextInput
+                    ref={noteContentInputRef}
+                    value={noteContentDraft}
+                    onChangeText={setNoteContentDraft}
+                    placeholder="Start writing..."
+                    placeholderTextColor={themeColors.textSecondary}
+                    style={[
+                      styles.noteEditContent,
+                      {
+                        minHeight: noteContentMinHeight,
+                        height: noteContentHeight,
+                      },
+                    ]}
+                    multiline
+                    textAlignVertical="top"
+                    scrollEnabled={false}
+                    onContentSizeChange={(event) => {
+                      const nextHeight = event?.nativeEvent?.contentSize?.height || 0;
+                      if (Math.abs(nextHeight - noteContentMeasuredHeight) > 1) {
+                        setNoteContentMeasuredHeight(nextHeight);
+                      }
+                    }}
+                  />
+                </>
+              ) : (
+                <View style={styles.noteReadModeContainer}>
+                  <Text style={styles.noteEditTitle}>
+                    {noteTitleDraft?.trim() ? noteTitleDraft : 'Untitled note'}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.noteReadContent,
+                      !noteContentDraft?.trim() && styles.noteReadContentEmpty,
+                    ]}
+                  >
+                    {noteContentDraft?.trim()
+                      ? noteContentDraft
+                      : 'No content yet.'}
+                  </Text>
+                </View>
+              )}
+            </PlatformScrollView>
           </View>
         )}
       </Modal>
@@ -856,6 +963,7 @@ const createStyles = (themeColors, palette) =>
     },
     noteDetailContainer: {
       flex: 1,
+      backgroundColor: themeColors.background,
     },
     noteDetailHeader: {
       flexDirection: 'row',
@@ -864,40 +972,65 @@ const createStyles = (themeColors, palette) =>
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.sm,
       paddingBottom: spacing.xs,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: palette.cardBorder,
+      backgroundColor: themeColors.background,
     },
     noteHeaderButton: {
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.md,
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: themeColors.background,
     },
-    noteHeaderButtonText: {
-      ...typography.body,
-      color: palette.text,
-      fontWeight: '600',
+    noteHeaderBackButton: {
+      borderWidth: 1,
+      borderColor: palette.cardBorder,
+      backgroundColor: themeColors.background,
     },
     noteHeaderActions: {
       flexDirection: 'row',
       alignItems: 'center',
     },
     noteDeleteButton: {
-      marginRight: spacing.sm,
+      marginRight: spacing.xs,
+      borderWidth: 1,
+      borderColor: themeColors.danger,
+      backgroundColor: themeColors.background,
     },
-    noteDoneButton: {
-      backgroundColor: themeColors.primary,
-      borderRadius: borderRadius.md,
+    noteModeToggleButton: {
+      minWidth: 54,
+      height: 32,
+      borderRadius: 16,
+      paddingHorizontal: spacing.sm,
+      borderWidth: 1,
+      borderColor: themeColors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: `${themeColors.primary}1A`,
+      marginRight: spacing.xs,
     },
-    noteDeleteText: {
-      ...typography.body,
-      color: themeColors.danger,
+    noteModeToggleText: {
+      ...typography.caption,
+      color: themeColors.primary,
       fontWeight: '600',
     },
-    noteDoneText: {
-      ...typography.body,
-      color: '#FFFFFF',
-      fontWeight: '700',
+    noteDoneButton: {
+      borderWidth: 1,
+      borderColor: themeColors.primary,
+      backgroundColor: themeColors.background,
     },
     noteEditBody: {
       flex: 1,
+      backgroundColor: themeColors.background,
+    },
+    noteEditBodyContent: {
+      flexGrow: 1,
       paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+      paddingBottom: spacing.xxxl,
+      backgroundColor: themeColors.background,
     },
     noteEditTitle: {
       ...typography.h2,
@@ -907,12 +1040,23 @@ const createStyles = (themeColors, palette) =>
     noteEditContent: {
       ...typography.body,
       color: palette.text,
-      flex: 1,
-      padding: spacing.md,
-      backgroundColor: themeColors.inputBackground,
-      borderRadius: borderRadius.md,
-      minHeight: 260,
+      paddingVertical: spacing.sm,
+      backgroundColor: themeColors.background,
+      borderRadius: 0,
+      minHeight: 0,
       lineHeight: 22,
+    },
+    noteReadModeContainer: {
+      flexGrow: 1,
+    },
+    noteReadContent: {
+      ...typography.body,
+      color: palette.text,
+      lineHeight: 22,
+      paddingVertical: spacing.sm,
+    },
+    noteReadContentEmpty: {
+      color: themeColors.textSecondary,
     },
     inputLabel: {
       ...typography.label,
