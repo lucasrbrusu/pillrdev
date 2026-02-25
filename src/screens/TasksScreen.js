@@ -74,6 +74,26 @@ const TASK_MONTH_NAMES = [
 const TASK_QUICK_TIMES = ['09:00', '12:00', '15:00', '18:00', '20:00'];
 const TASK_QUICK_DURATIONS = [15, 30, 45, 60, 90, 120];
 const TASK_ARCHIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const TASK_FILTER_TAB_ALL = 'All';
+const TASK_FILTER_TAB_TASKS = 'Tasks';
+const TASK_FILTER_TAB_HOLIDAYS = 'Holidays';
+const TASK_CATEGORY_TASK = 'task';
+const TASK_CATEGORY_HOLIDAY = 'holiday';
+const TASK_CATEGORY_OPTIONS = [
+  { value: TASK_CATEGORY_TASK, label: 'Task' },
+  { value: TASK_CATEGORY_HOLIDAY, label: 'Holiday/Event' },
+];
+
+const normalizeTaskCategory = (value, fallback = TASK_CATEGORY_TASK) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === TASK_CATEGORY_HOLIDAY || normalized === 'event' || normalized === 'events') {
+    return TASK_CATEGORY_HOLIDAY;
+  }
+  if (normalized === TASK_CATEGORY_TASK || normalized === 'tasks') {
+    return TASK_CATEGORY_TASK;
+  }
+  return fallback === TASK_CATEGORY_HOLIDAY ? TASK_CATEGORY_HOLIDAY : TASK_CATEGORY_TASK;
+};
 
 const getISODateWithOffset = (offset) => {
   const date = new Date();
@@ -191,7 +211,7 @@ const TasksScreen = () => {
   const [isCalendarTransitioning, setIsCalendarTransitioning] = useState(false);
   const [showCalendarSettings, setShowCalendarSettings] = useState(false);
   const [calendarSyncAction, setCalendarSyncAction] = useState(null);
-  const [activeTab, setActiveTab] = useState('All Tasks');
+  const [activeTab, setActiveTab] = useState(TASK_FILTER_TAB_ALL);
   const [filterType, setFilterType] = useState('Date');
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
@@ -226,6 +246,7 @@ const TasksScreen = () => {
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
   const [taskPriority, setTaskPriority] = useState('medium');
+  const [taskCategory, setTaskCategory] = useState(TASK_CATEGORY_TASK);
   const [taskDate, setTaskDate] = useState(new Date().toISOString().split('T')[0]);
   const [taskTime, setTaskTime] = useState('');
   const [taskDurationInput, setTaskDurationInput] = useState(
@@ -264,7 +285,7 @@ const TasksScreen = () => {
     [noteContentMeasuredHeight, noteContentMinHeight]
   );
 
-  const tabs = ['All Tasks', 'Today', 'Upcoming'];
+  const tabs = [TASK_FILTER_TAB_ALL, TASK_FILTER_TAB_TASKS, TASK_FILTER_TAB_HOLIDAYS];
   const filters = ['Date', 'Priority', 'A-Z'];
   const timeOptions = TIME_OPTIONS;
   const selectedGroup = useMemo(
@@ -334,16 +355,15 @@ const TasksScreen = () => {
 
     // Filter by tab
     switch (activeTab) {
-      case 'Today':
-        const today = new Date().toDateString();
+      case TASK_FILTER_TAB_TASKS:
         filtered = filtered.filter(
-          (t) => new Date(t.date).toDateString() === today
+          (task) => normalizeTaskCategory(task?.category) === TASK_CATEGORY_TASK
         );
         break;
-      case 'Upcoming':
-        const now = new Date();
-        now.setHours(0, 0, 0, 0);
-        filtered = filtered.filter((t) => new Date(t.date) >= now);
+      case TASK_FILTER_TAB_HOLIDAYS:
+        filtered = filtered.filter(
+          (task) => normalizeTaskCategory(task?.category) === TASK_CATEGORY_HOLIDAY
+        );
         break;
       default:
         break;
@@ -376,10 +396,36 @@ const TasksScreen = () => {
     return filtered;
   }, [tasks, activeTab, filterType, selectedDate]);
 
+  const taskSectionTitle = useMemo(() => {
+    if (activeTab === TASK_FILTER_TAB_TASKS) return 'Tasks';
+    if (activeTab === TASK_FILTER_TAB_HOLIDAYS) return 'Holidays & Events';
+    return 'All';
+  }, [activeTab]);
+
+  const emptyStateTitle = useMemo(() => {
+    if (activeTab === TASK_FILTER_TAB_HOLIDAYS) return 'No holidays/events for this day';
+    if (activeTab === TASK_FILTER_TAB_TASKS) return 'No tasks for this day';
+    return 'Nothing scheduled for this day';
+  }, [activeTab]);
+
+  const emptyStateSubtitle = useMemo(() => {
+    if (activeTab === TASK_FILTER_TAB_HOLIDAYS) {
+      return 'Pick another date or create a holiday/event for this day';
+    }
+    if (activeTab === TASK_FILTER_TAB_TASKS) {
+      return 'Pick another date or create a task for this day';
+    }
+    return 'Pick another date or create a task or holiday/event';
+  }, [activeTab]);
+
   const activeScheduledTasks = useMemo(
     () =>
       (tasks || []).filter(
-        (task) => !isTaskPastArchiveWindow(task) && task?.date && task?.time
+        (task) =>
+          !isTaskPastArchiveWindow(task) &&
+          task?.date &&
+          task?.time &&
+          normalizeTaskCategory(task?.category) !== TASK_CATEGORY_HOLIDAY
       ),
     [tasks]
   );
@@ -496,6 +542,7 @@ const TasksScreen = () => {
     setTaskTitle('');
     setTaskDescription('');
     setTaskPriority('medium');
+    setTaskCategory(TASK_CATEGORY_TASK);
     setTaskDate(new Date().toISOString().split('T')[0]);
     setTaskTime('');
     setTaskDurationInput(String(DEFAULT_TASK_DURATION_MINUTES));
@@ -624,6 +671,7 @@ const TasksScreen = () => {
         title: taskTitle.trim(),
         description: taskDescription.trim(),
         priority: taskPriority,
+        category: taskCategory,
         date: taskDate,
         time: taskTime,
         durationMinutes: normalizedTaskDurationMinutes,
@@ -1463,7 +1511,7 @@ const TasksScreen = () => {
               >
                 <View style={styles.sectionHeaderRow}>
                   <Text style={[styles.sectionTitle, { color: tasksTheme.tasksTitle, marginBottom: 0 }]}>
-                    Tasks
+                    {taskSectionTitle}
                   </Text>
                   <TouchableOpacity
                     style={[styles.archiveButton, { borderColor: tasksTheme.taskItemBorder }]}
@@ -1483,10 +1531,8 @@ const TasksScreen = () => {
                       size={48}
                       color={tasksTheme.tasksTitle}
                     />
-                    <Text style={styles.emptyTitle}>No tasks for this day</Text>
-                    <Text style={styles.emptySubtitle}>
-                      Pick another date or create a task for this day
-                    </Text>
+                    <Text style={styles.emptyTitle}>{emptyStateTitle}</Text>
+                    <Text style={styles.emptySubtitle}>{emptyStateSubtitle}</Text>
                   </View>
                 ) : (
                   filteredTasks.map((task) => (
@@ -1906,6 +1952,37 @@ const TasksScreen = () => {
                   },
                 ]}
               >
+                <Text style={[styles.taskFormSectionTitle, { color: themeColors.text }]}>Category</Text>
+                <View style={styles.taskFormPriorityRow}>
+                  {TASK_CATEGORY_OPTIONS.map((option, index) => {
+                    const selected = taskCategory === option.value;
+                    return (
+                      <TouchableOpacity
+                        key={option.value}
+                        style={[
+                          styles.taskFormPriorityOption,
+                          index === TASK_CATEGORY_OPTIONS.length - 1 && styles.taskFormPriorityOptionLast,
+                          {
+                            backgroundColor: selected ? themeColors.tasks : tasksTheme.taskItemBg,
+                            borderColor: selected ? themeColors.tasks : tasksTheme.taskItemBorder,
+                          },
+                        ]}
+                        onPress={() => setTaskCategory(option.value)}
+                        activeOpacity={0.85}
+                      >
+                        <Text
+                          style={[
+                            styles.taskFormPriorityText,
+                            { color: selected ? '#FFFFFF' : themeColors.textSecondary },
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
                 <Text style={[styles.taskFormSectionTitle, { color: themeColors.text }]}>Priority</Text>
                 <View style={styles.taskFormPriorityRow}>
                   {priorityLevels.map((level, index) => {

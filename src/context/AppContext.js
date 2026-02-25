@@ -257,9 +257,12 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const NOTIFICATION_RESCHEDULE_DEBOUNCE_MS = 750;
 const CALENDAR_SYNC_TITLE = 'Pillaflow';
 const CALENDAR_SYNC_NOTE_MARKER_REGEX = /\[pillaflow_task_id:([^\]\s]+)\]/i;
+const CALENDAR_SYNC_NOTE_CATEGORY_MARKER_REGEX = /\[pillaflow_task_category:([^\]\s]+)\]/i;
 const CALENDAR_SYNC_IMPORT_LOOKBACK_DAYS = 30;
 const CALENDAR_SYNC_IMPORT_LOOKAHEAD_DAYS = 365;
 const CALENDAR_TASK_EXPORT_DURATION_MINUTES = DEFAULT_TASK_DURATION_MINUTES;
+const TASK_CATEGORY_TASK = 'task';
+const TASK_CATEGORY_HOLIDAY = 'holiday';
 
 const computeIsPremium = (plan, premiumExpiresAt, explicitFlag) => {
   if (explicitFlag === true) return true;
@@ -385,16 +388,49 @@ const parseTaskIdFromCalendarNotes = (notes) => {
   return match?.[1] ? String(match[1]).trim() : null;
 };
 
-const stripTaskIdMarkerFromCalendarNotes = (notes) => {
-  if (!notes || typeof notes !== 'string') return '';
-  return notes.replace(CALENDAR_SYNC_NOTE_MARKER_REGEX, '').trim();
+const normalizeTaskCategory = (value, fallback = TASK_CATEGORY_TASK) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === TASK_CATEGORY_HOLIDAY || normalized === 'event' || normalized === 'events') {
+    return TASK_CATEGORY_HOLIDAY;
+  }
+  if (normalized === TASK_CATEGORY_TASK || normalized === 'tasks') {
+    return TASK_CATEGORY_TASK;
+  }
+  return fallback === TASK_CATEGORY_HOLIDAY ? TASK_CATEGORY_HOLIDAY : TASK_CATEGORY_TASK;
 };
 
-const withTaskIdMarkerInCalendarNotes = (notes, taskId) => {
+const parseTaskCategoryFromCalendarNotes = (notes) => {
+  if (!notes || typeof notes !== 'string') return null;
+  const match = notes.match(CALENDAR_SYNC_NOTE_CATEGORY_MARKER_REGEX);
+  if (!match?.[1]) return null;
+  const normalized = String(match[1]).trim().toLowerCase();
+  if (
+    normalized === TASK_CATEGORY_HOLIDAY ||
+    normalized === 'event' ||
+    normalized === 'events'
+  ) {
+    return TASK_CATEGORY_HOLIDAY;
+  }
+  if (normalized === TASK_CATEGORY_TASK || normalized === 'tasks') {
+    return TASK_CATEGORY_TASK;
+  }
+  return null;
+};
+
+const stripTaskIdMarkerFromCalendarNotes = (notes) => {
+  if (!notes || typeof notes !== 'string') return '';
+  return notes
+    .replace(CALENDAR_SYNC_NOTE_MARKER_REGEX, '')
+    .replace(CALENDAR_SYNC_NOTE_CATEGORY_MARKER_REGEX, '')
+    .trim();
+};
+
+const withTaskIdMarkerInCalendarNotes = (notes, taskId, category = TASK_CATEGORY_TASK) => {
   const marker = `[pillaflow_task_id:${taskId}]`;
+  const categoryMarker = `[pillaflow_task_category:${normalizeTaskCategory(category)}]`;
   const cleanNotes = stripTaskIdMarkerFromCalendarNotes(notes || '');
-  if (!cleanNotes) return marker;
-  return `${cleanNotes}\n\n${marker}`;
+  if (!cleanNotes) return `${marker}\n${categoryMarker}`;
+  return `${cleanNotes}\n\n${marker}\n${categoryMarker}`;
 };
 
 const formatTaskTimeFromDate = (date, allDay = false) => {
@@ -435,8 +471,9 @@ const buildTaskSyncSignature = (task = {}) => {
     task?.durationMinutes,
     DEFAULT_TASK_DURATION_MINUTES
   );
+  const category = normalizeTaskCategory(task?.category);
   if (!title || !date) return '';
-  return `${title}|${date}|${timeKey}|${durationKey}`;
+  return `${title}|${date}|${timeKey}|${durationKey}|${category}`;
 };
 
 const getCalendarSyncWindow = ({ startDate, endDate } = {}) => {
@@ -4368,6 +4405,17 @@ const mapExternalProfile = (row) => ({
       task?.durationMinutes,
       DEFAULT_TASK_DURATION_MINUTES
     );
+    const normalizedCategory = normalizeTaskCategory(task?.category);
+    const rpcPayloadWithDurationAndCategory = {
+      p_group_id: groupId,
+      p_title: task.title,
+      p_description: task.description || null,
+      p_priority: task.priority || 'medium',
+      p_date: task.date,
+      p_time: task.time,
+      p_duration_minutes: normalizedDurationMinutes,
+      p_category: normalizedCategory,
+    };
     const rpcPayloadWithDuration = {
       p_group_id: groupId,
       p_title: task.title,
@@ -4388,8 +4436,12 @@ const mapExternalProfile = (row) => ({
 
     let { data, error } = await supabase.rpc(
       'share_task_with_group',
-      rpcPayloadWithDuration
+      rpcPayloadWithDurationAndCategory
     );
+
+    if (error && isMissingFunctionError(error, 'share_task_with_group')) {
+      ({ data, error } = await supabase.rpc('share_task_with_group', rpcPayloadWithDuration));
+    }
 
     if (error && isMissingFunctionError(error, 'share_task_with_group')) {
       ({ data, error } = await supabase.rpc('share_task_with_group', rpcPayloadLegacy));
@@ -4405,14 +4457,45 @@ const mapExternalProfile = (row) => ({
 
     const sharedBaseId = data?.shared_task_id || data?.id || null;
     if (sharedBaseId) {
-      const { error: durationSyncError } = await supabase
-        .from('tasks')
-        .update({ duration_minutes: normalizedDurationMinutes })
-        .eq('shared_task_id', sharedBaseId)
-        .eq('group_id', groupId);
+      const optionalDropOrder = ['duration_minutes', 'category'];
+      let payload = {
+        duration_minutes: normalizedDurationMinutes,
+        category: normalizedCategory,
+      };
+      let durationSyncError = null;
 
-      if (durationSyncError && !isMissingColumnError(durationSyncError, 'duration_minutes')) {
-        console.log('Error syncing group task duration:', durationSyncError);
+      for (
+        let attemptIndex = 0;
+        attemptIndex <= optionalDropOrder.length + 1;
+        attemptIndex += 1
+      ) {
+        ({ error: durationSyncError } = await supabase
+          .from('tasks')
+          .update(payload)
+          .eq('shared_task_id', sharedBaseId)
+          .eq('group_id', groupId));
+        if (!durationSyncError) break;
+        if (!isMissingColumnError(durationSyncError)) break;
+
+        const missingColumn = extractMissingColumnName(durationSyncError);
+        let removedColumn = null;
+        if (missingColumn && Object.prototype.hasOwnProperty.call(payload, missingColumn)) {
+          removedColumn = missingColumn;
+        } else {
+          removedColumn = optionalDropOrder.find((columnName) =>
+            Object.prototype.hasOwnProperty.call(payload, columnName)
+          );
+        }
+        if (!removedColumn) break;
+        delete payload[removedColumn];
+        if (!Object.keys(payload).length) {
+          durationSyncError = null;
+          break;
+        }
+      }
+
+      if (durationSyncError) {
+        console.log('Error syncing group task metadata:', durationSyncError);
       }
     }
 
@@ -4427,6 +4510,7 @@ const mapExternalProfile = (row) => ({
         data.duration_minutes,
         normalizedDurationMinutes
       ),
+      category: normalizeTaskCategory(data.category, normalizedCategory),
       completed: Boolean(data.completed),
       createdAt: data.created_at,
       archivedAt: data.archived_at || null,
@@ -4578,6 +4662,7 @@ const mapExternalProfile = (row) => ({
           newRow.duration_minutes,
           invitedDurationMinutes
         ),
+        category: normalizeTaskCategory(newRow.category),
         completed: newRow.completed,
         createdAt: newRow.created_at,
         archivedAt: newRow.archived_at || null,
@@ -6306,6 +6391,7 @@ const TASK_SELECT_FIELDS_ARCHIVE = `${TASK_SELECT_FIELDS_ARCHIVE_BASE},notificat
 const TASK_SELECT_FIELDS_ARCHIVE_NO_DESC = `${TASK_SELECT_FIELDS_ARCHIVE_BASE_NO_DESC},notification_ids`;
 const TASK_SELECT_FIELDS_ARCHIVE_MINIMAL = `${TASK_SELECT_FIELDS_ARCHIVE_BASE_MINIMAL},notification_ids`;
 const withTaskGroupIdField = (selectFields) => `${selectFields},group_id`;
+const withTaskCategoryField = (selectFields) => `${selectFields},category`;
 
 const TASK_SELECT_VARIANTS_WITH_DURATION_ARCHIVE = [
   TASK_SELECT_FIELDS_ARCHIVE_DURATION,
@@ -6352,6 +6438,22 @@ const TASK_SELECT_VARIANTS_WITH_ARCHIVE_GROUP = TASK_SELECT_VARIANTS_WITH_ARCHIV
 const TASK_SELECT_VARIANTS_LEGACY_GROUP = TASK_SELECT_VARIANTS_LEGACY.map(
   withTaskGroupIdField
 );
+const TASK_SELECT_VARIANTS_WITH_DURATION_ARCHIVE_CATEGORY =
+  TASK_SELECT_VARIANTS_WITH_DURATION_ARCHIVE.map(withTaskCategoryField);
+const TASK_SELECT_VARIANTS_WITH_DURATION_LEGACY_CATEGORY =
+  TASK_SELECT_VARIANTS_WITH_DURATION_LEGACY.map(withTaskCategoryField);
+const TASK_SELECT_VARIANTS_WITH_ARCHIVE_CATEGORY =
+  TASK_SELECT_VARIANTS_WITH_ARCHIVE.map(withTaskCategoryField);
+const TASK_SELECT_VARIANTS_LEGACY_CATEGORY =
+  TASK_SELECT_VARIANTS_LEGACY.map(withTaskCategoryField);
+const TASK_SELECT_VARIANTS_WITH_DURATION_ARCHIVE_GROUP_CATEGORY =
+  TASK_SELECT_VARIANTS_WITH_DURATION_ARCHIVE_GROUP.map(withTaskCategoryField);
+const TASK_SELECT_VARIANTS_WITH_DURATION_LEGACY_GROUP_CATEGORY =
+  TASK_SELECT_VARIANTS_WITH_DURATION_LEGACY_GROUP.map(withTaskCategoryField);
+const TASK_SELECT_VARIANTS_WITH_ARCHIVE_GROUP_CATEGORY =
+  TASK_SELECT_VARIANTS_WITH_ARCHIVE_GROUP.map(withTaskCategoryField);
+const TASK_SELECT_VARIANTS_LEGACY_GROUP_CATEGORY =
+  TASK_SELECT_VARIANTS_LEGACY_GROUP.map(withTaskCategoryField);
 
 const fetchTasksFromSupabase = async (userId) => {
   const buildQuery = (table, selectFields) =>
@@ -6363,6 +6465,46 @@ const fetchTasksFromSupabase = async (userId) => {
       .order('created_at', { ascending: true });
 
   const attempts = [];
+  ['tasks_list', 'tasks'].forEach((table) => {
+    TASK_SELECT_VARIANTS_WITH_DURATION_ARCHIVE_GROUP_CATEGORY.forEach((fields) => {
+      attempts.push({ table, fields });
+    });
+  });
+  ['tasks_list', 'tasks'].forEach((table) => {
+    TASK_SELECT_VARIANTS_WITH_DURATION_LEGACY_GROUP_CATEGORY.forEach((fields) => {
+      attempts.push({ table, fields });
+    });
+  });
+  ['tasks_list', 'tasks'].forEach((table) => {
+    TASK_SELECT_VARIANTS_WITH_DURATION_ARCHIVE_CATEGORY.forEach((fields) => {
+      attempts.push({ table, fields });
+    });
+  });
+  ['tasks_list', 'tasks'].forEach((table) => {
+    TASK_SELECT_VARIANTS_WITH_DURATION_LEGACY_CATEGORY.forEach((fields) => {
+      attempts.push({ table, fields });
+    });
+  });
+  ['tasks_list', 'tasks'].forEach((table) => {
+    TASK_SELECT_VARIANTS_WITH_ARCHIVE_GROUP_CATEGORY.forEach((fields) => {
+      attempts.push({ table, fields });
+    });
+  });
+  ['tasks_list', 'tasks'].forEach((table) => {
+    TASK_SELECT_VARIANTS_LEGACY_GROUP_CATEGORY.forEach((fields) => {
+      attempts.push({ table, fields });
+    });
+  });
+  ['tasks_list', 'tasks'].forEach((table) => {
+    TASK_SELECT_VARIANTS_WITH_ARCHIVE_CATEGORY.forEach((fields) => {
+      attempts.push({ table, fields });
+    });
+  });
+  ['tasks_list', 'tasks'].forEach((table) => {
+    TASK_SELECT_VARIANTS_LEGACY_CATEGORY.forEach((fields) => {
+      attempts.push({ table, fields });
+    });
+  });
   ['tasks_list', 'tasks'].forEach((table) => {
     TASK_SELECT_VARIANTS_WITH_DURATION_ARCHIVE_GROUP.forEach((fields) => {
       attempts.push({ table, fields });
@@ -6442,6 +6584,7 @@ const fetchTasksFromSupabase = async (userId) => {
       DEFAULT_TASK_DURATION_MINUTES
     ),
     completed: t.completed,
+    category: normalizeTaskCategory(t.category),
     createdAt: t.created_at,
     archivedAt: t.archived_at || null,
     sharedTaskId: t.shared_task_id || t.id,
@@ -6514,6 +6657,7 @@ const fetchTasksFromSupabase = async (userId) => {
     task?.durationMinutes,
     DEFAULT_TASK_DURATION_MINUTES
   );
+  const normalizedCategory = normalizeTaskCategory(task?.category);
   const insertPayload = pruneUndefined({
     user_id: authUser.id,
     title: task.title,
@@ -6522,24 +6666,41 @@ const fetchTasksFromSupabase = async (userId) => {
     date: task.date,
     time: task.time,
     duration_minutes: normalizedDurationMinutes,
+    category: normalizedCategory,
     completed: false,
     shared_task_id: task.sharedTaskId ?? undefined,
     group_id: task.groupId ?? undefined,
   });
 
-  let { data, error } = await supabase
-    .from('tasks')
-    .insert(insertPayload)
-    .select()
-    .single();
+  const optionalDropOrder = ['duration_minutes', 'category'];
+  let payload = { ...insertPayload };
+  let data = null;
+  let error = null;
 
-  if (error && isMissingColumnError(error, 'duration_minutes')) {
-    const { duration_minutes: _ignoredDuration, ...legacyPayload } = insertPayload;
+  for (
+    let attemptIndex = 0;
+    attemptIndex <= optionalDropOrder.length + 1;
+    attemptIndex += 1
+  ) {
     ({ data, error } = await supabase
       .from('tasks')
-      .insert(legacyPayload)
+      .insert(payload)
       .select()
       .single());
+    if (!error) break;
+    if (!isMissingColumnError(error)) break;
+
+    const missingColumn = extractMissingColumnName(error);
+    let removedColumn = null;
+    if (missingColumn && Object.prototype.hasOwnProperty.call(payload, missingColumn)) {
+      removedColumn = missingColumn;
+    } else {
+      removedColumn = optionalDropOrder.find((columnName) =>
+        Object.prototype.hasOwnProperty.call(payload, columnName)
+      );
+    }
+    if (!removedColumn) break;
+    delete payload[removedColumn];
   }
 
   if (error) {
@@ -6558,6 +6719,7 @@ const fetchTasksFromSupabase = async (userId) => {
       data.duration_minutes,
       normalizedDurationMinutes
     ),
+    category: normalizeTaskCategory(data.category, normalizedCategory),
     completed: data.completed,
     createdAt: data.created_at,
     archivedAt: data.archived_at || null,
@@ -6583,6 +6745,7 @@ const fetchTasksFromSupabase = async (userId) => {
     ['date', 'date'],
     ['time', 'time'],
     ['durationMinutes', 'duration_minutes'],
+    ['category', 'category'],
     ['completed', 'completed'],
     ['archivedAt', 'archived_at'],
   ].forEach(([sourceKey, targetKey]) => {
@@ -6593,6 +6756,8 @@ const fetchTasksFromSupabase = async (userId) => {
               updates[sourceKey],
               DEFAULT_TASK_DURATION_MINUTES
             )
+          : sourceKey === 'category'
+          ? normalizeTaskCategory(updates[sourceKey])
           : updates[sourceKey];
     }
   });
@@ -6607,24 +6772,47 @@ const fetchTasksFromSupabase = async (userId) => {
           ),
         }
       : updates;
+  const categoryAwareUpdates =
+    normalizedUpdates.category !== undefined
+      ? {
+          ...normalizedUpdates,
+          category: normalizeTaskCategory(normalizedUpdates.category),
+        }
+      : normalizedUpdates;
 
   if (Object.keys(updateData).length > 0) {
-    let { error } = await supabase
-      .from('tasks')
-      .update(updateData)
-      .eq('id', taskId)
-      .eq('user_id', authUser.id);
+    const optionalDropOrder = ['duration_minutes', 'category'];
+    let payload = { ...updateData };
+    let error = null;
 
-    if (error && isMissingColumnError(error, 'duration_minutes')) {
-      const { duration_minutes: _ignoredDuration, ...legacyUpdateData } = updateData;
-      if (Object.keys(legacyUpdateData).length) {
-        ({ error } = await supabase
-          .from('tasks')
-          .update(legacyUpdateData)
-          .eq('id', taskId)
-          .eq('user_id', authUser.id));
+    for (
+      let attemptIndex = 0;
+      attemptIndex <= optionalDropOrder.length + 1;
+      attemptIndex += 1
+    ) {
+      ({ error } = await supabase
+        .from('tasks')
+        .update(payload)
+        .eq('id', taskId)
+        .eq('user_id', authUser.id));
+      if (!error) break;
+      if (!isMissingColumnError(error)) break;
+
+      const missingColumn = extractMissingColumnName(error);
+      let removedColumn = null;
+      if (missingColumn && Object.prototype.hasOwnProperty.call(payload, missingColumn)) {
+        removedColumn = missingColumn;
       } else {
+        removedColumn = optionalDropOrder.find((columnName) =>
+          Object.prototype.hasOwnProperty.call(payload, columnName)
+        );
+      }
+
+      if (!removedColumn) break;
+      delete payload[removedColumn];
+      if (!Object.keys(payload).length) {
         error = null;
+        break;
       }
     }
 
@@ -6634,13 +6822,13 @@ const fetchTasksFromSupabase = async (userId) => {
   }
 
   setTasks((prev) =>
-    prev.map((t) => (t.id === taskId ? { ...t, ...normalizedUpdates } : t))
+    prev.map((t) => (t.id === taskId ? { ...t, ...categoryAwareUpdates } : t))
   );
   setArchivedTasks((prev) =>
-    prev.map((t) => (t.id === taskId ? { ...t, ...normalizedUpdates } : t))
+    prev.map((t) => (t.id === taskId ? { ...t, ...categoryAwareUpdates } : t))
   );
 
-  if (normalizedUpdates.completed === true) {
+  if (categoryAwareUpdates.completed === true) {
     await cancelItemNotifications('tasks', 'task', taskId);
   }
 };
@@ -6836,7 +7024,12 @@ const fetchTasksFromSupabase = async (userId) => {
         continue;
       }
 
+      const notes = event?.notes || '';
       const mappedDescription = stripTaskIdMarkerFromCalendarNotes(event?.notes || '');
+      const markerCategory = parseTaskCategoryFromCalendarNotes(notes);
+      const inferredCategory = markerCategory || normalizeTaskCategory(
+        event?.allDay ? TASK_CATEGORY_HOLIDAY : TASK_CATEGORY_TASK
+      );
       const payload = {
         title: normalizedTitle,
         description: mappedDescription,
@@ -6844,6 +7037,7 @@ const fetchTasksFromSupabase = async (userId) => {
         date: toLocalDateISO(eventStart),
         time: formatTaskTimeFromDate(eventStart, Boolean(event?.allDay)),
         durationMinutes: deriveTaskDurationFromCalendarEvent(event),
+        category: inferredCategory,
       };
 
       if (!payload.date || !payload.time) {
@@ -6876,6 +7070,9 @@ const fetchTasksFromSupabase = async (userId) => {
         );
         if (existingDuration !== incomingDuration) {
           updates.durationMinutes = incomingDuration;
+        }
+        if (normalizeTaskCategory(targetTask.category) !== normalizeTaskCategory(payload.category)) {
+          updates.category = payload.category;
         }
 
         if (Object.keys(updates).length) {
@@ -6929,7 +7126,11 @@ const fetchTasksFromSupabase = async (userId) => {
     const calendarId = await ensurePillaflowCalendarId();
     const nextMap = normalizeCalendarSyncState(calendarSyncMapRef.current);
     const exportableTasks = (tasks || []).filter(
-      (task) => task?.id && task?.date && task?.time && !isTaskPastArchiveWindow(task)
+      (task) =>
+        task?.id &&
+        task?.date &&
+        (task?.time || normalizeTaskCategory(task?.category) === TASK_CATEGORY_HOLIDAY) &&
+        !isTaskPastArchiveWindow(task)
     );
 
     let exported = 0;
@@ -6937,25 +7138,35 @@ const fetchTasksFromSupabase = async (userId) => {
     let skipped = 0;
 
     for (const task of exportableTasks) {
-      const startDate = buildDateWithTime(task.date, task.time, 9, 0);
+      const category = normalizeTaskCategory(task?.category);
+      const isHolidayTask = category === TASK_CATEGORY_HOLIDAY;
+      const startDate = isHolidayTask
+        ? buildDateWithTime(task.date, '00:00', 0, 0)
+        : buildDateWithTime(task.date, task.time, 9, 0);
       if (!(startDate instanceof Date) || Number.isNaN(startDate.getTime())) {
         skipped += 1;
         continue;
       }
-      const durationMinutes = normalizeTaskDurationMinutes(
-        task?.durationMinutes,
-        CALENDAR_TASK_EXPORT_DURATION_MINUTES
+      const durationMinutes = isHolidayTask
+        ? 24 * 60
+        : normalizeTaskDurationMinutes(
+            task?.durationMinutes,
+            CALENDAR_TASK_EXPORT_DURATION_MINUTES
+          );
+      const endDate = isHolidayTask
+        ? new Date(startDate.getTime() + MS_PER_DAY)
+        : new Date(startDate.getTime() + durationMinutes * 60 * 1000);
+      const notes = withTaskIdMarkerInCalendarNotes(
+        task.description || '',
+        task.id,
+        category
       );
-      const endDate = new Date(
-        startDate.getTime() + durationMinutes * 60 * 1000
-      );
-      const notes = withTaskIdMarkerInCalendarNotes(task.description || '', task.id);
       const eventPayload = {
         title: task.title,
         notes,
         startDate,
         endDate,
-        allDay: false,
+        allDay: isHolidayTask,
       };
 
       const existingEventId = nextMap.taskToEvent[task.id];
