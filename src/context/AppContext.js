@@ -10468,7 +10468,7 @@ const addTransaction = async (transaction) => {
         category: transaction.category || null,
         currency: transaction.currency || 'GBP',
         date: transaction.date,
-        note: transaction.note || null,
+        note: transaction.note || transaction.reference || null,
       },
       hasReference: false,
     },

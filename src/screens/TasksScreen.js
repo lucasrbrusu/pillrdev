@@ -136,11 +136,11 @@ const TasksScreen = () => {
   const tasksTheme = useMemo(
     () => ({
       background: isDark ? themeColors.background : '#FBF5FF',
-      actionGradient: ['#A855F7', '#EC4899'],
+      actionGradient: [themeColors.tasks, themeColors.tasks],
       actionText: '#FFFFFF',
       actionSecondaryBg: isDark ? '#2F3147' : '#FFFFFF',
-      actionSecondaryBorder: isDark ? '#3E415A' : '#E9E1F5',
-      actionSecondaryText: isDark ? '#F0E9FF' : '#1F2937',
+      actionSecondaryBorder: isDark ? `${themeColors.tasks}66` : `${themeColors.tasks}33`,
+      actionSecondaryText: themeColors.tasks,
       calendarBg: isDark ? '#2F3147' : '#FFFFFF',
       calendarBorder: isDark ? '#3E415A' : '#E5E7EB',
       calendarIcon: isDark ? '#E5E7EB' : themeColors.textSecondary,
@@ -1233,9 +1233,9 @@ const TasksScreen = () => {
               <Ionicons
                 name={calendarSyncAction === 'import' ? 'hourglass-outline' : 'download-outline'}
                 size={18}
-                color={themeColors.primary}
+                color={themeColors.tasks}
               />
-              <Text style={[styles.calendarSettingsActionText, { color: themeColors.primary }]}>
+              <Text style={[styles.calendarSettingsActionText, { color: themeColors.tasks }]}>
                 {calendarSyncAction === 'import' ? 'Importing...' : 'Import Calendar'}
               </Text>
             </TouchableOpacity>
@@ -1256,9 +1256,9 @@ const TasksScreen = () => {
               <Ionicons
                 name={calendarSyncAction === 'export' ? 'hourglass-outline' : 'share-outline'}
                 size={18}
-                color={themeColors.primary}
+                color={themeColors.tasks}
               />
-              <Text style={[styles.calendarSettingsActionText, { color: themeColors.primary }]}>
+              <Text style={[styles.calendarSettingsActionText, { color: themeColors.tasks }]}>
                 {calendarSyncAction === 'export' ? 'Exporting...' : 'Export Calendar'}
               </Text>
             </TouchableOpacity>
@@ -2502,7 +2502,7 @@ const createStyles = (themeColors) => {
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    marginRight: -spacing.xs,
   },
   headerIconButton: {
     width: 42,
@@ -2511,6 +2511,7 @@ const createStyles = (themeColors) => {
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: spacing.sm,
   },
   headerAddButton: {
     width: 42,

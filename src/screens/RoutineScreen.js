@@ -286,6 +286,8 @@ const RoutineScreen = () => {
           accent: palette.finance,
           iconBg: palette.finance,
           iconColor: '#FFFFFF',
+          actionBg: palette.mutedSurface,
+          actionText: palette.text,
           itemBg: palette.mutedSurface,
           itemBorder: palette.cardBorder,
         },
@@ -1329,11 +1331,12 @@ const RoutineScreen = () => {
               <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Lists</Text>
             </View>
             <TouchableOpacity
-              style={[styles.sectionAction, { backgroundColor: groceriesTheme.itemBg }]}
+              style={[styles.sectionAction, { backgroundColor: groceriesTheme.actionBg }]}
               onPress={() => openGroceryModal()}
             >
-              <Text style={[styles.sectionActionText, { color: groceriesTheme.accent }]}>
-                + Create
+              <Ionicons name="add" size={16} color={groceriesTheme.actionText} />
+              <Text style={[styles.sectionActionText, { color: groceriesTheme.actionText }]}>
+                Create
               </Text>
             </TouchableOpacity>
           </View>

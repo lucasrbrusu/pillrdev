@@ -53,6 +53,14 @@ const safeNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const normalizeRecurringText = (value) =>
+  String(value || '').trim().toLowerCase();
+
+const getRecurringPaymentKey = (groupId, payment = {}) => {
+  const paymentId = String(payment.id || '').trim();
+  return `${groupId || ''}::${paymentId || normalizeRecurringText(payment.name)}`;
+};
+
 const formatWindowLabel = (start, end) => {
   if (!start || !end) return '';
   const endDisplay = new Date(end.getTime() - 24 * 60 * 60 * 1000);
@@ -151,6 +159,7 @@ const FinanceScreen = () => {
     getTransactionsForDate,
     getFinanceSummaryForDate,
     budgetGroups,
+    budgetAssignments,
     addBudgetGroup,
     addRecurringPaymentToGroup,
     deleteBudgetGroup,
@@ -184,6 +193,7 @@ const FinanceScreen = () => {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [showRecurringModal, setShowRecurringModal] = useState(false);
+  const [transactionsExpanded, setTransactionsExpanded] = useState(true);
 
   // Transaction form state
   const [amount, setAmount] = useState('');
@@ -208,6 +218,7 @@ const FinanceScreen = () => {
   const [recurringAmount, setRecurringAmount] = useState('');
   const [recurringCadence, setRecurringCadence] = useState('monthly');
   const [activeGroupForRecurring, setActiveGroupForRecurring] = useState(null);
+  const [selectedRecurringPayment, setSelectedRecurringPayment] = useState(null);
   const [assignToBudget, setAssignToBudget] = useState(false);
   const [selectedBudgetGroupId, setSelectedBudgetGroupId] = useState(null);
 
@@ -312,6 +323,7 @@ const FinanceScreen = () => {
     setCategory('');
     setCustomCategory('');
     setReference('');
+    setSelectedRecurringPayment(null);
     setTransactionDate(formatDateForInput(selectedDate));
     setAssignToBudget(false);
     setSelectedBudgetGroupId(null);
@@ -351,6 +363,13 @@ const FinanceScreen = () => {
 
   const handleAddExpense = async () => {
     if (!amount || !category) return;
+    const recurringReference = selectedRecurringPayment?.name || '';
+    const referenceValue = reference.trim() || recurringReference || null;
+    const budgetGroupIds = selectedRecurringPayment?.groupId
+      ? [selectedRecurringPayment.groupId]
+      : assignToBudget && selectedBudgetGroupId
+      ? [selectedBudgetGroupId]
+      : [];
 
     await addTransaction({
       type: 'expense',
@@ -358,11 +377,8 @@ const FinanceScreen = () => {
       category: category === 'custom' ? customCategory : category,
       currency: selectedCurrency.code,
       date: transactionDate,
-      reference: reference.trim() || null,
-      budgetGroupIds:
-        assignToBudget && selectedBudgetGroupId
-          ? [selectedBudgetGroupId]
-          : [],
+      reference: referenceValue,
+      budgetGroupIds,
     });
 
     resetForm();
@@ -407,6 +423,43 @@ const FinanceScreen = () => {
     setRecurringCadence('monthly');
   };
 
+  const handleSelectRecurringPayment = (option) => {
+    if (!option) return;
+
+    const alreadySelected =
+      selectedRecurringPayment?.groupId === option.groupId &&
+      selectedRecurringPayment?.paymentId === option.paymentId;
+
+    if (alreadySelected) {
+      setSelectedRecurringPayment(null);
+      return;
+    }
+
+    setSelectedRecurringPayment(option);
+    setAssignToBudget(true);
+    setSelectedBudgetGroupId(option.groupId);
+
+    const parsedAmount = Number(option.amount);
+    setAmount(
+      Number.isFinite(parsedAmount) && parsedAmount > 0
+        ? String(parsedAmount)
+        : ''
+    );
+    setReference(option.name || '');
+
+    const allowedIds = Array.isArray(option.groupCategories)
+      ? option.groupCategories.filter(Boolean)
+      : [];
+    const fallbackCategory = allowedIds.length
+      ? allowedIds.includes('bills')
+        ? 'bills'
+        : allowedIds[0]
+      : 'bills';
+    setCategory((prev) =>
+      allowedIds.length && allowedIds.includes(prev) ? prev : fallbackCategory
+    );
+  };
+
   const formatCurrency = (value, showSign = false, currencyCode) => {
     const currency = currencyForCode(currencyCode);
     const formatted = `${currency.symbol}${Math.abs(value).toLocaleString()}`;
@@ -445,19 +498,31 @@ const FinanceScreen = () => {
   };
 
   useEffect(() => {
-    if (!assignToBudget) return;
+    if (!assignToBudget) {
+      setSelectedRecurringPayment(null);
+      return;
+    }
     if (!selectedBudgetGroup) {
       setCategory((prev) => (prev === '' ? prev : ''));
       return;
     }
     const allowedIds = expenseCategoryOptions.map((cat) => cat.id);
-    const fallback = allowedIds[0] || '';
+    const fallback = allowedIds.includes('bills')
+      ? 'bills'
+      : allowedIds[0] || '';
     setCategory((prev) => (allowedIds.includes(prev) ? prev : fallback));
   }, [
     assignToBudget,
     selectedBudgetGroup,
     expenseCategoryOptions,
   ]);
+
+  useEffect(() => {
+    if (!selectedRecurringPayment) return;
+    if (selectedBudgetGroupId !== selectedRecurringPayment.groupId) {
+      setSelectedRecurringPayment(null);
+    }
+  }, [selectedBudgetGroupId, selectedRecurringPayment]);
 
   const handleOpenIncome = () => {
     setTransactionDate(formatDateForInput(selectedDate));
@@ -493,14 +558,114 @@ const FinanceScreen = () => {
     () => budgetGroups.find((group) => group.id === selectedBudgetGroupId),
     [budgetGroups, selectedBudgetGroupId]
   );
+  const recurringPaymentOptions = useMemo(
+    () =>
+      (budgetGroups || []).flatMap((group) => {
+        const recurringPayments = Array.isArray(group.recurringPayments)
+          ? group.recurringPayments
+          : [];
+        return recurringPayments.map((payment) => ({
+          paymentId: payment.id || normalizeRecurringText(payment.name),
+          groupId: group.id,
+          groupName: group.name,
+          groupCadence: group.cadence,
+          groupCurrency: group.currency,
+          groupCategories: Array.isArray(group.categories)
+            ? group.categories
+            : [],
+          name: payment.name || 'Recurring payment',
+          amount: Number(payment.amount) || 0,
+          cadence: payment.cadence || group.cadence || 'monthly',
+        }));
+      }),
+    [budgetGroups]
+  );
   const expenseCategoryOptions = useMemo(() => {
     if (assignToBudget && selectedBudgetGroup) {
       const allowedIds = selectedBudgetGroup.categories || [];
-      if (!allowedIds.length) return [];
+      if (!allowedIds.length) {
+        return selectedBudgetGroup.type === 'recurring'
+          ? expenseCategories
+          : [];
+      }
       return expenseCategories.filter((cat) => allowedIds.includes(cat.id));
     }
     return expenseCategories;
   }, [assignToBudget, selectedBudgetGroup]);
+  const recurringPaymentStats = useMemo(() => {
+    const stats = {};
+    const groupsById = Object.fromEntries(
+      (budgetGroups || []).map((group) => [group.id, group])
+    );
+
+    finances
+      .filter((transaction) => transaction.type === 'expense')
+      .forEach((transaction) => {
+        const assignedGroupIds = budgetAssignments?.[transaction.id] || [];
+        if (!assignedGroupIds.length) return;
+
+        const referenceKey = normalizeRecurringText(transaction.reference);
+        if (!referenceKey) return;
+
+        assignedGroupIds.forEach((groupId) => {
+          const group = groupsById[groupId];
+          if (!group) return;
+          const recurringPayments = Array.isArray(group.recurringPayments)
+            ? group.recurringPayments
+            : [];
+          const matchedPayment = recurringPayments.find(
+            (payment) => normalizeRecurringText(payment.name) === referenceKey
+          );
+          if (!matchedPayment) return;
+
+          const paymentKey = getRecurringPaymentKey(group.id, matchedPayment);
+          const txTime = new Date(
+            transaction.date || transaction.createdAt
+          ).getTime();
+          const currentStats = stats[paymentKey] || {
+            count: 0,
+            lastPaidAt: null,
+          };
+
+          currentStats.count += 1;
+          if (
+            Number.isFinite(txTime) &&
+            (!currentStats.lastPaidAt || txTime > currentStats.lastPaidAt)
+          ) {
+            currentStats.lastPaidAt = txTime;
+          }
+
+          stats[paymentKey] = currentStats;
+        });
+      });
+
+    return stats;
+  }, [budgetGroups, budgetAssignments, finances]);
+  const recurringTopByGroup = useMemo(() => {
+    const topByGroup = {};
+
+    (budgetGroups || []).forEach((group) => {
+      const recurringPayments = Array.isArray(group.recurringPayments)
+        ? group.recurringPayments
+        : [];
+      let top = null;
+
+      recurringPayments.forEach((payment) => {
+        const stats = recurringPaymentStats[getRecurringPaymentKey(group.id, payment)];
+        const count = stats?.count || 0;
+        if (!top || count > top.count) {
+          top = {
+            name: payment.name || 'Recurring payment',
+            count,
+          };
+        }
+      });
+
+      topByGroup[group.id] = top && top.count > 0 ? top : null;
+    });
+
+    return topByGroup;
+  }, [budgetGroups, recurringPaymentStats]);
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <PlatformScrollView
@@ -619,6 +784,99 @@ const FinanceScreen = () => {
               </View>
             </View>
           </LinearGradient>
+        </Card>
+
+        {/* Transactions List */}
+        <Card style={styles.transactionsCard}>
+          <View style={styles.transactionsHeader}>
+            <Text style={[styles.sectionTitle, styles.transactionsTitle]}>
+              Transactions
+            </Text>
+            <TouchableOpacity
+              style={styles.sectionToggleButton}
+              activeOpacity={0.85}
+              onPress={() => setTransactionsExpanded((previous) => !previous)}
+            >
+              <Ionicons
+                name={transactionsExpanded ? 'chevron-up' : 'chevron-down'}
+                size={18}
+                color={palette.textSecondary}
+              />
+            </TouchableOpacity>
+          </View>
+          {transactionsExpanded ? (
+            dayTransactions.length === 0 ? (
+              <View style={styles.emptyState}>
+                <View style={styles.emptyIconCircle}>
+                  <Text style={styles.emptyIconText}>$</Text>
+                </View>
+                <Text style={styles.emptyText}>No transactions for this date</Text>
+              </View>
+            ) : (
+              dayTransactions
+                .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+                .map((transaction) => {
+                  const referenceLabel = String(transaction.reference || '').trim();
+                  const transactionTitle = referenceLabel || transaction.category || 'Transaction';
+                  const transactionSubtitle = [
+                    referenceLabel ? transaction.category : null,
+                    formatDate(transaction.date),
+                  ]
+                    .filter(Boolean)
+                    .join(' - ');
+
+                  return (
+                    <TouchableOpacity
+                      key={transaction.id}
+                      style={styles.transactionItem}
+                      onPress={() => deleteTransaction(transaction.id)}
+                    >
+                      <View
+                        style={[
+                          styles.transactionIcon,
+                          {
+                            backgroundColor:
+                              transaction.type === 'income'
+                                ? `${palette.income}15`
+                                : `${palette.expense}15`,
+                          },
+                        ]}
+                      >
+                        <Feather
+                          name={getCategoryIcon(transaction.category, transaction.type)}
+                          size={18}
+                          color={
+                            transaction.type === 'income'
+                              ? palette.income
+                              : palette.expense
+                          }
+                        />
+                      </View>
+                      <View style={styles.transactionContent}>
+                        <Text style={styles.transactionCategory}>
+                          {transactionTitle}
+                        </Text>
+                        <Text style={styles.transactionDate}>
+                          {transactionSubtitle}
+                        </Text>
+                      </View>
+                      <Text
+                        style={[
+                          styles.transactionAmount,
+                          transaction.type === 'income'
+                            ? styles.incomeAmount
+                            : styles.expenseAmount,
+                        ]}
+                      >
+                        {transaction.type === 'income' ? '+' : '-'}
+                        {currencyForCode(transaction.currency).symbol}
+                        {transaction.amount.toLocaleString()}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })
+            )
+          ) : null}
         </Card>
 
         {premiumActive ? (
@@ -839,6 +1097,12 @@ const FinanceScreen = () => {
 
                     {summary.group.type === 'recurring' && (
                       <View style={styles.recurringList}>
+                        {recurringTopByGroup[summary.group.id] && (
+                          <Text style={styles.subduedLabel}>
+                            Most recorded: {recurringTopByGroup[summary.group.id].name} (
+                            {recurringTopByGroup[summary.group.id].count})
+                          </Text>
+                        )}
                         <Text style={styles.subduedLabel}>
                           Recurring payments
                           {summary.recurringTotal
@@ -854,25 +1118,44 @@ const FinanceScreen = () => {
                             Add expected recurring payments to monitor them.
                           </Text>
                         ) : (
-                          summary.group.recurringPayments.map((item) => (
-                            <View key={item.id} style={styles.recurringItem}>
-                              <View>
-                                <Text style={styles.recurringTitle}>
-                                  {item.name}
-                                </Text>
-                                <Text style={styles.recurringMeta}>
-                                  {formatCadenceLabel(item.cadence)}
+                          summary.group.recurringPayments.map((item) => {
+                            const paymentKey = getRecurringPaymentKey(
+                              summary.group.id,
+                              item
+                            );
+                            const paymentStats = recurringPaymentStats[paymentKey];
+                            const lastPaidLabel = paymentStats?.lastPaidAt
+                              ? `Last paid ${formatDate(new Date(paymentStats.lastPaidAt))}`
+                              : 'Not recorded yet';
+                            return (
+                              <View
+                                key={getRecurringPaymentKey(summary.group.id, item)}
+                                style={styles.recurringItem}
+                              >
+                                <View style={{ flex: 1, paddingRight: spacing.sm }}>
+                                  <Text style={styles.recurringTitle}>
+                                    {item.name}
+                                  </Text>
+                                  <Text style={styles.recurringMeta}>
+                                    {formatCadenceLabel(item.cadence)}
+                                    {paymentStats?.count
+                                      ? ` - ${paymentStats.count} recorded`
+                                      : ''}
+                                  </Text>
+                                  <Text style={styles.recurringTrackingMeta}>
+                                    {lastPaidLabel}
+                                  </Text>
+                                </View>
+                                <Text style={styles.recurringAmount}>
+                                  {formatCurrency(
+                                    safeNumber(item.amount),
+                                    false,
+                                    summary.group.currency
+                                  )}
                                 </Text>
                               </View>
-                              <Text style={styles.recurringAmount}>
-                                {formatCurrency(
-                                  safeNumber(item.amount),
-                                  false,
-                                  summary.group.currency
-                                )}
-                              </Text>
-                            </View>
-                          ))
+                            );
+                          })
                         )}
                         <Button
                           title="Add recurring payment"
@@ -917,81 +1200,6 @@ const FinanceScreen = () => {
           </Card>
         )}
 
-        {/* Transactions List */}
-        <Card style={styles.transactionsCard}>
-          <Text style={styles.sectionTitle}>Transactions</Text>
-          {dayTransactions.length === 0 ? (
-            <View style={styles.emptyState}>
-              <View style={styles.emptyIconCircle}>
-                <Text style={styles.emptyIconText}>$</Text>
-              </View>
-              <Text style={styles.emptyText}>No transactions for this date</Text>
-            </View>
-          ) : (
-            dayTransactions
-              .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-              .map((transaction) => {
-                const referenceLabel = String(transaction.reference || '').trim();
-                const transactionTitle = referenceLabel || transaction.category || 'Transaction';
-                const transactionSubtitle = [
-                  referenceLabel ? transaction.category : null,
-                  formatDate(transaction.date),
-                ]
-                  .filter(Boolean)
-                  .join(' • ');
-
-                return (
-                  <TouchableOpacity
-                    key={transaction.id}
-                    style={styles.transactionItem}
-                    onPress={() => deleteTransaction(transaction.id)}
-                  >
-                    <View
-                      style={[
-                        styles.transactionIcon,
-                        {
-                          backgroundColor:
-                            transaction.type === 'income'
-                              ? `${palette.income}15`
-                              : `${palette.expense}15`,
-                        },
-                      ]}
-                    >
-                      <Feather
-                        name={getCategoryIcon(transaction.category, transaction.type)}
-                        size={18}
-                        color={
-                          transaction.type === 'income'
-                            ? palette.income
-                            : palette.expense
-                        }
-                      />
-                    </View>
-                    <View style={styles.transactionContent}>
-                      <Text style={styles.transactionCategory}>
-                        {transactionTitle}
-                      </Text>
-                      <Text style={styles.transactionDate}>
-                        {transactionSubtitle}
-                      </Text>
-                    </View>
-                    <Text
-                      style={[
-                        styles.transactionAmount,
-                        transaction.type === 'income'
-                          ? styles.incomeAmount
-                          : styles.expenseAmount,
-                      ]}
-                    >
-                      {transaction.type === 'income' ? '+' : '-'}
-                      {currencyForCode(transaction.currency).symbol}
-                      {transaction.amount.toLocaleString()}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })
-          )}
-        </Card>
       </PlatformScrollView>
 
       {/* Income Modal */}
@@ -1093,6 +1301,53 @@ const FinanceScreen = () => {
           />
         </View>
 
+        <Text style={styles.inputLabel}>Recurring payment (optional)</Text>
+        {recurringPaymentOptions.length === 0 ? (
+          <Text style={styles.subduedLabel}>
+            Add recurring payments in Budget Manager to record them here.
+          </Text>
+        ) : (
+          <View style={styles.budgetSelect}>
+            {recurringPaymentOptions.map((option) => {
+              const selected =
+                selectedRecurringPayment?.groupId === option.groupId &&
+                selectedRecurringPayment?.paymentId === option.paymentId;
+              return (
+                <TouchableOpacity
+                  key={`${option.groupId}-${option.paymentId}`}
+                  style={[
+                    styles.budgetOption,
+                    selected && styles.budgetOptionSelected,
+                  ]}
+                  onPress={() => handleSelectRecurringPayment(option)}
+                  activeOpacity={0.8}
+                >
+                  <View
+                    style={[
+                      styles.budgetOptionDot,
+                      selected && styles.budgetOptionDotSelected,
+                    ]}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={[
+                        styles.budgetOptionLabel,
+                        selected && styles.budgetOptionLabelSelected,
+                      ]}
+                    >
+                      {option.name}
+                    </Text>
+                    <Text style={styles.budgetOptionMeta}>
+                      {option.groupName} - {formatCadenceLabel(option.cadence)} -{' '}
+                      {formatCurrency(option.amount, false, option.groupCurrency)}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
         <Text style={styles.inputLabel}>Category</Text>
         {assignToBudget && !selectedBudgetGroup ? (
           <Text style={styles.subduedLabel}>
@@ -1140,7 +1395,16 @@ const FinanceScreen = () => {
 
         <TouchableOpacity
           style={styles.budgetToggle}
-          onPress={() => setAssignToBudget((prev) => !prev)}
+          onPress={() =>
+            setAssignToBudget((prev) => {
+              const nextValue = !prev;
+              if (!nextValue) {
+                setSelectedBudgetGroupId(null);
+                setSelectedRecurringPayment(null);
+              }
+              return nextValue;
+            })
+          }
           activeOpacity={0.8}
         >
           <View
@@ -1791,6 +2055,11 @@ const createStyles = (themeColorsParam, isDark = false) => {
       ...typography.caption,
       color: subduedText,
     },
+    recurringTrackingMeta: {
+      ...typography.caption,
+      color: subduedText,
+      marginTop: 2,
+    },
     recurringAmount: {
       ...typography.body,
       fontWeight: '700',
@@ -1841,6 +2110,25 @@ const createStyles = (themeColorsParam, isDark = false) => {
       borderWidth: 1,
       borderColor: surfaceBorder,
       backgroundColor: palette.card,
+    },
+    transactionsHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: spacing.md,
+    },
+    transactionsTitle: {
+      marginBottom: 0,
+    },
+    sectionToggleButton: {
+      width: 32,
+      height: 32,
+      borderRadius: borderRadius.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: surfaceAlt,
+      borderWidth: 1,
+      borderColor: surfaceBorder,
     },
     sectionTitle: {
       ...typography.h3,
