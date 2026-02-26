@@ -41,9 +41,35 @@ const PermissionsScreen = () => {
   const stepsSyncEnabled = Boolean(healthConnection?.isConnected);
   const nutritionSyncEnabled =
     Boolean(healthConnection?.syncNutritionToHealth) && canWriteNutritionToHealth;
+  const nutritionSubtitle = !stepsSyncEnabled
+    ? t('Enable steps sync first to request nutrition write permission.')
+    : canWriteNutritionToHealth
+      ? t('Write calories/macros from Pillaflow into your health app daily.')
+      : t('Nutrition write permission not granted. Re-enable steps sync or allow access in the health app settings.');
   const lastHealthSyncText = healthConnection?.lastSyncedAt
     ? new Date(healthConnection.lastSyncedAt).toLocaleString()
     : 'Not synced yet';
+
+  const getHealthErrorMessage = (rawMessage) => {
+    const message = String(rawMessage || '').trim();
+    if (!message) return 'Please try again.';
+    if (message === 'health_connect_not_installed') {
+      return 'Health Connect is not installed on this device.';
+    }
+    if (message === 'health_connect_provider_update_required') {
+      return 'Health Connect needs an update before sync can be enabled.';
+    }
+    if (message === 'ios_healthkit_module_missing') {
+      return 'Apple Health support is not available in this app build.';
+    }
+    if (message === 'nutrition_permission_not_granted') {
+      return 'Steps sync was enabled, but nutrition write permission was not granted.';
+    }
+    if (message.includes('timeout')) {
+      return 'Health permission check timed out. Please try again.';
+    }
+    return message;
+  };
 
   const handleToggleStepsSync = async (enabled) => {
     try {
@@ -56,7 +82,7 @@ const PermissionsScreen = () => {
     } catch (err) {
       Alert.alert(
         enabled ? 'Unable to enable steps sync' : 'Unable to disable steps sync',
-        err?.message || 'Please try again.'
+        getHealthErrorMessage(err?.message)
       );
     } finally {
       setIsUpdatingHealthPermissions(false);
@@ -68,7 +94,7 @@ const PermissionsScreen = () => {
       setIsUpdatingHealthPermissions(true);
       await setHealthNutritionSyncEnabled(enabled);
     } catch (err) {
-      Alert.alert('Unable to update', err?.message || 'Please try again.');
+      Alert.alert('Unable to update', getHealthErrorMessage(err?.message));
     } finally {
       setIsUpdatingHealthPermissions(false);
     }
@@ -144,11 +170,7 @@ const PermissionsScreen = () => {
               <Text style={styles.toggleTitle}>
                 {t('Sync nutrition totals to health app')}
               </Text>
-              <Text style={styles.toggleSubtitle}>
-                {canWriteNutritionToHealth
-                  ? t('Write calories/macros from Pillaflow into your health app daily.')
-                  : t('Not supported by current platform permission set.')}
-              </Text>
+              <Text style={styles.toggleSubtitle}>{nutritionSubtitle}</Text>
             </View>
             <Switch
               value={nutritionSyncEnabled}

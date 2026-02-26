@@ -3,11 +3,16 @@ import { Platform } from 'react-native';
 const HEALTH_LINK_MODULE = 'react-native-health-link';
 const IOS_HEALTH_KIT_MODULE = 'react-native-health';
 const ANDROID_HEALTH_CONNECT_MODULE = 'react-native-health-connect';
+
 const DEFAULT_BRIDGE_TIMEOUT_MS = 12000;
 const AVAILABILITY_TIMEOUT_MS = 8000;
 const PERMISSION_TIMEOUT_MS = 45000;
 const READ_TIMEOUT_MS = 5000;
 const WRITE_TIMEOUT_MS = 5000;
+
+const ANDROID_RECORD_STEPS = 'Steps';
+const ANDROID_RECORD_ACTIVE_CALORIES = 'ActiveCaloriesBurned';
+const ANDROID_RECORD_NUTRITION = 'Nutrition';
 
 let cachedHealthLinkModule = null;
 let didTryLoadHealthLinkModule = false;
@@ -23,7 +28,7 @@ const loadHealthLinkModule = () => {
 
   didTryLoadHealthLinkModule = true;
   try {
-    // Dynamic require keeps the app bootable if native dependency is missing.
+    // Dynamic require keeps app bootable if optional native dependency is missing.
     // eslint-disable-next-line global-require, import/no-dynamic-require
     cachedHealthLinkModule = require(HEALTH_LINK_MODULE);
   } catch (err) {
@@ -39,7 +44,6 @@ const loadHealthKitModule = () => {
 
   didTryLoadHealthKitModule = true;
   try {
-    // Dynamic require keeps Android builds safe if iOS module is unavailable at runtime.
     // eslint-disable-next-line global-require, import/no-dynamic-require
     cachedHealthKitModule = require(IOS_HEALTH_KIT_MODULE);
   } catch (err) {
@@ -55,7 +59,6 @@ const loadHealthConnectModule = () => {
 
   didTryLoadHealthConnectModule = true;
   try {
-    // Dynamic require keeps iOS builds safe if Android module is unavailable at runtime.
     // eslint-disable-next-line global-require, import/no-dynamic-require
     cachedHealthConnectModule = require(ANDROID_HEALTH_CONNECT_MODULE);
   } catch (err) {
@@ -80,6 +83,18 @@ const asFiniteNumber = (value, fallback = null) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const safeErrorMessage = (error, fallback = 'unknown_error') => {
+  if (!error) return fallback;
+  if (typeof error === 'string') return error;
+  if (typeof error?.message === 'string' && error.message.trim()) return error.message.trim();
+  try {
+    const serialized = JSON.stringify(error);
+    return serialized && serialized !== '{}' ? serialized : fallback;
+  } catch (serializationError) {
+    return fallback;
+  }
+};
+
 const toIsoString = (value = new Date()) => {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return new Date().toISOString();
@@ -101,6 +116,82 @@ const endOfLocalDay = (value = new Date()) => {
   end.setDate(end.getDate() + 1);
   end.setMilliseconds(end.getMilliseconds() - 1);
   return end;
+};
+
+const toArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.data)) return value.data;
+  if (Array.isArray(value?.records)) return value.records;
+  if (Array.isArray(value?.samples)) return value.samples;
+  return [];
+};
+
+const withTimeout = (promiseLike, timeoutMs, timeoutReason) => {
+  const resolvedTimeout =
+    Math.max(1, asFiniteNumber(timeoutMs, DEFAULT_BRIDGE_TIMEOUT_MS) || DEFAULT_BRIDGE_TIMEOUT_MS);
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(timeoutReason || 'health_bridge_timeout'));
+    }, resolvedTimeout);
+
+    Promise.resolve(promiseLike)
+      .then((result) => {
+        clearTimeout(timeoutId);
+        resolve(result);
+      })
+      .catch((error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
+};
+
+const isTimeoutReason = (reason) =>
+  typeof reason === 'string' && reason.toLowerCase().includes('timeout');
+
+const invokeHealthKitMethod = async (
+  methodName,
+  options,
+  { timeoutMs = READ_TIMEOUT_MS, timeoutReason = 'healthkit_timeout' } = {}
+) => {
+  const healthKitModule = loadHealthKitModule();
+  const method = healthKitModule?.[methodName];
+  if (!healthKitModule || typeof method !== 'function') {
+    throw new Error(`healthkit_method_missing:${methodName}`);
+  }
+
+  const args = options === undefined ? [] : [options];
+  return withTimeout(
+    new Promise((resolve, reject) => {
+      try {
+        method(...args, (error, result) => {
+          if (error) {
+            reject(new Error(safeErrorMessage(error, `healthkit_${methodName}_failed`)));
+            return;
+          }
+          resolve(result);
+        });
+      } catch (error) {
+        reject(error);
+      }
+    }),
+    timeoutMs,
+    timeoutReason
+  );
+};
+
+const invokeHealthConnectMethod = async (
+  methodName,
+  args = [],
+  { timeoutMs = READ_TIMEOUT_MS, timeoutReason = 'health_connect_timeout' } = {}
+) => {
+  const healthConnectModule = loadHealthConnectModule();
+  const method = healthConnectModule?.[methodName];
+  if (!healthConnectModule || typeof method !== 'function') {
+    throw new Error(`health_connect_method_missing:${methodName}`);
+  }
+
+  return withTimeout(method(...args), timeoutMs, timeoutReason);
 };
 
 const getSampleValue = (sample = {}) => {
@@ -128,6 +219,8 @@ const getSampleValue = (sample = {}) => {
     sample?.metadata?.quantity,
     sample?.quantitySample?.value,
     sample?.measurement?.value,
+    sample?.energy?.inKilocalories,
+    sample?.energy?.value,
   ];
 
   for (const candidate of nestedCandidates) {
@@ -138,35 +231,34 @@ const getSampleValue = (sample = {}) => {
   return null;
 };
 
-const withTimeout = (promiseLike, timeoutMs, timeoutReason) => {
-  const resolvedTimeout =
-    Math.max(1, asFiniteNumber(timeoutMs, DEFAULT_BRIDGE_TIMEOUT_MS) || DEFAULT_BRIDGE_TIMEOUT_MS);
-  return new Promise((resolve, reject) => {
-    const timeoutId = setTimeout(() => {
-      reject(new Error(timeoutReason || 'health_bridge_timeout'));
-    }, resolvedTimeout);
+const getActiveCaloriesSampleValue = (sample = {}) => {
+  const direct = asFiniteNumber(sample?.value, null);
+  if (direct !== null) return Math.max(0, direct);
 
-    Promise.resolve(promiseLike)
-      .then((result) => {
-        clearTimeout(timeoutId);
-        resolve(result);
-      })
-      .catch((error) => {
-        clearTimeout(timeoutId);
-        reject(error);
-      });
-  });
+  const inKilocalories = asFiniteNumber(sample?.energy?.inKilocalories, null);
+  if (inKilocalories !== null) return Math.max(0, inKilocalories);
+
+  const inCalories = asFiniteNumber(sample?.energy?.inCalories, null);
+  if (inCalories !== null) return Math.max(0, inCalories / 1000);
+
+  const energyValue = asFiniteNumber(sample?.energy?.value, null);
+  if (energyValue !== null) {
+    const unit = String(sample?.energy?.unit || '').toLowerCase();
+    if (unit.includes('kilocalorie')) return Math.max(0, energyValue);
+    if (unit.includes('calorie')) return Math.max(0, energyValue / 1000);
+    if (unit.includes('kilojoule')) return Math.max(0, energyValue / 4.184);
+    if (unit.includes('joule')) return Math.max(0, energyValue / 4184);
+    return Math.max(0, energyValue);
+  }
+
+  const fallback = asFiniteNumber(getSampleValue(sample), 0) || 0;
+  return Math.max(0, fallback);
 };
 
-const isTimeoutError = (error, timeoutReason) =>
-  Boolean(
-    timeoutReason &&
-      typeof error?.message === 'string' &&
-      error.message.toLowerCase() === String(timeoutReason).toLowerCase()
-  );
-
-const isTimeoutReason = (reason) =>
-  typeof reason === 'string' && reason.toLowerCase().includes('timeout');
+const getDateRange = (dateValue = new Date()) => ({
+  startDate: toIsoString(startOfLocalDay(dateValue)),
+  endDate: toIsoString(endOfLocalDay(dateValue)),
+});
 
 const getProviderFromPlatform = () =>
   Platform.OS === 'ios' ? 'apple_health' : 'health_connect';
@@ -196,97 +288,26 @@ const parseAvailabilityResult = (result) => {
   };
 };
 
-const checkIosHealthAvailabilityDirect = async () => {
-  if (Platform.OS !== 'ios') return null;
+const resolveIosPermissionSchema = () => {
   const healthKitModule = loadHealthKitModule();
-  if (!healthKitModule || typeof healthKitModule.isAvailable !== 'function') {
-    return null;
-  }
+  const permissionsEnum = healthKitModule?.Constants?.Permissions || {};
 
-  try {
-    const available = await withTimeout(
-      new Promise((resolve, reject) => {
-        try {
-          healthKitModule.isAvailable((error, value) => {
-            if (error) {
-              reject(error);
-              return;
-            }
-            resolve(Boolean(value));
-          });
-        } catch (error) {
-          reject(error);
-        }
-      }),
-      AVAILABILITY_TIMEOUT_MS,
-      'ios_health_availability_timeout'
-    );
-    return {
-      available: Boolean(available),
-      reason: available ? null : 'platform_health_not_available',
-    };
-  } catch (error) {
-    return {
-      available: false,
-      reason: error?.message || 'platform_health_not_available',
-    };
-  }
-};
-
-const getHealthConnectAvailabilityReason = (status, statusEnum = {}) => {
-  const numericStatus = asFiniteNumber(status, null);
-  const normalizedStatus = typeof status === 'string' ? status.trim().toUpperCase() : null;
-
-  const statusUnavailable =
-    numericStatus === asFiniteNumber(statusEnum.SDK_UNAVAILABLE, 1) ||
-    normalizedStatus === 'SDK_UNAVAILABLE';
-  if (statusUnavailable) {
-    return 'health_connect_not_installed';
-  }
-
-  const statusNeedsUpdate =
-    numericStatus ===
-      asFiniteNumber(statusEnum.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED, 2) ||
-    normalizedStatus === 'SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED';
-  if (statusNeedsUpdate) {
-    return 'health_connect_provider_update_required';
-  }
-
-  return 'health_connect_not_available';
-};
-
-const checkAndroidHealthAvailabilityDirect = async () => {
-  if (Platform.OS !== 'android') return null;
-  const healthConnectModule = loadHealthConnectModule();
-  if (!healthConnectModule || typeof healthConnectModule.getSdkStatus !== 'function') {
-    return null;
-  }
-
-  try {
-    const status = await withTimeout(
-      healthConnectModule.getSdkStatus(),
-      AVAILABILITY_TIMEOUT_MS,
-      'android_health_availability_timeout'
-    );
-    const statusEnum = healthConnectModule.SdkAvailabilityStatus || {};
-    const availableStatus = asFiniteNumber(statusEnum.SDK_AVAILABLE, 3);
-    const isAvailable =
-      asFiniteNumber(status, null) === availableStatus ||
-      (typeof status === 'string' && status.trim().toUpperCase() === 'SDK_AVAILABLE');
-    if (isAvailable) {
-      return { available: true, reason: null };
-    }
-
-    return {
-      available: false,
-      reason: getHealthConnectAvailabilityReason(status, statusEnum),
-    };
-  } catch (error) {
-    return {
-      available: false,
-      reason: error?.message || 'health_connect_not_available',
-    };
-  }
+  return {
+    steps: pickEnumValue(permissionsEnum, ['Steps', 'StepCount', 'Step']),
+    activeCalories: pickEnumValue(permissionsEnum, [
+      'ActiveEnergyBurned',
+      'ActiveCaloriesBurned',
+      'ActiveEnergy',
+    ]),
+    nutritionEnergy: pickEnumValue(permissionsEnum, [
+      'EnergyConsumed',
+      'DietaryEnergyConsumed',
+      'Calories',
+    ]),
+    nutritionProtein: pickEnumValue(permissionsEnum, ['Protein', 'DietaryProtein']),
+    nutritionCarbs: pickEnumValue(permissionsEnum, ['Carbohydrates', 'DietaryCarbohydrates']),
+    nutritionFat: pickEnumValue(permissionsEnum, ['FatTotal', 'DietaryFatTotal']),
+  };
 };
 
 const resolveHealthLinkSchema = () => {
@@ -352,129 +373,145 @@ const resolveHealthLinkSchema = () => {
   };
 };
 
-const toArray = (value) => {
-  if (Array.isArray(value)) return value;
-  if (Array.isArray(value?.data)) return value.data;
-  if (Array.isArray(value?.records)) return value.records;
-  if (Array.isArray(value?.samples)) return value.samples;
-  return [];
-};
+const getHealthConnectAvailabilityReason = (status, statusEnum = {}) => {
+  const numericStatus = asFiniteNumber(status, null);
+  const normalizedStatus = typeof status === 'string' ? status.trim().toUpperCase() : null;
 
-const readSamples = async (dataType, dateValue = new Date()) => {
-  const { moduleRef } = resolveHealthLinkSchema();
-  if (!moduleRef || typeof moduleRef.read !== 'function' || !dataType) {
-    return [];
+  const statusUnavailable =
+    numericStatus === asFiniteNumber(statusEnum.SDK_UNAVAILABLE, 1) ||
+    normalizedStatus === 'SDK_UNAVAILABLE';
+  if (statusUnavailable) {
+    return 'health_connect_not_installed';
   }
 
-  const startDate = toIsoString(startOfLocalDay(dateValue));
-  const endDate = toIsoString(endOfLocalDay(dateValue));
-  const optionCandidates = [
-    { startDate, endDate },
-    { startTime: startDate, endTime: endDate },
-    { from: startDate, to: endDate },
-  ];
+  const statusNeedsUpdate =
+    numericStatus ===
+      asFiniteNumber(statusEnum.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED, 2) ||
+    normalizedStatus === 'SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED';
+  if (statusNeedsUpdate) {
+    return 'health_connect_provider_update_required';
+  }
 
-  for (const options of optionCandidates) {
-    try {
-      const result = await withTimeout(
-        moduleRef.read(dataType, options),
-        READ_TIMEOUT_MS,
-        'health_read_timeout'
-      );
-      const rows = toArray(result);
-      if (rows.length || result !== undefined) {
-        return rows;
-      }
-    } catch (err) {
-      if (isTimeoutError(err, 'health_read_timeout')) {
-        break;
-      }
-      // Try the next argument shape.
+  return 'health_connect_not_available';
+};
+
+const hasAndroidPermissionGranted = (grantedPermissions, accessType, recordType) => {
+  const normalizedAccess = String(accessType || '').toLowerCase();
+  const normalizedRecord = String(recordType || '').toLowerCase();
+
+  return (grantedPermissions || []).some((entry) => {
+    if (!entry) return false;
+    if (typeof entry === 'string') {
+      const normalized = entry.toLowerCase();
+      return normalized.includes(normalizedAccess) && normalized.includes(normalizedRecord);
     }
-  }
 
-  return [];
+    const entryAccess = String(entry?.accessType || '').toLowerCase();
+    const entryRecord = String(entry?.recordType || '').toLowerCase();
+    return entryAccess === normalizedAccess && entryRecord === normalizedRecord;
+  });
 };
 
-const writeSample = async (dataType, payload = {}) => {
-  const { moduleRef } = resolveHealthLinkSchema();
-  if (!moduleRef || typeof moduleRef.write !== 'function' || !dataType) {
-    return false;
+const checkIosHealthAvailabilityDirect = async () => {
+  if (Platform.OS !== 'ios') return null;
+
+  const healthKitModule = loadHealthKitModule();
+  if (!healthKitModule) {
+    return {
+      available: false,
+      reason: 'ios_healthkit_module_missing',
+    };
   }
 
-  const nowISO = toIsoString();
-  const payloadCandidates = [
-    payload,
-    {
-      ...payload,
-      startDate: payload.startDate || payload.date || nowISO,
-      endDate: payload.endDate || payload.date || nowISO,
-    },
-    {
-      ...payload,
-      date: payload.date || payload.startDate || nowISO,
-    },
-  ];
+  if (typeof healthKitModule.isAvailable !== 'function') {
+    return {
+      available: false,
+      reason: 'ios_healthkit_is_available_missing',
+    };
+  }
 
-  for (const candidate of payloadCandidates) {
-    try {
-      const result = await withTimeout(
-        moduleRef.write(dataType, candidate),
-        WRITE_TIMEOUT_MS,
-        'health_write_timeout'
-      );
-      if (result === false) continue;
-      return true;
-    } catch (err) {
-      if (isTimeoutError(err, 'health_write_timeout')) {
-        return false;
-      }
-      // Try next payload shape.
+  try {
+    const result = await invokeHealthKitMethod('isAvailable', undefined, {
+      timeoutMs: AVAILABILITY_TIMEOUT_MS,
+      timeoutReason: 'ios_health_availability_timeout',
+    });
+
+    return {
+      available: Boolean(result),
+      reason: result ? null : 'platform_health_not_available',
+    };
+  } catch (error) {
+    const reason = safeErrorMessage(error, 'platform_health_not_available');
+    if (isTimeoutReason(reason)) {
+      // Some builds never resolve isAvailable callback; continue and let permission request decide.
+      return { available: true, reason: null };
     }
+    return {
+      available: false,
+      reason,
+    };
   }
-  return false;
 };
 
-export const getHealthProviderDetails = () => ({
-  platform: Platform.OS,
-  provider: getProviderFromPlatform(),
-  label: getProviderLabelFromPlatform(),
-  connectLabel: Platform.OS === 'ios' ? 'Connect Apple Health' : 'Connect Health Connect',
-});
+const checkAndroidHealthAvailabilityDirect = async () => {
+  if (Platform.OS !== 'android') return null;
 
-export const isHealthBridgeInstalled = () => Boolean(loadHealthLinkModule());
-
-export const checkHealthAvailability = async () => {
-  const directAvailability =
-    Platform.OS === 'ios'
-      ? await checkIosHealthAvailabilityDirect()
-      : await checkAndroidHealthAvailabilityDirect();
-
-  if (directAvailability?.available) {
-    return directAvailability;
+  const healthConnectModule = loadHealthConnectModule();
+  if (!healthConnectModule) {
+    return {
+      available: false,
+      reason: 'health_connect_module_missing',
+    };
   }
 
-  if (directAvailability && !isTimeoutReason(directAvailability.reason)) {
-    return directAvailability;
+  if (typeof healthConnectModule.getSdkStatus !== 'function') {
+    return {
+      available: false,
+      reason: 'health_connect_get_sdk_status_missing',
+    };
   }
 
+  try {
+    const status = await invokeHealthConnectMethod('getSdkStatus', [], {
+      timeoutMs: AVAILABILITY_TIMEOUT_MS,
+      timeoutReason: 'android_health_availability_timeout',
+    });
+    const statusEnum = healthConnectModule.SdkAvailabilityStatus || {};
+    const availableStatus = asFiniteNumber(statusEnum.SDK_AVAILABLE, 3);
+    const isAvailable =
+      asFiniteNumber(status, null) === availableStatus ||
+      (typeof status === 'string' && status.trim().toUpperCase() === 'SDK_AVAILABLE');
+
+    if (isAvailable) {
+      return { available: true, reason: null };
+    }
+
+    return {
+      available: false,
+      reason: getHealthConnectAvailabilityReason(status, statusEnum),
+    };
+  } catch (error) {
+    return {
+      available: false,
+      reason: safeErrorMessage(error, 'health_connect_not_available'),
+    };
+  }
+};
+
+const checkHealthAvailabilityViaHealthLink = async () => {
   const moduleRef = loadHealthLinkModule();
   if (!moduleRef) {
-    return (
-      directAvailability || {
-        available: false,
-        reason: 'health_link_module_missing',
-      }
-    );
+    return {
+      available: false,
+      reason: 'health_link_module_missing',
+    };
   }
 
   if (typeof moduleRef.isAvailable !== 'function') {
-    return (
-      directAvailability || {
-        available: false,
-        reason: 'health_link_is_available_missing',
-      }
-    );
+    return {
+      available: false,
+      reason: 'health_link_is_available_missing',
+    };
   }
 
   try {
@@ -483,30 +520,22 @@ export const checkHealthAvailability = async () => {
       AVAILABILITY_TIMEOUT_MS,
       'health_availability_timeout'
     );
-    const parsedResult = parseAvailabilityResult(availabilityResult);
-    if (parsedResult.available || !directAvailability) {
-      return parsedResult;
-    }
-    return directAvailability;
-  } catch (err) {
-    if (directAvailability) {
-      return directAvailability;
-    }
+    return parseAvailabilityResult(availabilityResult);
+  } catch (error) {
     return {
       available: false,
-      reason: err?.message || 'platform_health_not_available',
+      reason: safeErrorMessage(error, 'platform_health_not_available'),
     };
   }
 };
 
-export const requestHealthPermissions = async ({
-  includeNutritionWrite = true,
-} = {}) => {
+const requestHealthPermissionsViaHealthLink = async ({ includeNutritionWrite = true } = {}) => {
   const {
     moduleRef,
     permissions: permissionSchema,
     dataTypes: dataTypeSchema,
   } = resolveHealthLinkSchema();
+
   if (!moduleRef) {
     return {
       granted: false,
@@ -566,6 +595,7 @@ export const requestHealthPermissions = async ({
       PERMISSION_TIMEOUT_MS,
       'health_permission_timeout'
     );
+
     const granted =
       typeof initResult === 'boolean'
         ? initResult
@@ -590,10 +620,10 @@ export const requestHealthPermissions = async ({
         writePermissionsRequested: writePermissions.length,
       },
     };
-  } catch (err) {
+  } catch (error) {
     return {
       granted: false,
-      reason: err?.message || 'permission_request_failed',
+      reason: safeErrorMessage(error, 'permission_request_failed'),
       capabilities: {
         canReadSteps: Boolean(dataTypeSchema.steps),
         canReadActiveCalories: Boolean(dataTypeSchema.activeCalories),
@@ -603,13 +633,792 @@ export const requestHealthPermissions = async ({
   }
 };
 
+const requestIosHealthPermissionsDirect = async ({ includeNutritionWrite = true } = {}) => {
+  if (Platform.OS !== 'ios') return null;
+
+  const healthKitModule = loadHealthKitModule();
+  if (!healthKitModule || typeof healthKitModule.initHealthKit !== 'function') {
+    return null;
+  }
+
+  const availability = await checkIosHealthAvailabilityDirect();
+  if (!availability?.available) {
+    return {
+      granted: false,
+      reason: availability?.reason || 'platform_health_not_available',
+      capabilities: {
+        canReadSteps: false,
+        canReadActiveCalories: false,
+        canWriteNutrition: false,
+      },
+    };
+  }
+
+  const iosPermissions = resolveIosPermissionSchema();
+  const readPermissions = [iosPermissions.steps, iosPermissions.activeCalories].filter(Boolean);
+  const nutritionWritePermissions = [
+    iosPermissions.nutritionEnergy,
+    iosPermissions.nutritionProtein,
+    iosPermissions.nutritionCarbs,
+    iosPermissions.nutritionFat,
+  ].filter(Boolean);
+  const writePermissions = includeNutritionWrite
+    ? Array.from(new Set(nutritionWritePermissions))
+    : [];
+
+  const canReadSteps = Boolean(iosPermissions.steps);
+  const canReadActiveCalories = Boolean(iosPermissions.activeCalories);
+  const canWriteNutritionSupported = Boolean(
+    includeNutritionWrite && writePermissions.length > 0 && typeof healthKitModule.saveFood === 'function'
+  );
+
+  if (!canReadSteps || !readPermissions.length) {
+    return {
+      granted: false,
+      reason: 'health_steps_permission_not_supported',
+      capabilities: {
+        canReadSteps,
+        canReadActiveCalories,
+        canWriteNutrition: canWriteNutritionSupported,
+      },
+      metadata: {
+        readPermissionsRequested: readPermissions.length,
+        writePermissionsRequested: writePermissions.length,
+      },
+    };
+  }
+
+  try {
+    await invokeHealthKitMethod(
+      'initHealthKit',
+      {
+        permissions: {
+          read: readPermissions,
+          write: writePermissions,
+        },
+      },
+      {
+        timeoutMs: PERMISSION_TIMEOUT_MS,
+        timeoutReason: 'health_permission_timeout',
+      }
+    );
+
+    return {
+      granted: true,
+      reason: null,
+      capabilities: {
+        canReadSteps,
+        canReadActiveCalories,
+        canWriteNutrition: canWriteNutritionSupported,
+      },
+      metadata: {
+        readPermissionsRequested: readPermissions.length,
+        writePermissionsRequested: writePermissions.length,
+      },
+    };
+  } catch (error) {
+    if (includeNutritionWrite && writePermissions.length) {
+      try {
+        await invokeHealthKitMethod(
+          'initHealthKit',
+          {
+            permissions: {
+              read: readPermissions,
+              write: [],
+            },
+          },
+          {
+            timeoutMs: PERMISSION_TIMEOUT_MS,
+            timeoutReason: 'health_permission_timeout',
+          }
+        );
+
+        return {
+          granted: true,
+          reason: 'nutrition_permission_not_granted',
+          capabilities: {
+            canReadSteps,
+            canReadActiveCalories,
+            canWriteNutrition: false,
+          },
+          metadata: {
+            readPermissionsRequested: readPermissions.length,
+            writePermissionsRequested: writePermissions.length,
+          },
+        };
+      } catch (fallbackError) {
+        return {
+          granted: false,
+          reason: safeErrorMessage(fallbackError, safeErrorMessage(error, 'permission_request_failed')),
+          capabilities: {
+            canReadSteps,
+            canReadActiveCalories,
+            canWriteNutrition: false,
+          },
+          metadata: {
+            readPermissionsRequested: readPermissions.length,
+            writePermissionsRequested: writePermissions.length,
+          },
+        };
+      }
+    }
+
+    return {
+      granted: false,
+      reason: safeErrorMessage(error, 'permission_request_failed'),
+      capabilities: {
+        canReadSteps,
+        canReadActiveCalories,
+        canWriteNutrition: false,
+      },
+      metadata: {
+        readPermissionsRequested: readPermissions.length,
+        writePermissionsRequested: writePermissions.length,
+      },
+    };
+  }
+};
+
+const requestAndroidHealthPermissionsDirect = async ({ includeNutritionWrite = true } = {}) => {
+  if (Platform.OS !== 'android') return null;
+
+  const healthConnectModule = loadHealthConnectModule();
+  if (
+    !healthConnectModule ||
+    typeof healthConnectModule.initialize !== 'function' ||
+    typeof healthConnectModule.requestPermission !== 'function'
+  ) {
+    return null;
+  }
+
+  const availability = await checkAndroidHealthAvailabilityDirect();
+  if (!availability?.available) {
+    return {
+      granted: false,
+      reason: availability?.reason || 'health_connect_not_available',
+      capabilities: {
+        canReadSteps: false,
+        canReadActiveCalories: false,
+        canWriteNutrition: false,
+      },
+    };
+  }
+
+  const requestedPermissions = [
+    { accessType: 'read', recordType: ANDROID_RECORD_STEPS },
+    { accessType: 'read', recordType: ANDROID_RECORD_ACTIVE_CALORIES },
+  ];
+
+  if (includeNutritionWrite) {
+    requestedPermissions.push({ accessType: 'write', recordType: ANDROID_RECORD_NUTRITION });
+  }
+
+  try {
+    await invokeHealthConnectMethod('initialize', [], {
+      timeoutMs: PERMISSION_TIMEOUT_MS,
+      timeoutReason: 'health_permission_initialize_timeout',
+    });
+
+    const grantedPermissions = await invokeHealthConnectMethod(
+      'requestPermission',
+      [requestedPermissions],
+      {
+        timeoutMs: PERMISSION_TIMEOUT_MS,
+        timeoutReason: 'health_permission_timeout',
+      }
+    );
+
+    const canReadSteps = hasAndroidPermissionGranted(
+      grantedPermissions,
+      'read',
+      ANDROID_RECORD_STEPS
+    );
+    const canReadActiveCalories = hasAndroidPermissionGranted(
+      grantedPermissions,
+      'read',
+      ANDROID_RECORD_ACTIVE_CALORIES
+    );
+    const canWriteNutrition = includeNutritionWrite
+      ? hasAndroidPermissionGranted(grantedPermissions, 'write', ANDROID_RECORD_NUTRITION)
+      : false;
+
+    return {
+      granted: canReadSteps,
+      reason: canReadSteps ? null : 'permission_denied',
+      capabilities: {
+        canReadSteps,
+        canReadActiveCalories,
+        canWriteNutrition,
+      },
+      metadata: {
+        readPermissionsRequested: 2,
+        writePermissionsRequested: includeNutritionWrite ? 1 : 0,
+        grantedPermissionsCount: Array.isArray(grantedPermissions)
+          ? grantedPermissions.length
+          : 0,
+      },
+    };
+  } catch (error) {
+    if (includeNutritionWrite) {
+      try {
+        const readOnlyPermissions = [
+          { accessType: 'read', recordType: ANDROID_RECORD_STEPS },
+          { accessType: 'read', recordType: ANDROID_RECORD_ACTIVE_CALORIES },
+        ];
+
+        await invokeHealthConnectMethod('initialize', [], {
+          timeoutMs: PERMISSION_TIMEOUT_MS,
+          timeoutReason: 'health_permission_initialize_timeout',
+        });
+
+        const grantedReadOnlyPermissions = await invokeHealthConnectMethod(
+          'requestPermission',
+          [readOnlyPermissions],
+          {
+            timeoutMs: PERMISSION_TIMEOUT_MS,
+            timeoutReason: 'health_permission_timeout',
+          }
+        );
+
+        const canReadSteps = hasAndroidPermissionGranted(
+          grantedReadOnlyPermissions,
+          'read',
+          ANDROID_RECORD_STEPS
+        );
+        const canReadActiveCalories = hasAndroidPermissionGranted(
+          grantedReadOnlyPermissions,
+          'read',
+          ANDROID_RECORD_ACTIVE_CALORIES
+        );
+
+        return {
+          granted: canReadSteps,
+          reason: canReadSteps ? 'nutrition_permission_not_granted' : safeErrorMessage(error, 'permission_request_failed'),
+          capabilities: {
+            canReadSteps,
+            canReadActiveCalories,
+            canWriteNutrition: false,
+          },
+          metadata: {
+            readPermissionsRequested: 2,
+            writePermissionsRequested: 1,
+            grantedPermissionsCount: Array.isArray(grantedReadOnlyPermissions)
+              ? grantedReadOnlyPermissions.length
+              : 0,
+          },
+        };
+      } catch (fallbackError) {
+        return {
+          granted: false,
+          reason: safeErrorMessage(fallbackError, safeErrorMessage(error, 'permission_request_failed')),
+          capabilities: {
+            canReadSteps: false,
+            canReadActiveCalories: false,
+            canWriteNutrition: false,
+          },
+        };
+      }
+    }
+
+    return {
+      granted: false,
+      reason: safeErrorMessage(error, 'permission_request_failed'),
+      capabilities: {
+        canReadSteps: false,
+        canReadActiveCalories: false,
+        canWriteNutrition: false,
+      },
+    };
+  }
+};
+
+const readSamplesViaHealthLink = async (dataType, dateValue = new Date()) => {
+  const { moduleRef } = resolveHealthLinkSchema();
+  if (!moduleRef || typeof moduleRef.read !== 'function' || !dataType) {
+    return [];
+  }
+
+  const { startDate, endDate } = getDateRange(dateValue);
+  const optionCandidates = [
+    { startDate, endDate },
+    { startTime: startDate, endTime: endDate },
+    { from: startDate, to: endDate },
+  ];
+
+  for (const options of optionCandidates) {
+    try {
+      const result = await withTimeout(
+        moduleRef.read(dataType, options),
+        READ_TIMEOUT_MS,
+        'health_read_timeout'
+      );
+      const rows = toArray(result);
+      if (rows.length || result !== undefined) {
+        return rows;
+      }
+    } catch (error) {
+      if (isTimeoutReason(safeErrorMessage(error, ''))) {
+        break;
+      }
+    }
+  }
+
+  return [];
+};
+
+const writeSampleViaHealthLink = async (dataType, payload = {}) => {
+  const { moduleRef } = resolveHealthLinkSchema();
+  if (!moduleRef || typeof moduleRef.write !== 'function' || !dataType) {
+    return false;
+  }
+
+  const nowISO = toIsoString();
+  const payloadCandidates = [
+    payload,
+    {
+      ...payload,
+      startDate: payload.startDate || payload.date || nowISO,
+      endDate: payload.endDate || payload.date || nowISO,
+    },
+    {
+      ...payload,
+      date: payload.date || payload.startDate || nowISO,
+    },
+  ];
+
+  for (const candidate of payloadCandidates) {
+    try {
+      const result = await withTimeout(
+        moduleRef.write(dataType, candidate),
+        WRITE_TIMEOUT_MS,
+        'health_write_timeout'
+      );
+      if (result === false) continue;
+      return true;
+    } catch (error) {
+      if (isTimeoutReason(safeErrorMessage(error, ''))) {
+        return false;
+      }
+    }
+  }
+
+  return false;
+};
+
+const readTodayStepsFromIosDirect = async (dateValue = new Date()) => {
+  if (Platform.OS !== 'ios') return null;
+
+  const healthKitModule = loadHealthKitModule();
+  if (!healthKitModule || typeof healthKitModule.getDailyStepCountSamples !== 'function') {
+    return null;
+  }
+
+  try {
+    const { startDate, endDate } = getDateRange(dateValue);
+    const rows = toArray(
+      await invokeHealthKitMethod(
+        'getDailyStepCountSamples',
+        { startDate, endDate },
+        {
+          timeoutMs: READ_TIMEOUT_MS,
+          timeoutReason: 'health_read_timeout',
+        }
+      )
+    );
+
+    const steps = rows.reduce((sum, row) => {
+      const value = asFiniteNumber(getSampleValue(row), 0) || 0;
+      return sum + Math.max(0, value);
+    }, 0);
+
+    return {
+      steps: Math.round(steps),
+      supported: true,
+      sampleCount: rows.length,
+    };
+  } catch (error) {
+    return {
+      steps: null,
+      supported: false,
+      reason: safeErrorMessage(error, 'health_read_failed'),
+    };
+  }
+};
+
+const readTodayStepsFromAndroidDirect = async (dateValue = new Date()) => {
+  if (Platform.OS !== 'android') return null;
+
+  const healthConnectModule = loadHealthConnectModule();
+  if (!healthConnectModule || typeof healthConnectModule.readRecords !== 'function') {
+    return null;
+  }
+
+  try {
+    const { startDate, endDate } = getDateRange(dateValue);
+    const result = await invokeHealthConnectMethod(
+      'readRecords',
+      [ANDROID_RECORD_STEPS, {
+        timeRangeFilter: {
+          operator: 'between',
+          startTime: startDate,
+          endTime: endDate,
+        },
+      }],
+      {
+        timeoutMs: READ_TIMEOUT_MS,
+        timeoutReason: 'health_read_timeout',
+      }
+    );
+
+    const rows = toArray(result?.records || result);
+    const steps = rows.reduce((sum, row) => {
+      const value = asFiniteNumber(row?.count, asFiniteNumber(getSampleValue(row), 0) || 0) || 0;
+      return sum + Math.max(0, value);
+    }, 0);
+
+    return {
+      steps: Math.round(steps),
+      supported: true,
+      sampleCount: rows.length,
+    };
+  } catch (error) {
+    return {
+      steps: null,
+      supported: false,
+      reason: safeErrorMessage(error, 'health_read_failed'),
+    };
+  }
+};
+
+const readTodayActiveCaloriesFromIosDirect = async (dateValue = new Date()) => {
+  if (Platform.OS !== 'ios') return null;
+
+  const healthKitModule = loadHealthKitModule();
+  if (!healthKitModule || typeof healthKitModule.getActiveEnergyBurned !== 'function') {
+    return null;
+  }
+
+  try {
+    const { startDate, endDate } = getDateRange(dateValue);
+    const rows = toArray(
+      await invokeHealthKitMethod(
+        'getActiveEnergyBurned',
+        { startDate, endDate },
+        {
+          timeoutMs: READ_TIMEOUT_MS,
+          timeoutReason: 'health_read_timeout',
+        }
+      )
+    );
+
+    const activeCalories = rows.reduce((sum, row) => sum + getActiveCaloriesSampleValue(row), 0);
+
+    return {
+      activeCalories: Math.round(activeCalories * 10) / 10,
+      supported: true,
+      sampleCount: rows.length,
+    };
+  } catch (error) {
+    return {
+      activeCalories: null,
+      supported: false,
+      reason: safeErrorMessage(error, 'health_read_failed'),
+    };
+  }
+};
+
+const readTodayActiveCaloriesFromAndroidDirect = async (dateValue = new Date()) => {
+  if (Platform.OS !== 'android') return null;
+
+  const healthConnectModule = loadHealthConnectModule();
+  if (!healthConnectModule || typeof healthConnectModule.readRecords !== 'function') {
+    return null;
+  }
+
+  try {
+    const { startDate, endDate } = getDateRange(dateValue);
+    const result = await invokeHealthConnectMethod(
+      'readRecords',
+      [ANDROID_RECORD_ACTIVE_CALORIES, {
+        timeRangeFilter: {
+          operator: 'between',
+          startTime: startDate,
+          endTime: endDate,
+        },
+      }],
+      {
+        timeoutMs: READ_TIMEOUT_MS,
+        timeoutReason: 'health_read_timeout',
+      }
+    );
+
+    const rows = toArray(result?.records || result);
+    const activeCalories = rows.reduce((sum, row) => sum + getActiveCaloriesSampleValue(row), 0);
+
+    return {
+      activeCalories: Math.round(activeCalories * 10) / 10,
+      supported: true,
+      sampleCount: rows.length,
+    };
+  } catch (error) {
+    return {
+      activeCalories: null,
+      supported: false,
+      reason: safeErrorMessage(error, 'health_read_failed'),
+    };
+  }
+};
+
+const writeDailyNutritionToIosDirect = async ({
+  dateISO,
+  calories,
+  protein,
+  carbs,
+  fat,
+} = {}) => {
+  if (Platform.OS !== 'ios') return null;
+
+  const healthKitModule = loadHealthKitModule();
+  if (!healthKitModule || typeof healthKitModule.saveFood !== 'function') {
+    return null;
+  }
+
+  const targetDate = dateISO ? new Date(`${dateISO}T12:00:00`) : new Date();
+  const { startDate } = getDateRange(targetDate);
+
+  const normalized = {
+    calories: Math.max(0, asFiniteNumber(calories, 0) || 0),
+    protein: Math.max(0, asFiniteNumber(protein, 0) || 0),
+    carbs: Math.max(0, asFiniteNumber(carbs, 0) || 0),
+    fat: Math.max(0, asFiniteNumber(fat, 0) || 0),
+  };
+
+  const foodPayload = {
+    foodName: 'Pillaflow nutrition totals',
+    mealType: 'Snacks',
+    date: startDate,
+  };
+
+  const writtenFields = [];
+  const skippedFields = [];
+
+  if (normalized.calories > 0) {
+    foodPayload.energy = normalized.calories;
+    writtenFields.push('calories');
+  } else {
+    skippedFields.push('calories');
+  }
+
+  if (normalized.protein > 0) {
+    foodPayload.protein = normalized.protein;
+    writtenFields.push('protein');
+  } else {
+    skippedFields.push('protein');
+  }
+
+  if (normalized.carbs > 0) {
+    foodPayload.carbohydrates = normalized.carbs;
+    writtenFields.push('carbs');
+  } else {
+    skippedFields.push('carbs');
+  }
+
+  if (normalized.fat > 0) {
+    foodPayload.fatTotal = normalized.fat;
+    writtenFields.push('fat');
+  } else {
+    skippedFields.push('fat');
+  }
+
+  if (!writtenFields.length) {
+    return {
+      written: false,
+      writtenFields,
+      skippedFields,
+      reason: 'nutrition_totals_zero',
+    };
+  }
+
+  try {
+    await invokeHealthKitMethod('saveFood', foodPayload, {
+      timeoutMs: WRITE_TIMEOUT_MS,
+      timeoutReason: 'health_write_timeout',
+    });
+
+    return {
+      written: true,
+      writtenFields,
+      skippedFields,
+    };
+  } catch (error) {
+    return {
+      written: false,
+      writtenFields: [],
+      skippedFields: ['calories', 'protein', 'carbs', 'fat'],
+      reason: safeErrorMessage(error, 'health_write_failed'),
+    };
+  }
+};
+
+const writeDailyNutritionToAndroidDirect = async ({
+  dateISO,
+  calories,
+  protein,
+  carbs,
+  fat,
+} = {}) => {
+  if (Platform.OS !== 'android') return null;
+
+  const healthConnectModule = loadHealthConnectModule();
+  if (!healthConnectModule || typeof healthConnectModule.insertRecords !== 'function') {
+    return null;
+  }
+
+  const targetDate = dateISO ? new Date(`${dateISO}T12:00:00`) : new Date();
+  const { startDate, endDate } = getDateRange(targetDate);
+
+  const normalized = {
+    calories: Math.max(0, asFiniteNumber(calories, 0) || 0),
+    protein: Math.max(0, asFiniteNumber(protein, 0) || 0),
+    carbs: Math.max(0, asFiniteNumber(carbs, 0) || 0),
+    fat: Math.max(0, asFiniteNumber(fat, 0) || 0),
+  };
+
+  const writtenFields = [];
+  const skippedFields = [];
+  const mealType = healthConnectModule?.MealType?.SNACK ?? 4;
+
+  const nutritionRecord = {
+    recordType: ANDROID_RECORD_NUTRITION,
+    startTime: startDate,
+    endTime: endDate,
+    mealType,
+    name: 'Pillaflow nutrition totals',
+  };
+
+  if (normalized.calories > 0) {
+    nutritionRecord.energy = { value: normalized.calories, unit: 'kilocalories' };
+    writtenFields.push('calories');
+  } else {
+    skippedFields.push('calories');
+  }
+
+  if (normalized.protein > 0) {
+    nutritionRecord.protein = { value: normalized.protein, unit: 'grams' };
+    writtenFields.push('protein');
+  } else {
+    skippedFields.push('protein');
+  }
+
+  if (normalized.carbs > 0) {
+    nutritionRecord.totalCarbohydrate = { value: normalized.carbs, unit: 'grams' };
+    writtenFields.push('carbs');
+  } else {
+    skippedFields.push('carbs');
+  }
+
+  if (normalized.fat > 0) {
+    nutritionRecord.totalFat = { value: normalized.fat, unit: 'grams' };
+    writtenFields.push('fat');
+  } else {
+    skippedFields.push('fat');
+  }
+
+  if (!writtenFields.length) {
+    return {
+      written: false,
+      writtenFields,
+      skippedFields,
+      reason: 'nutrition_totals_zero',
+    };
+  }
+
+  try {
+    await invokeHealthConnectMethod('insertRecords', [[nutritionRecord]], {
+      timeoutMs: WRITE_TIMEOUT_MS,
+      timeoutReason: 'health_write_timeout',
+    });
+
+    return {
+      written: true,
+      writtenFields,
+      skippedFields,
+    };
+  } catch (error) {
+    return {
+      written: false,
+      writtenFields: [],
+      skippedFields: ['calories', 'protein', 'carbs', 'fat'],
+      reason: safeErrorMessage(error, 'health_write_failed'),
+    };
+  }
+};
+
+export const getHealthProviderDetails = () => ({
+  platform: Platform.OS,
+  provider: getProviderFromPlatform(),
+  label: getProviderLabelFromPlatform(),
+  connectLabel: Platform.OS === 'ios' ? 'Connect Apple Health' : 'Connect Health Connect',
+});
+
+export const isHealthBridgeInstalled = () => {
+  if (Platform.OS === 'ios') {
+    return Boolean(loadHealthKitModule() || loadHealthLinkModule());
+  }
+  if (Platform.OS === 'android') {
+    return Boolean(loadHealthConnectModule() || loadHealthLinkModule());
+  }
+  return Boolean(loadHealthLinkModule());
+};
+
+export const checkHealthAvailability = async () => {
+  const directAvailability =
+    Platform.OS === 'ios'
+      ? await checkIosHealthAvailabilityDirect()
+      : Platform.OS === 'android'
+        ? await checkAndroidHealthAvailabilityDirect()
+        : null;
+
+  if (directAvailability) {
+    return directAvailability;
+  }
+
+  return checkHealthAvailabilityViaHealthLink();
+};
+
+export const requestHealthPermissions = async ({ includeNutritionWrite = true } = {}) => {
+  const directResult =
+    Platform.OS === 'ios'
+      ? await requestIosHealthPermissionsDirect({ includeNutritionWrite })
+      : Platform.OS === 'android'
+        ? await requestAndroidHealthPermissionsDirect({ includeNutritionWrite })
+        : null;
+
+  if (directResult) {
+    return directResult;
+  }
+
+  return requestHealthPermissionsViaHealthLink({ includeNutritionWrite });
+};
+
 export const readTodayStepsFromHealth = async (dateValue = new Date()) => {
+  const directResult =
+    Platform.OS === 'ios'
+      ? await readTodayStepsFromIosDirect(dateValue)
+      : Platform.OS === 'android'
+        ? await readTodayStepsFromAndroidDirect(dateValue)
+        : null;
+
+  if (directResult) {
+    return directResult;
+  }
+
   const { dataTypes } = resolveHealthLinkSchema();
   if (!dataTypes.steps) {
     return { steps: null, supported: false };
   }
 
-  const rows = await readSamples(dataTypes.steps, dateValue);
+  const rows = await readSamplesViaHealthLink(dataTypes.steps, dateValue);
   if (!rows.length) {
     return { steps: 0, supported: true };
   }
@@ -627,18 +1436,29 @@ export const readTodayStepsFromHealth = async (dateValue = new Date()) => {
 };
 
 export const readTodayActiveCaloriesFromHealth = async (dateValue = new Date()) => {
+  const directResult =
+    Platform.OS === 'ios'
+      ? await readTodayActiveCaloriesFromIosDirect(dateValue)
+      : Platform.OS === 'android'
+        ? await readTodayActiveCaloriesFromAndroidDirect(dateValue)
+        : null;
+
+  if (directResult) {
+    return directResult;
+  }
+
   const { dataTypes } = resolveHealthLinkSchema();
   if (!dataTypes.activeCalories) {
     return { activeCalories: null, supported: false };
   }
 
-  const rows = await readSamples(dataTypes.activeCalories, dateValue);
+  const rows = await readSamplesViaHealthLink(dataTypes.activeCalories, dateValue);
   if (!rows.length) {
     return { activeCalories: 0, supported: true };
   }
 
   const activeCalories = rows.reduce((sum, row) => {
-    const value = asFiniteNumber(getSampleValue(row), 0) || 0;
+    const value = getActiveCaloriesSampleValue(row);
     return sum + Math.max(0, value);
   }, 0);
 
@@ -656,10 +1476,20 @@ export const writeDailyNutritionToHealth = async ({
   carbs,
   fat,
 } = {}) => {
+  const directResult =
+    Platform.OS === 'ios'
+      ? await writeDailyNutritionToIosDirect({ dateISO, calories, protein, carbs, fat })
+      : Platform.OS === 'android'
+        ? await writeDailyNutritionToAndroidDirect({ dateISO, calories, protein, carbs, fat })
+        : null;
+
+  if (directResult) {
+    return directResult;
+  }
+
   const { dataTypes } = resolveHealthLinkSchema();
   const targetDate = dateISO ? new Date(`${dateISO}T12:00:00`) : new Date();
-  const startDate = toIsoString(startOfLocalDay(targetDate));
-  const endDate = toIsoString(endOfLocalDay(targetDate));
+  const { startDate, endDate } = getDateRange(targetDate);
 
   const payloadByField = {
     calories: {
@@ -688,21 +1518,19 @@ export const writeDailyNutritionToHealth = async ({
   const skippedFields = [];
 
   for (const [field, config] of Object.entries(payloadByField)) {
-    if (!config.dataType) {
+    if (!config.dataType || config.value <= 0) {
       skippedFields.push(field);
       continue;
     }
-    if (!Number.isFinite(config.value)) {
-      skippedFields.push(field);
-      continue;
-    }
-    const success = await writeSample(config.dataType, {
+
+    const success = await writeSampleViaHealthLink(config.dataType, {
       value: config.value,
       unit: config.unit,
       startDate,
       endDate,
       date: startDate,
     });
+
     if (success) {
       writtenFields.push(field);
     } else {
