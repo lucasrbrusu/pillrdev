@@ -211,6 +211,7 @@ const SignupFlowScreen = ({ navigation }) => {
     fullName: '',
     username: '',
     email: '',
+    confirmEmail: '',
     password: '',
     confirmPassword: '',
   });
@@ -343,6 +344,9 @@ const SignupFlowScreen = ({ navigation }) => {
     const trimmedName = form.fullName.trim();
     const trimmedUsername = form.username.trim();
     const trimmedEmail = form.email.trim();
+    const trimmedConfirmEmail = form.confirmEmail.trim();
+    const normalizedEmail = trimmedEmail.toLowerCase();
+    const normalizedConfirmEmail = trimmedConfirmEmail.toLowerCase();
     const currentStepKey = stepContent[stepIndex]?.key;
 
     switch (currentStepKey) {
@@ -356,6 +360,15 @@ const SignupFlowScreen = ({ navigation }) => {
         }
         if (!/^\S+@\S+\.\S+$/.test(trimmedEmail)) {
           return 'Please enter a valid email address.';
+        }
+        if (!trimmedConfirmEmail) {
+          return 'Please re-enter your email address.';
+        }
+        if (!/^\S+@\S+\.\S+$/.test(trimmedConfirmEmail)) {
+          return 'Please enter a valid confirmation email address.';
+        }
+        if (normalizedEmail !== normalizedConfirmEmail) {
+          return 'Email addresses do not match.';
         }
         return '';
       case 'password': {
@@ -387,7 +400,13 @@ const SignupFlowScreen = ({ navigation }) => {
       case 'username':
         return Boolean(form.username.trim());
       case 'email':
-        return Boolean(form.email.trim()) && /^\S+@\S+\.\S+$/.test(form.email.trim());
+        return (
+          Boolean(form.email.trim()) &&
+          Boolean(form.confirmEmail.trim()) &&
+          /^\S+@\S+\.\S+$/.test(form.email.trim()) &&
+          /^\S+@\S+\.\S+$/.test(form.confirmEmail.trim()) &&
+          form.email.trim().toLowerCase() === form.confirmEmail.trim().toLowerCase()
+        );
       case 'password':
         return (
           Boolean(form.password) &&
@@ -762,21 +781,38 @@ const SignupFlowScreen = ({ navigation }) => {
               )}
 
               {stepMeta.key === 'email' && (
-                <Input
-                  label="Email address"
-                  placeholder="john@example.com"
-                  icon="mail-outline"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  value={form.email}
-                  onChangeText={(text) => updateField('email', text)}
-                  containerStyle={styles.inputGroup}
-                  style={[
-                    styles.inputField,
-                    { backgroundColor: signupTheme.inputBg, borderColor: signupTheme.inputBorder },
-                  ]}
-                  inputStyle={styles.inputText}
-                />
+                <>
+                  <Input
+                    label="Email address"
+                    placeholder="john@example.com"
+                    icon="mail-outline"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    value={form.email}
+                    onChangeText={(text) => updateField('email', text)}
+                    containerStyle={styles.inputGroup}
+                    style={[
+                      styles.inputField,
+                      { backgroundColor: signupTheme.inputBg, borderColor: signupTheme.inputBorder },
+                    ]}
+                    inputStyle={styles.inputText}
+                  />
+                  <Input
+                    label="Re-enter email address"
+                    placeholder="john@example.com"
+                    icon="mail-outline"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    value={form.confirmEmail}
+                    onChangeText={(text) => updateField('confirmEmail', text)}
+                    containerStyle={styles.inputGroupTight}
+                    style={[
+                      styles.inputField,
+                      { backgroundColor: signupTheme.inputBg, borderColor: signupTheme.inputBorder },
+                    ]}
+                    inputStyle={styles.inputText}
+                  />
+                </>
               )}
 
               {stepMeta.key === 'password' && (
