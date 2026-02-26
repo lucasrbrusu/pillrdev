@@ -1,6 +1,8 @@
 import { Platform } from 'react-native';
 
 const HEALTH_LINK_MODULE = 'react-native-health-link';
+const IOS_HEALTH_KIT_MODULE = 'react-native-health';
+const ANDROID_HEALTH_CONNECT_MODULE = 'react-native-health-connect';
 const DEFAULT_BRIDGE_TIMEOUT_MS = 12000;
 const AVAILABILITY_TIMEOUT_MS = 8000;
 const PERMISSION_TIMEOUT_MS = 45000;
@@ -9,6 +11,10 @@ const WRITE_TIMEOUT_MS = 5000;
 
 let cachedHealthLinkModule = null;
 let didTryLoadHealthLinkModule = false;
+let cachedHealthKitModule = null;
+let didTryLoadHealthKitModule = false;
+let cachedHealthConnectModule = null;
+let didTryLoadHealthConnectModule = false;
 
 const loadHealthLinkModule = () => {
   if (didTryLoadHealthLinkModule) {
@@ -24,6 +30,38 @@ const loadHealthLinkModule = () => {
     cachedHealthLinkModule = null;
   }
   return cachedHealthLinkModule;
+};
+
+const loadHealthKitModule = () => {
+  if (didTryLoadHealthKitModule) {
+    return cachedHealthKitModule;
+  }
+
+  didTryLoadHealthKitModule = true;
+  try {
+    // Dynamic require keeps Android builds safe if iOS module is unavailable at runtime.
+    // eslint-disable-next-line global-require, import/no-dynamic-require
+    cachedHealthKitModule = require(IOS_HEALTH_KIT_MODULE);
+  } catch (err) {
+    cachedHealthKitModule = null;
+  }
+  return cachedHealthKitModule;
+};
+
+const loadHealthConnectModule = () => {
+  if (didTryLoadHealthConnectModule) {
+    return cachedHealthConnectModule;
+  }
+
+  didTryLoadHealthConnectModule = true;
+  try {
+    // Dynamic require keeps iOS builds safe if Android module is unavailable at runtime.
+    // eslint-disable-next-line global-require, import/no-dynamic-require
+    cachedHealthConnectModule = require(ANDROID_HEALTH_CONNECT_MODULE);
+  } catch (err) {
+    cachedHealthConnectModule = null;
+  }
+  return cachedHealthConnectModule;
 };
 
 const pickEnumValue = (enumObj, candidates = []) => {
@@ -127,11 +165,129 @@ const isTimeoutError = (error, timeoutReason) =>
       error.message.toLowerCase() === String(timeoutReason).toLowerCase()
   );
 
+const isTimeoutReason = (reason) =>
+  typeof reason === 'string' && reason.toLowerCase().includes('timeout');
+
 const getProviderFromPlatform = () =>
   Platform.OS === 'ios' ? 'apple_health' : 'health_connect';
 
 const getProviderLabelFromPlatform = () =>
   Platform.OS === 'ios' ? 'Apple Health' : 'Health Connect';
+
+const parseAvailabilityResult = (result) => {
+  if (typeof result === 'boolean') {
+    return {
+      available: result,
+      reason: result ? null : 'platform_health_not_available',
+    };
+  }
+
+  if (result && typeof result === 'object') {
+    const available = Boolean(result.available ?? result.isAvailable ?? result.success ?? false);
+    return {
+      available,
+      reason: available ? null : result.reason || result.error || 'platform_health_not_available',
+    };
+  }
+
+  return {
+    available: false,
+    reason: 'platform_health_not_available',
+  };
+};
+
+const checkIosHealthAvailabilityDirect = async () => {
+  if (Platform.OS !== 'ios') return null;
+  const healthKitModule = loadHealthKitModule();
+  if (!healthKitModule || typeof healthKitModule.isAvailable !== 'function') {
+    return null;
+  }
+
+  try {
+    const available = await withTimeout(
+      new Promise((resolve, reject) => {
+        try {
+          healthKitModule.isAvailable((error, value) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve(Boolean(value));
+          });
+        } catch (error) {
+          reject(error);
+        }
+      }),
+      AVAILABILITY_TIMEOUT_MS,
+      'ios_health_availability_timeout'
+    );
+    return {
+      available: Boolean(available),
+      reason: available ? null : 'platform_health_not_available',
+    };
+  } catch (error) {
+    return {
+      available: false,
+      reason: error?.message || 'platform_health_not_available',
+    };
+  }
+};
+
+const getHealthConnectAvailabilityReason = (status, statusEnum = {}) => {
+  const numericStatus = asFiniteNumber(status, null);
+  const normalizedStatus = typeof status === 'string' ? status.trim().toUpperCase() : null;
+
+  const statusUnavailable =
+    numericStatus === asFiniteNumber(statusEnum.SDK_UNAVAILABLE, 1) ||
+    normalizedStatus === 'SDK_UNAVAILABLE';
+  if (statusUnavailable) {
+    return 'health_connect_not_installed';
+  }
+
+  const statusNeedsUpdate =
+    numericStatus ===
+      asFiniteNumber(statusEnum.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED, 2) ||
+    normalizedStatus === 'SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED';
+  if (statusNeedsUpdate) {
+    return 'health_connect_provider_update_required';
+  }
+
+  return 'health_connect_not_available';
+};
+
+const checkAndroidHealthAvailabilityDirect = async () => {
+  if (Platform.OS !== 'android') return null;
+  const healthConnectModule = loadHealthConnectModule();
+  if (!healthConnectModule || typeof healthConnectModule.getSdkStatus !== 'function') {
+    return null;
+  }
+
+  try {
+    const status = await withTimeout(
+      healthConnectModule.getSdkStatus(),
+      AVAILABILITY_TIMEOUT_MS,
+      'android_health_availability_timeout'
+    );
+    const statusEnum = healthConnectModule.SdkAvailabilityStatus || {};
+    const availableStatus = asFiniteNumber(statusEnum.SDK_AVAILABLE, 3);
+    const isAvailable =
+      asFiniteNumber(status, null) === availableStatus ||
+      (typeof status === 'string' && status.trim().toUpperCase() === 'SDK_AVAILABLE');
+    if (isAvailable) {
+      return { available: true, reason: null };
+    }
+
+    return {
+      available: false,
+      reason: getHealthConnectAvailabilityReason(status, statusEnum),
+    };
+  } catch (error) {
+    return {
+      available: false,
+      reason: error?.message || 'health_connect_not_available',
+    };
+  }
+};
 
 const resolveHealthLinkSchema = () => {
   const moduleRef = loadHealthLinkModule();
@@ -289,52 +445,53 @@ export const getHealthProviderDetails = () => ({
 export const isHealthBridgeInstalled = () => Boolean(loadHealthLinkModule());
 
 export const checkHealthAvailability = async () => {
+  const directAvailability =
+    Platform.OS === 'ios'
+      ? await checkIosHealthAvailabilityDirect()
+      : await checkAndroidHealthAvailabilityDirect();
+
+  if (directAvailability?.available) {
+    return directAvailability;
+  }
+
+  if (directAvailability && !isTimeoutReason(directAvailability.reason)) {
+    return directAvailability;
+  }
+
   const moduleRef = loadHealthLinkModule();
   if (!moduleRef) {
-    return {
-      available: false,
-      reason: 'health_link_module_missing',
-    };
+    return (
+      directAvailability || {
+        available: false,
+        reason: 'health_link_module_missing',
+      }
+    );
   }
 
   if (typeof moduleRef.isAvailable !== 'function') {
-    return {
-      available: false,
-      reason: 'health_link_is_available_missing',
-    };
+    return (
+      directAvailability || {
+        available: false,
+        reason: 'health_link_is_available_missing',
+      }
+    );
   }
 
   try {
-    const result = await withTimeout(
+    const availabilityResult = await withTimeout(
       moduleRef.isAvailable(),
       AVAILABILITY_TIMEOUT_MS,
       'health_availability_timeout'
     );
-    if (typeof result === 'boolean') {
-      return {
-        available: result,
-        reason: result ? null : 'platform_health_not_available',
-      };
+    const parsedResult = parseAvailabilityResult(availabilityResult);
+    if (parsedResult.available || !directAvailability) {
+      return parsedResult;
     }
-
-    if (result && typeof result === 'object') {
-      const available = Boolean(
-        result.available ?? result.isAvailable ?? result.success ?? false
-      );
-      return {
-        available,
-        reason:
-          available
-            ? null
-            : result.reason || result.error || 'platform_health_not_available',
-      };
-    }
-
-    return {
-      available: false,
-      reason: 'platform_health_not_available',
-    };
+    return directAvailability;
   } catch (err) {
+    if (directAvailability) {
+      return directAvailability;
+    }
     return {
       available: false,
       reason: err?.message || 'platform_health_not_available',
