@@ -187,11 +187,47 @@ const getPasswordError = (password) => {
   return '';
 };
 
+const getPasswordStrength = (password) => {
+  const value = String(password || '');
+  if (!value) {
+    return {
+      level: 0,
+      label: 'Start typing',
+    };
+  }
+
+  let score = 0;
+  if (value.length >= 6) score += 1;
+  if (value.length >= 10) score += 1;
+  if (/[A-Z]/.test(value)) score += 1;
+  if (/[a-z]/.test(value)) score += 1;
+  if (/\d/.test(value)) score += 1;
+  if (/[^A-Za-z0-9\s]/.test(value)) score += 1;
+
+  if (score <= 2) {
+    return { level: 1, label: 'Weak' };
+  }
+  if (score <= 4) {
+    return { level: 2, label: 'Fair' };
+  }
+  if (score === 5) {
+    return { level: 3, label: 'Good' };
+  }
+  return { level: 4, label: 'Strong' };
+};
+
 const HOLD_TO_CREATE_DURATION_MS = 3000;
+const AVAILABILITY_DEBOUNCE_MS = 450;
+const EMAIL_PATTERN = /^\S+@\S+\.\S+$/;
+const createAvailabilityState = (status = 'idle', message = '', value = '') => ({
+  status,
+  message,
+  value,
+});
 
 const SignupFlowScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
-  const { signUp, themeColors, themeName } = useApp();
+  const { signUp, checkAccountAvailability, themeColors, themeName } = useApp();
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
   const isDark = themeName === 'dark';
   const scrollRef = useRef(null);
@@ -201,12 +237,20 @@ const SignupFlowScreen = ({ navigation }) => {
   const holdProgress = useRef(new Animated.Value(0)).current;
   const holdAnimationRef = useRef(null);
   const holdCompletedRef = useRef(false);
+  const usernameCheckRequestRef = useRef(0);
+  const emailCheckRequestRef = useRef(0);
 
   const [stepIndex, setStepIndex] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isHolding, setIsHolding] = useState(false);
   const [error, setError] = useState('');
   const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
+  const [usernameAvailability, setUsernameAvailability] = useState(
+    createAvailabilityState()
+  );
+  const [emailAvailability, setEmailAvailability] = useState(
+    createAvailabilityState()
+  );
   const [form, setForm] = useState({
     fullName: '',
     username: '',
@@ -340,6 +384,128 @@ const SignupFlowScreen = ({ navigation }) => {
     };
   }, [stepIndex]);
 
+  useEffect(() => {
+    const trimmedUsername = form.username.trim().toLowerCase();
+    if (!trimmedUsername) {
+      usernameCheckRequestRef.current += 1;
+      setUsernameAvailability(createAvailabilityState('idle', '', ''));
+      return undefined;
+    }
+
+    setUsernameAvailability(
+      createAvailabilityState('checking', 'Checking username availability...', trimmedUsername)
+    );
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const requestId = usernameCheckRequestRef.current + 1;
+      usernameCheckRequestRef.current = requestId;
+      try {
+        const result = await checkAccountAvailability({ username: trimmedUsername });
+        if (cancelled || usernameCheckRequestRef.current !== requestId) return;
+
+        if (result.usernameReason === 'availability_function_missing') {
+          setUsernameAvailability(
+            createAvailabilityState(
+              'error',
+              'Unable to verify username right now. We will check again when you create your account.',
+              trimmedUsername
+            )
+          );
+          return;
+        }
+
+        if (result.usernameAvailable) {
+          setUsernameAvailability(
+            createAvailabilityState('available', 'Username is available.', trimmedUsername)
+          );
+          return;
+        }
+
+        setUsernameAvailability(
+          createAvailabilityState('taken', 'That username is already taken.', trimmedUsername)
+        );
+      } catch (availabilityError) {
+        if (cancelled || usernameCheckRequestRef.current !== requestId) return;
+        setUsernameAvailability(
+          createAvailabilityState(
+            'error',
+            availabilityError?.message || 'Unable to verify username right now.',
+            trimmedUsername
+          )
+        );
+      }
+    }, AVAILABILITY_DEBOUNCE_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [checkAccountAvailability, form.username]);
+
+  useEffect(() => {
+    const normalizedEmail = form.email.trim().toLowerCase();
+    if (!normalizedEmail || !EMAIL_PATTERN.test(normalizedEmail)) {
+      emailCheckRequestRef.current += 1;
+      setEmailAvailability(createAvailabilityState('idle', '', ''));
+      return undefined;
+    }
+
+    setEmailAvailability(
+      createAvailabilityState('checking', 'Checking email availability...', normalizedEmail)
+    );
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const requestId = emailCheckRequestRef.current + 1;
+      emailCheckRequestRef.current = requestId;
+      try {
+        const result = await checkAccountAvailability({ email: normalizedEmail });
+        if (cancelled || emailCheckRequestRef.current !== requestId) return;
+
+        if (result.emailReason === 'availability_function_missing') {
+          setEmailAvailability(
+            createAvailabilityState(
+              'error',
+              'Unable to verify email right now. We will check again when you create your account.',
+              normalizedEmail
+            )
+          );
+          return;
+        }
+
+        if (result.emailAvailable) {
+          setEmailAvailability(
+            createAvailabilityState('available', 'Email is available.', normalizedEmail)
+          );
+          return;
+        }
+
+        setEmailAvailability(
+          createAvailabilityState(
+            'taken',
+            'That email is already in use. Please sign in or use another.',
+            normalizedEmail
+          )
+        );
+      } catch (availabilityError) {
+        if (cancelled || emailCheckRequestRef.current !== requestId) return;
+        setEmailAvailability(
+          createAvailabilityState(
+            'error',
+            availabilityError?.message || 'Unable to verify email right now.',
+            normalizedEmail
+          )
+        );
+      }
+    }, AVAILABILITY_DEBOUNCE_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [checkAccountAvailability, form.email]);
+
   const getStepError = () => {
     const trimmedName = form.fullName.trim();
     const trimmedUsername = form.username.trim();
@@ -353,22 +519,34 @@ const SignupFlowScreen = ({ navigation }) => {
       case 'name':
         return trimmedName ? '' : 'Please enter your full name.';
       case 'username':
+        if (usernameAvailability.status === 'checking') {
+          return 'Checking username availability...';
+        }
+        if (usernameAvailability.status === 'taken') {
+          return 'That username is already taken.';
+        }
         return trimmedUsername ? '' : 'Please choose a username.';
       case 'email':
         if (!trimmedEmail) {
           return 'Please enter your email address.';
         }
-        if (!/^\S+@\S+\.\S+$/.test(trimmedEmail)) {
+        if (!EMAIL_PATTERN.test(trimmedEmail)) {
           return 'Please enter a valid email address.';
         }
         if (!trimmedConfirmEmail) {
           return 'Please re-enter your email address.';
         }
-        if (!/^\S+@\S+\.\S+$/.test(trimmedConfirmEmail)) {
+        if (!EMAIL_PATTERN.test(trimmedConfirmEmail)) {
           return 'Please enter a valid confirmation email address.';
         }
         if (normalizedEmail !== normalizedConfirmEmail) {
           return 'Email addresses do not match.';
+        }
+        if (emailAvailability.status === 'checking') {
+          return 'Checking email availability...';
+        }
+        if (emailAvailability.status === 'taken') {
+          return 'That email is already in use.';
         }
         return '';
       case 'password': {
@@ -398,14 +576,20 @@ const SignupFlowScreen = ({ navigation }) => {
       case 'name':
         return Boolean(form.fullName.trim());
       case 'username':
-        return Boolean(form.username.trim());
+        return (
+          Boolean(form.username.trim()) &&
+          usernameAvailability.status !== 'checking' &&
+          usernameAvailability.status !== 'taken'
+        );
       case 'email':
         return (
           Boolean(form.email.trim()) &&
           Boolean(form.confirmEmail.trim()) &&
-          /^\S+@\S+\.\S+$/.test(form.email.trim()) &&
-          /^\S+@\S+\.\S+$/.test(form.confirmEmail.trim()) &&
-          form.email.trim().toLowerCase() === form.confirmEmail.trim().toLowerCase()
+          EMAIL_PATTERN.test(form.email.trim()) &&
+          EMAIL_PATTERN.test(form.confirmEmail.trim()) &&
+          form.email.trim().toLowerCase() === form.confirmEmail.trim().toLowerCase() &&
+          emailAvailability.status !== 'checking' &&
+          emailAvailability.status !== 'taken'
         );
       case 'password':
         return (
@@ -418,7 +602,17 @@ const SignupFlowScreen = ({ navigation }) => {
       default:
         return true;
     }
-  }, [form, hasAcceptedTerms, stepIndex]);
+  }, [emailAvailability.status, form, hasAcceptedTerms, stepIndex, usernameAvailability.status]);
+  const passwordStrength = useMemo(
+    () => getPasswordStrength(form.password),
+    [form.password]
+  );
+  const passwordStrengthColor = useMemo(() => {
+    if (passwordStrength.level <= 1) return themeColors?.danger || colors.danger;
+    if (passwordStrength.level === 2) return themeColors?.warning || colors.warning;
+    if (passwordStrength.level === 3) return themeColors?.info || colors.info;
+    return themeColors?.success || colors.success;
+  }, [passwordStrength.level, themeColors]);
 
   const renderBadgeIcon = (badge) => {
     if (badge.iconType === 'feather') {
@@ -777,6 +971,42 @@ const SignupFlowScreen = ({ navigation }) => {
                     inputStyle={styles.inputText}
                   />
                   <Text style={styles.helperText}>Your username must be unique.</Text>
+                  {usernameAvailability.status !== 'idle' && (
+                    <View style={styles.availabilityRow}>
+                      {usernameAvailability.status === 'checking' ? (
+                        <ActivityIndicator
+                          size="small"
+                          color={signupTheme.link}
+                          style={styles.availabilitySpinner}
+                        />
+                      ) : (
+                        <Ionicons
+                          name={
+                            usernameAvailability.status === 'available'
+                              ? 'checkmark-circle'
+                              : 'alert-circle'
+                          }
+                          size={15}
+                          color={
+                            usernameAvailability.status === 'available'
+                              ? colors.success
+                              : colors.danger
+                          }
+                          style={styles.availabilityIcon}
+                        />
+                      )}
+                      <Text
+                        style={[
+                          styles.availabilityText,
+                          usernameAvailability.status === 'available'
+                            ? styles.availabilityTextSuccess
+                            : styles.availabilityTextError,
+                        ]}
+                      >
+                        {usernameAvailability.message}
+                      </Text>
+                    </View>
+                  )}
                 </>
               )}
 
@@ -797,6 +1027,42 @@ const SignupFlowScreen = ({ navigation }) => {
                     ]}
                     inputStyle={styles.inputText}
                   />
+                  {emailAvailability.status !== 'idle' && (
+                    <View style={styles.availabilityRow}>
+                      {emailAvailability.status === 'checking' ? (
+                        <ActivityIndicator
+                          size="small"
+                          color={signupTheme.link}
+                          style={styles.availabilitySpinner}
+                        />
+                      ) : (
+                        <Ionicons
+                          name={
+                            emailAvailability.status === 'available'
+                              ? 'checkmark-circle'
+                              : 'alert-circle'
+                          }
+                          size={15}
+                          color={
+                            emailAvailability.status === 'available'
+                              ? colors.success
+                              : colors.danger
+                          }
+                          style={styles.availabilityIcon}
+                        />
+                      )}
+                      <Text
+                        style={[
+                          styles.availabilityText,
+                          emailAvailability.status === 'available'
+                            ? styles.availabilityTextSuccess
+                            : styles.availabilityTextError,
+                        ]}
+                      >
+                        {emailAvailability.message}
+                      </Text>
+                    </View>
+                  )}
                   <Input
                     label="Re-enter email address"
                     placeholder="john@example.com"
@@ -832,6 +1098,35 @@ const SignupFlowScreen = ({ navigation }) => {
                     ]}
                     inputStyle={styles.inputText}
                   />
+                  <View style={styles.passwordStrengthWrap}>
+                    <View style={styles.passwordStrengthRow}>
+                      <Text style={styles.passwordStrengthTitle}>Password strength</Text>
+                      <Text
+                        style={[
+                          styles.passwordStrengthValue,
+                          { color: passwordStrengthColor },
+                        ]}
+                      >
+                        {passwordStrength.label}
+                      </Text>
+                    </View>
+                    <View style={styles.passwordStrengthBars}>
+                      {[1, 2, 3, 4].map((bar) => (
+                        <View
+                          key={`strength-${bar}`}
+                          style={[
+                            styles.passwordStrengthBar,
+                            bar <= passwordStrength.level
+                              ? { backgroundColor: passwordStrengthColor }
+                              : styles.passwordStrengthBarInactive,
+                          ]}
+                        />
+                      ))}
+                    </View>
+                    <Text style={styles.passwordStrengthHint}>
+                      Use 6+ characters, uppercase letters, numbers, and symbols.
+                    </Text>
+                  </View>
                   <Input
                     label="Confirm password"
                     placeholder="********"
@@ -1128,6 +1423,69 @@ const createStyles = (themeColorsParam = colors) => {
       ...typography.caption,
       color: mutedText,
       marginBottom: spacing.md,
+    },
+    availabilityRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: spacing.sm,
+      minHeight: 18,
+    },
+    availabilitySpinner: {
+      marginRight: spacing.xs,
+    },
+    availabilityIcon: {
+      marginRight: spacing.xs,
+    },
+    availabilityText: {
+      ...typography.caption,
+      flexShrink: 1,
+    },
+    availabilityTextSuccess: {
+      color: colors.success,
+    },
+    availabilityTextError: {
+      color: colors.danger,
+    },
+    passwordStrengthWrap: {
+      marginTop: -spacing.xs,
+      marginBottom: spacing.md,
+      padding: spacing.sm,
+      borderRadius: borderRadius.md,
+      borderWidth: 1,
+      borderColor: '#E6E8F0',
+      backgroundColor: '#FBFCFF',
+    },
+    passwordStrengthRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: spacing.xs,
+    },
+    passwordStrengthTitle: {
+      ...typography.caption,
+      color: mutedText,
+      fontWeight: '600',
+    },
+    passwordStrengthValue: {
+      ...typography.caption,
+      fontWeight: '700',
+    },
+    passwordStrengthBars: {
+      flexDirection: 'row',
+      gap: spacing.xs,
+      marginBottom: spacing.xs,
+    },
+    passwordStrengthBar: {
+      flex: 1,
+      height: 6,
+      borderRadius: borderRadius.full,
+    },
+    passwordStrengthBarInactive: {
+      backgroundColor: '#E5E7EB',
+    },
+    passwordStrengthHint: {
+      ...typography.caption,
+      color: mutedText,
     },
     termsCard: {
       borderRadius: borderRadius.lg,

@@ -11,6 +11,7 @@ import {
   Alert,
   Switch,
   Platform,
+  InteractionManager,
   useWindowDimensions,
   Modal as RNModal,
 } from 'react-native';
@@ -486,6 +487,7 @@ const SwipeHabitCard = ({
   streakFrozen = false,
   freezeEligible = false,
   isInteractive,
+  swipeGesturesEnabled = true,
   onTap,
   onEdit,
   onSkip,
@@ -498,20 +500,22 @@ const SwipeHabitCard = ({
 }) => {
   const actionTileCount = achieved ? 2 : 3;
   const ACTION_RAIL_WIDTH = spacing.sm + actionTileCount * (64 + spacing.sm);
-  const FILL_SWIPE_DISTANCE = 210;
-  const SWIPE_CAPTURE_DISTANCE = 12;
-  const HORIZONTAL_INTENT_RATIO = 1.2;
-  const ACTION_OPEN_DISTANCE = 56;
-  const ACTION_OPEN_VELOCITY = -0.45;
-  const ACTION_CLOSE_DISTANCE = 40;
-  const ACTION_CLOSE_VELOCITY = 0.4;
-  const PROGRESS_COMMIT_DISTANCE = 24;
-  const PROGRESS_COMMIT_RATIO_FLOOR = 0.03;
-  const PROGRESS_EASING = 1.2;
+  const FILL_SWIPE_DISTANCE = 280;
+  const PROGRESS_ACTIVATION_DISTANCE = 16;
+  const SWIPE_CAPTURE_DISTANCE = 18;
+  const HORIZONTAL_INTENT_RATIO = 1.45;
+  const ACTION_DRAG_DAMPING = 0.88;
+  const ACTION_OPEN_DISTANCE = 74;
+  const ACTION_OPEN_VELOCITY = -0.62;
+  const ACTION_CLOSE_DISTANCE = 52;
+  const ACTION_CLOSE_VELOCITY = 0.55;
+  const PROGRESS_COMMIT_DISTANCE = 44;
+  const PROGRESS_COMMIT_RATIO_FLOOR = 0.045;
+  const PROGRESS_EASING = 1.35;
   const { width: windowWidth } = useWindowDimensions();
   const rowWidth = Math.max(1, windowWidth - spacing.lg * 2);
-  const canSwipeProgress = isInteractive && !achieved;
-  const canSwipeActions = isInteractive || achieved;
+  const canSwipeProgress = swipeGesturesEnabled && isInteractive && !achieved;
+  const canSwipeActions = swipeGesturesEnabled && (isInteractive || achieved);
   const translateX = useRef(new Animated.Value(0)).current;
   const [actionsOpen, setActionsOpen] = useState(false);
   const [dragFillRatio, setDragFillRatio] = useState(0);
@@ -530,15 +534,17 @@ const SwipeHabitCard = ({
     (dx, startRatio = progressRatioRef.current) => {
       const base = clamp(startRatio, 0, 1);
       if (dx <= 0) return base;
+      const adjustedDistance = Math.max(0, dx - PROGRESS_ACTIVATION_DISTANCE);
+      if (adjustedDistance <= 0) return base;
 
       const remaining = Math.max(0, 1 - base);
       if (remaining <= 0) return 1;
 
-      const swipeProgress = clamp(dx / FILL_SWIPE_DISTANCE, 0, 1) ** PROGRESS_EASING;
+      const swipeProgress = clamp(adjustedDistance / FILL_SWIPE_DISTANCE, 0, 1) ** PROGRESS_EASING;
       const delta = swipeProgress * remaining;
       return clamp(base + delta, base, 1);
     },
-    [FILL_SWIPE_DISTANCE, PROGRESS_EASING]
+    [FILL_SWIPE_DISTANCE, PROGRESS_ACTIVATION_DISTANCE, PROGRESS_EASING]
   );
 
   const flushDragFillToState = useCallback(() => {
@@ -616,12 +622,23 @@ const SwipeHabitCard = ({
     [setSwipeInteractionActive]
   );
 
+  useEffect(() => {
+    if (swipeGesturesEnabled) return;
+    setSwipeInteractionActive(false);
+    clearDragFillPreview();
+    translateX.stopAnimation(() => {
+      translateX.setValue(0);
+      setActionsOpen(false);
+    });
+  }, [clearDragFillPreview, setSwipeInteractionActive, swipeGesturesEnabled, translateX]);
+
   const closeActions = useCallback(() => {
     Animated.spring(translateX, {
       toValue: 0,
       useNativeDriver: true,
-      speed: 19,
-      bounciness: 5,
+      tension: 220,
+      friction: 26,
+      overshootClamping: true,
     }).start(() => setActionsOpen(false));
   }, [translateX]);
 
@@ -629,8 +646,9 @@ const SwipeHabitCard = ({
     Animated.spring(translateX, {
       toValue: -ACTION_RAIL_WIDTH,
       useNativeDriver: true,
-      speed: 19,
-      bounciness: 5,
+      tension: 220,
+      friction: 26,
+      overshootClamping: true,
     }).start(() => setActionsOpen(true));
   }, [ACTION_RAIL_WIDTH, translateX]);
 
@@ -638,6 +656,7 @@ const SwipeHabitCard = ({
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, g) => {
+          if (!swipeGesturesEnabled) return false;
           const absDx = Math.abs(g.dx);
           const absDy = Math.abs(g.dy);
           if (absDx < SWIPE_CAPTURE_DISTANCE) return false;
@@ -657,7 +676,8 @@ const SwipeHabitCard = ({
           if (actionsOpen) {
             clearDragFillPreview();
             if (g.dx >= 0) {
-              translateX.setValue(clamp(-ACTION_RAIL_WIDTH + g.dx, -ACTION_RAIL_WIDTH, 0));
+              const dampedDx = g.dx * ACTION_DRAG_DAMPING;
+              translateX.setValue(clamp(-ACTION_RAIL_WIDTH + dampedDx, -ACTION_RAIL_WIDTH, 0));
             } else {
               translateX.setValue(-ACTION_RAIL_WIDTH);
             }
@@ -667,7 +687,8 @@ const SwipeHabitCard = ({
           if (g.dx < 0) {
             if (!canSwipeActions) return;
             clearDragFillPreview();
-            translateX.setValue(clamp(g.dx, -ACTION_RAIL_WIDTH, 0));
+            const dampedDx = g.dx * ACTION_DRAG_DAMPING;
+            translateX.setValue(clamp(dampedDx, -ACTION_RAIL_WIDTH, 0));
             return;
           }
 
@@ -754,6 +775,7 @@ const SwipeHabitCard = ({
       ACTION_RAIL_WIDTH,
       ACTION_CLOSE_DISTANCE,
       ACTION_CLOSE_VELOCITY,
+      ACTION_DRAG_DAMPING,
       ACTION_OPEN_DISTANCE,
       ACTION_OPEN_VELOCITY,
       HORIZONTAL_INTENT_RATIO,
@@ -773,10 +795,12 @@ const SwipeHabitCard = ({
       openActions,
       ratio,
       setDragFillPreview,
+      swipeGesturesEnabled,
       translateX,
       progress,
     ]
   );
+  const resolvedPanHandlers = swipeGesturesEnabled ? panResponder.panHandlers : {};
 
   const achievedReferenceDate = parseDateOnly(habit?.endDate) || new Date();
   const achievedFinalStreak = achieved
@@ -881,7 +905,7 @@ const SwipeHabitCard = ({
             transform: [{ translateX }],
           },
         ]}
-        {...panResponder.panHandlers}
+        {...resolvedPanHandlers}
       >
         <View style={[styles.habitWrapper, { width: rowWidth }]}>
           {shouldRenderFillTrack ? (
@@ -1020,6 +1044,7 @@ const HabitsScreen = () => {
     authUser,
     profile,
     profileLoaded,
+    isLoading,
     themeName,
     themeColors,
     ensureHabitsLoaded,
@@ -1048,6 +1073,8 @@ const HabitsScreen = () => {
   );
   const styles = useMemo(() => createStyles(palette), [palette]);
   const [isHabitsHydrating, setIsHabitsHydrating] = useState(true);
+  const [isHabitSwipeActive, setIsHabitSwipeActive] = useState(false);
+  const [areSwipeGesturesReady, setAreSwipeGesturesReady] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -1072,6 +1099,33 @@ const HabitsScreen = () => {
     };
   }, [authUser?.id, ensureHabitsLoaded]);
 
+  useEffect(() => {
+    let cancelled = false;
+    let interactionTask = null;
+
+    if (!isFocused || isLoading || isHabitsHydrating || !profileLoaded) {
+      setAreSwipeGesturesReady(false);
+      setIsHabitSwipeActive(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    interactionTask = InteractionManager.runAfterInteractions(() => {
+      if (cancelled) return;
+      requestAnimationFrame(() => {
+        if (!cancelled) setAreSwipeGesturesReady(true);
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      if (interactionTask && typeof interactionTask.cancel === 'function') {
+        interactionTask.cancel();
+      }
+    };
+  }, [isFocused, isHabitsHydrating, isLoading, profileLoaded]);
+
   const hasCompletedHabitsTutorial = profile?.hasCompletedHabitsTutorial === true;
   const shouldShowHabitsTutorial = profile?.hasCompletedHabitsTutorial === false;
   const [showHabitsHowTo, setShowHabitsHowTo] = useState(false);
@@ -1089,7 +1143,6 @@ const HabitsScreen = () => {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedTimeRange, setSelectedTimeRange] = useState('all_day');
   const [localProgressMap, setLocalProgressMap] = useState({});
-  const [isHabitSwipeActive, setIsHabitSwipeActive] = useState(false);
 
   const [activeHabitId, setActiveHabitId] = useState(null);
   const [activeGroupHabitId, setActiveGroupHabitId] = useState(null);
@@ -2192,6 +2245,7 @@ const HabitsScreen = () => {
                 streakFrozen={streakFrozen}
                 freezeEligible={isSelectedDateToday}
                 isInteractive={!isHabitsHydrating && isSelectedDateToday && !lifecycleCompleted}
+                swipeGesturesEnabled={areSwipeGesturesReady}
                 onTap={(item) => {
                   if (isHabitsHydrating && !lifecycleCompleted) return;
                   if (item.__isGroupHabit) {
@@ -2374,22 +2428,10 @@ const HabitsScreen = () => {
                 <Ionicons name="add" size={18} color={palette.habits} />
               </TouchableOpacity>
             </View>
-            <Text style={[styles.manualGoal, { color: palette.textMuted }]}>
-              Goal: {getGoalValue(selectedHabit)} {selectedHabit.goalUnit || 'times'}
-            </Text>
-            <View style={styles.manualButtons}>
-              <TouchableOpacity
-                style={[styles.manualBtn, { backgroundColor: palette.mutedSurface }]}
-                onPress={() => {
-                  setShowManualModal(false);
-                  setManualAutoComplete(false);
-                }}
-              >
-                <Text style={[styles.manualBtnText, { color: palette.textMuted }]}>Cancel</Text>
-              </TouchableOpacity>
+            <View style={styles.manualCompleteWrap}>
               <TouchableOpacity
                 style={[
-                  styles.manualCheckButton,
+                  styles.manualCompleteButton,
                   {
                     backgroundColor: manualAutoComplete ? '#16A34A' : palette.mutedSurface,
                     borderColor: manualAutoComplete ? '#16A34A' : palette.cardBorder,
@@ -2405,10 +2447,35 @@ const HabitsScreen = () => {
                 activeOpacity={0.9}
               >
                 <Ionicons
-                  name={manualAutoComplete ? 'checkbox' : 'square-outline'}
-                  size={20}
-                  color={manualAutoComplete ? '#FFFFFF' : '#16A34A'}
+                  name={manualAutoComplete ? 'checkmark-circle' : 'ellipse-outline'}
+                  size={18}
+                  color={manualAutoComplete ? '#FFFFFF' : palette.textMuted}
                 />
+                <Text
+                  style={[
+                    styles.manualCompleteText,
+                    { color: manualAutoComplete ? '#FFFFFF' : palette.text },
+                  ]}
+                >
+                  {manualAutoComplete ? 'This will mark the habit complete' : 'Mark habit complete'}
+                </Text>
+              </TouchableOpacity>
+              <Text style={[styles.manualCompleteHint, { color: palette.textMuted }]}>
+                Sets amount to your goal automatically.
+              </Text>
+            </View>
+            <Text style={[styles.manualGoal, { color: palette.textMuted }]}>
+              Goal: {getGoalValue(selectedHabit)} {selectedHabit.goalUnit || 'times'}
+            </Text>
+            <View style={styles.manualButtons}>
+              <TouchableOpacity
+                style={[styles.manualBtn, { backgroundColor: palette.mutedSurface }]}
+                onPress={() => {
+                  setShowManualModal(false);
+                  setManualAutoComplete(false);
+                }}
+              >
+                <Text style={[styles.manualBtnText, { color: palette.textMuted }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.manualBtn, { backgroundColor: selectedHabitColor }]}
@@ -3346,17 +3413,21 @@ const createStyles = (palette) =>
       justifyContent: 'center',
       marginHorizontal: spacing.xs,
     },
-    manualGoal: { ...typography.caption, marginTop: spacing.sm },
-    manualButtons: { flexDirection: 'row', marginTop: spacing.lg },
-    manualBtn: { flex: 1, borderRadius: borderRadius.lg, paddingVertical: spacing.md, alignItems: 'center', marginHorizontal: spacing.xs },
-    manualCheckButton: {
-      width: 48,
-      borderRadius: borderRadius.lg,
+    manualCompleteWrap: { marginTop: spacing.sm },
+    manualCompleteButton: {
       borderWidth: 1,
+      borderRadius: borderRadius.lg,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      marginHorizontal: spacing.xs,
     },
+    manualCompleteText: { ...typography.bodySmall, fontWeight: '700', marginLeft: spacing.xs },
+    manualCompleteHint: { ...typography.caption, marginTop: spacing.xs, textAlign: 'center' },
+    manualGoal: { ...typography.caption, marginTop: spacing.sm },
+    manualButtons: { flexDirection: 'row', marginTop: spacing.md },
+    manualBtn: { flex: 1, borderRadius: borderRadius.lg, paddingVertical: spacing.md, alignItems: 'center', marginHorizontal: spacing.xs },
     manualBtnText: { ...typography.bodySmall, fontWeight: '700' },
     manualBtnTextWhite: { ...typography.bodySmall, color: '#FFFFFF', fontWeight: '700' },
     quitInfoOverlay: {

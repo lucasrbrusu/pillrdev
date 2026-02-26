@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
-import { buildDateWithTime, formatTimeFromDate } from '../utils/notifications';
+import { formatTimeFromDate } from '../utils/notifications';
 import {
   Card,
   Modal,
@@ -73,7 +73,6 @@ const TASK_MONTH_NAMES = [
 
 const TASK_QUICK_TIMES = ['09:00', '12:00', '15:00', '18:00', '20:00'];
 const TASK_QUICK_DURATIONS = [15, 30, 45, 60, 90, 120];
-const TASK_ARCHIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const TASK_FILTER_TAB_ALL = 'All';
 const TASK_FILTER_TAB_TASKS = 'Tasks';
 const TASK_FILTER_TAB_HOLIDAYS = 'Holidays';
@@ -112,12 +111,6 @@ const normalizeTimeValue = (value) => {
   if (suffix === 'AM' && hour === 12) hour = 0;
   const paddedHour = hour.toString().padStart(2, '0');
   return `${paddedHour}:${minute}`;
-};
-
-const isTaskPastArchiveWindow = (task, nowMs = Date.now()) => {
-  const due = buildDateWithTime(task?.date, task?.time, 23, 59);
-  if (!(due instanceof Date) || Number.isNaN(due.getTime())) return false;
-  return nowMs - due.getTime() >= TASK_ARCHIVE_WINDOW_MS;
 };
 
 const TasksScreen = () => {
@@ -337,7 +330,6 @@ const TasksScreen = () => {
 
   const hasTasksOnDate = (date) =>
     (tasks || []).some((task) => {
-      if (isTaskPastArchiveWindow(task)) return false;
       if (!task?.date) return false;
       const dateVal = new Date(task.date);
       if (Number.isNaN(dateVal.getTime())) return false;
@@ -351,7 +343,6 @@ const TasksScreen = () => {
 
   const filteredTasks = useMemo(() => {
     let filtered = [...tasks];
-    filtered = filtered.filter((task) => !isTaskPastArchiveWindow(task));
 
     // Filter by tab
     switch (activeTab) {
@@ -422,7 +413,6 @@ const TasksScreen = () => {
     () =>
       (tasks || []).filter(
         (task) =>
-          !isTaskPastArchiveWindow(task) &&
           task?.date &&
           task?.time &&
           normalizeTaskCategory(task?.category) !== TASK_CATEGORY_HOLIDAY
@@ -475,7 +465,6 @@ const TasksScreen = () => {
     const selectedKey = selectedDate.toDateString();
     return (tasks || [])
       .filter((task) => {
-        if (isTaskPastArchiveWindow(task)) return false;
         if (!task?.date) return false;
         const dateVal = new Date(task.date);
         if (Number.isNaN(dateVal.getTime())) return false;
@@ -499,7 +488,6 @@ const TasksScreen = () => {
 
     return (tasks || [])
       .filter((task) => {
-        if (isTaskPastArchiveWindow(task)) return false;
         if (!task?.date) return false;
         const dateVal = new Date(task.date);
         if (Number.isNaN(dateVal.getTime())) return false;
@@ -1513,16 +1501,6 @@ const TasksScreen = () => {
                   <Text style={[styles.sectionTitle, { color: tasksTheme.tasksTitle, marginBottom: 0 }]}>
                     {taskSectionTitle}
                   </Text>
-                  <TouchableOpacity
-                    style={[styles.archiveButton, { borderColor: tasksTheme.taskItemBorder }]}
-                    onPress={() => navigation.navigate('TaskArchive')}
-                    activeOpacity={0.85}
-                  >
-                    <Ionicons name="archive-outline" size={16} color={tasksTheme.tasksTitle} />
-                    <Text style={[styles.archiveButtonText, { color: tasksTheme.tasksTitle }]}>
-                      Archive
-                    </Text>
-                  </TouchableOpacity>
                 </View>
                 {filteredTasks.length === 0 ? (
                   <View style={styles.emptyState}>
@@ -3038,19 +3016,6 @@ const createStyles = (themeColors) => {
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: spacing.md,
-  },
-  archiveButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: borderRadius.full,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-  },
-  archiveButtonText: {
-    ...typography.bodySmall,
-    fontWeight: '700',
-    marginLeft: 6,
   },
   linkText: {
     ...typography.bodySmall,

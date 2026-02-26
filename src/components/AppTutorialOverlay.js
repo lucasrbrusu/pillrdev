@@ -32,7 +32,7 @@ const TUTORIAL_STEPS = [
   {
     id: 'tasks',
     title: 'Tasks',
-    summary: 'Plan your day with tasks, due dates, and archive management.',
+    summary: 'Plan your day with tasks, due dates, and daily scheduling.',
     routeIndex: 2,
     color: colors.tasks,
     highlightWidth: 92,

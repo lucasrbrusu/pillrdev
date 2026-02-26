@@ -61,6 +61,15 @@ const getRecurringPaymentKey = (groupId, payment = {}) => {
   return `${groupId || ''}::${paymentId || normalizeRecurringText(payment.name)}`;
 };
 
+const toDateInputValue = (dateValue = new Date()) => {
+  const parsed = dateValue instanceof Date ? dateValue : new Date(dateValue);
+  if (Number.isNaN(parsed.getTime())) return '';
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const formatWindowLabel = (start, end) => {
   if (!start || !end) return '';
   const endDisplay = new Date(end.getTime() - 24 * 60 * 60 * 1000);
@@ -191,6 +200,7 @@ const FinanceScreen = () => {
   const [showIncomeModal, setShowIncomeModal] = useState(false);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showRecurringDueDatePicker, setShowRecurringDueDatePicker] = useState(false);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [showRecurringModal, setShowRecurringModal] = useState(false);
   const [transactionsExpanded, setTransactionsExpanded] = useState(true);
@@ -201,7 +211,7 @@ const FinanceScreen = () => {
   const [customCategory, setCustomCategory] = useState('');
   const [selectedCurrency, setSelectedCurrency] = useState(defaultCurrencies[0]);
   const [transactionDate, setTransactionDate] = useState(
-    new Date().toISOString().split('T')[0]
+    toDateInputValue(new Date())
   );
   const [reference, setReference] = useState('');
 
@@ -217,8 +227,10 @@ const FinanceScreen = () => {
   const [recurringName, setRecurringName] = useState('');
   const [recurringAmount, setRecurringAmount] = useState('');
   const [recurringCadence, setRecurringCadence] = useState('monthly');
+  const [recurringNextDueDate, setRecurringNextDueDate] = useState(
+    toDateInputValue(new Date())
+  );
   const [activeGroupForRecurring, setActiveGroupForRecurring] = useState(null);
-  const [selectedRecurringPayment, setSelectedRecurringPayment] = useState(null);
   const [assignToBudget, setAssignToBudget] = useState(false);
   const [selectedBudgetGroupId, setSelectedBudgetGroupId] = useState(null);
 
@@ -234,8 +246,7 @@ const FinanceScreen = () => {
   const currencyForCode = (code) =>
     defaultCurrencies.find((c) => c.code === code) || selectedCurrency;
 
-  const formatDateForInput = (date) =>
-    new Date(date).toISOString().split('T')[0];
+  const formatDateForInput = (date) => toDateInputValue(date);
 
   const dailySummary = useMemo(() => {
     return getFinanceSummaryForDate(selectedDate);
@@ -323,7 +334,6 @@ const FinanceScreen = () => {
     setCategory('');
     setCustomCategory('');
     setReference('');
-    setSelectedRecurringPayment(null);
     setTransactionDate(formatDateForInput(selectedDate));
     setAssignToBudget(false);
     setSelectedBudgetGroupId(null);
@@ -342,7 +352,9 @@ const FinanceScreen = () => {
     setRecurringName('');
     setRecurringAmount('');
     setRecurringCadence('monthly');
+    setRecurringNextDueDate(formatDateForInput(new Date()));
     setActiveGroupForRecurring(null);
+    setShowRecurringDueDatePicker(false);
   };
 
   const handleAddIncome = async () => {
@@ -363,11 +375,7 @@ const FinanceScreen = () => {
 
   const handleAddExpense = async () => {
     if (!amount || !category) return;
-    const recurringReference = selectedRecurringPayment?.name || '';
-    const referenceValue = reference.trim() || recurringReference || null;
-    const budgetGroupIds = selectedRecurringPayment?.groupId
-      ? [selectedRecurringPayment.groupId]
-      : assignToBudget && selectedBudgetGroupId
+    const budgetGroupIds = assignToBudget && selectedBudgetGroupId
       ? [selectedBudgetGroupId]
       : [];
 
@@ -377,7 +385,7 @@ const FinanceScreen = () => {
       category: category === 'custom' ? customCategory : category,
       currency: selectedCurrency.code,
       date: transactionDate,
-      reference: referenceValue,
+      reference: reference.trim() || null,
       budgetGroupIds,
     });
 
@@ -403,12 +411,15 @@ const FinanceScreen = () => {
   };
 
   const handleAddRecurringPayment = async () => {
-    if (!activeGroupForRecurring || !recurringName.trim()) return;
+    if (!activeGroupForRecurring || !recurringName.trim() || !recurringNextDueDate) {
+      return;
+    }
 
     await addRecurringPaymentToGroup(activeGroupForRecurring, {
       name: recurringName.trim(),
       amount: parseFloat(recurringAmount) || 0,
       cadence: recurringCadence,
+      nextDueDate: recurringNextDueDate,
     });
 
     resetRecurringForm();
@@ -421,43 +432,8 @@ const FinanceScreen = () => {
     setRecurringName('');
     setRecurringAmount('');
     setRecurringCadence('monthly');
-  };
-
-  const handleSelectRecurringPayment = (option) => {
-    if (!option) return;
-
-    const alreadySelected =
-      selectedRecurringPayment?.groupId === option.groupId &&
-      selectedRecurringPayment?.paymentId === option.paymentId;
-
-    if (alreadySelected) {
-      setSelectedRecurringPayment(null);
-      return;
-    }
-
-    setSelectedRecurringPayment(option);
-    setAssignToBudget(true);
-    setSelectedBudgetGroupId(option.groupId);
-
-    const parsedAmount = Number(option.amount);
-    setAmount(
-      Number.isFinite(parsedAmount) && parsedAmount > 0
-        ? String(parsedAmount)
-        : ''
-    );
-    setReference(option.name || '');
-
-    const allowedIds = Array.isArray(option.groupCategories)
-      ? option.groupCategories.filter(Boolean)
-      : [];
-    const fallbackCategory = allowedIds.length
-      ? allowedIds.includes('bills')
-        ? 'bills'
-        : allowedIds[0]
-      : 'bills';
-    setCategory((prev) =>
-      allowedIds.length && allowedIds.includes(prev) ? prev : fallbackCategory
-    );
+    setRecurringNextDueDate(formatDateForInput(selectedDate || new Date()));
+    setShowRecurringDueDatePicker(false);
   };
 
   const formatCurrency = (value, showSign = false, currencyCode) => {
@@ -471,6 +447,7 @@ const FinanceScreen = () => {
 
   const formatDate = (dateValue) => {
     const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
+    if (Number.isNaN(date.getTime())) return 'Invalid date';
     return date.toLocaleDateString('en-US', {
       weekday: 'short',
       day: 'numeric',
@@ -499,7 +476,6 @@ const FinanceScreen = () => {
 
   useEffect(() => {
     if (!assignToBudget) {
-      setSelectedRecurringPayment(null);
       return;
     }
     if (!selectedBudgetGroup) {
@@ -516,13 +492,6 @@ const FinanceScreen = () => {
     selectedBudgetGroup,
     expenseCategoryOptions,
   ]);
-
-  useEffect(() => {
-    if (!selectedRecurringPayment) return;
-    if (selectedBudgetGroupId !== selectedRecurringPayment.groupId) {
-      setSelectedRecurringPayment(null);
-    }
-  }, [selectedBudgetGroupId, selectedRecurringPayment]);
 
   const handleOpenIncome = () => {
     setTransactionDate(formatDateForInput(selectedDate));
@@ -554,31 +523,14 @@ const FinanceScreen = () => {
   const activeRecurringGroup = budgetGroups.find(
     (group) => group.id === activeGroupForRecurring
   );
+  const recurringDuePickerValue = useMemo(() => {
+    if (!recurringNextDueDate) return new Date();
+    const parsed = new Date(`${recurringNextDueDate}T12:00:00`);
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  }, [recurringNextDueDate]);
   const selectedBudgetGroup = useMemo(
     () => budgetGroups.find((group) => group.id === selectedBudgetGroupId),
     [budgetGroups, selectedBudgetGroupId]
-  );
-  const recurringPaymentOptions = useMemo(
-    () =>
-      (budgetGroups || []).flatMap((group) => {
-        const recurringPayments = Array.isArray(group.recurringPayments)
-          ? group.recurringPayments
-          : [];
-        return recurringPayments.map((payment) => ({
-          paymentId: payment.id || normalizeRecurringText(payment.name),
-          groupId: group.id,
-          groupName: group.name,
-          groupCadence: group.cadence,
-          groupCurrency: group.currency,
-          groupCategories: Array.isArray(group.categories)
-            ? group.categories
-            : [],
-          name: payment.name || 'Recurring payment',
-          amount: Number(payment.amount) || 0,
-          cadence: payment.cadence || group.cadence || 'monthly',
-        }));
-      }),
-    [budgetGroups]
   );
   const expenseCategoryOptions = useMemo(() => {
     if (assignToBudget && selectedBudgetGroup) {
@@ -1115,7 +1067,7 @@ const FinanceScreen = () => {
                         </Text>
                         {(summary.group.recurringPayments || []).length === 0 ? (
                           <Text style={styles.subduedLabel}>
-                            Add expected recurring payments to monitor them.
+                            Add recurring payments with due dates to auto-post them.
                           </Text>
                         ) : (
                           summary.group.recurringPayments.map((item) => {
@@ -1127,6 +1079,11 @@ const FinanceScreen = () => {
                             const lastPaidLabel = paymentStats?.lastPaidAt
                               ? `Last paid ${formatDate(new Date(paymentStats.lastPaidAt))}`
                               : 'Not recorded yet';
+                            const nextDueLabel = item.nextDueDate
+                              ? `Next due ${formatDate(
+                                  new Date(`${item.nextDueDate}T12:00:00`)
+                                )}`
+                              : 'Due date not set';
                             return (
                               <View
                                 key={getRecurringPaymentKey(summary.group.id, item)}
@@ -1141,6 +1098,9 @@ const FinanceScreen = () => {
                                     {paymentStats?.count
                                       ? ` - ${paymentStats.count} recorded`
                                       : ''}
+                                  </Text>
+                                  <Text style={styles.recurringTrackingMeta}>
+                                    {nextDueLabel}
                                   </Text>
                                   <Text style={styles.recurringTrackingMeta}>
                                     {lastPaidLabel}
@@ -1301,53 +1261,6 @@ const FinanceScreen = () => {
           />
         </View>
 
-        <Text style={styles.inputLabel}>Recurring payment (optional)</Text>
-        {recurringPaymentOptions.length === 0 ? (
-          <Text style={styles.subduedLabel}>
-            Add recurring payments in Budget Manager to record them here.
-          </Text>
-        ) : (
-          <View style={styles.budgetSelect}>
-            {recurringPaymentOptions.map((option) => {
-              const selected =
-                selectedRecurringPayment?.groupId === option.groupId &&
-                selectedRecurringPayment?.paymentId === option.paymentId;
-              return (
-                <TouchableOpacity
-                  key={`${option.groupId}-${option.paymentId}`}
-                  style={[
-                    styles.budgetOption,
-                    selected && styles.budgetOptionSelected,
-                  ]}
-                  onPress={() => handleSelectRecurringPayment(option)}
-                  activeOpacity={0.8}
-                >
-                  <View
-                    style={[
-                      styles.budgetOptionDot,
-                      selected && styles.budgetOptionDotSelected,
-                    ]}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text
-                      style={[
-                        styles.budgetOptionLabel,
-                        selected && styles.budgetOptionLabelSelected,
-                      ]}
-                    >
-                      {option.name}
-                    </Text>
-                    <Text style={styles.budgetOptionMeta}>
-                      {option.groupName} - {formatCadenceLabel(option.cadence)} -{' '}
-                      {formatCurrency(option.amount, false, option.groupCurrency)}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
-
         <Text style={styles.inputLabel}>Category</Text>
         {assignToBudget && !selectedBudgetGroup ? (
           <Text style={styles.subduedLabel}>
@@ -1400,7 +1313,6 @@ const FinanceScreen = () => {
               const nextValue = !prev;
               if (!nextValue) {
                 setSelectedBudgetGroupId(null);
-                setSelectedRecurringPayment(null);
               }
               return nextValue;
             })
@@ -1606,6 +1518,19 @@ const FinanceScreen = () => {
           placeholder="e.g. Rent, Gym, Subscriptions"
         />
 
+        <Text style={styles.inputLabel}>First due date</Text>
+        <TouchableOpacity
+          style={styles.modalDatePicker}
+          onPress={() => setShowRecurringDueDatePicker(true)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="calendar-outline" size={18} color={palette.textSecondary} />
+          <Text style={styles.modalDateText}>
+            {formatDate(recurringDuePickerValue)}
+          </Text>
+          <Ionicons name="chevron-down" size={18} color={palette.textSecondary} />
+        </TouchableOpacity>
+
         <Text style={styles.inputLabel}>Amount</Text>
         <View style={styles.amountInputContainer}>
           <Text style={styles.currencySymbol}>{selectedCurrency.symbol}</Text>
@@ -1640,7 +1565,7 @@ const FinanceScreen = () => {
           <Button
             title="Add payment"
             onPress={handleAddRecurringPayment}
-            disabled={!recurringName || !activeRecurringGroup}
+            disabled={!recurringName || !activeRecurringGroup || !recurringNextDueDate}
             style={styles.modalButton}
             disableTranslation
           />
@@ -1653,6 +1578,15 @@ const FinanceScreen = () => {
         value={selectedDate}
         onChange={handleDateChange}
         onClose={() => setShowDatePicker(false)}
+        accentColor={palette.finance}
+      />
+      <PlatformDatePicker
+        visible={showRecurringDueDatePicker}
+        value={recurringDuePickerValue}
+        onChange={(date) => {
+          setRecurringNextDueDate(formatDateForInput(date));
+        }}
+        onClose={() => setShowRecurringDueDatePicker(false)}
         accentColor={palette.finance}
       />
     </View>
@@ -2222,6 +2156,25 @@ const createStyles = (themeColorsParam, isDark = false) => {
       fontWeight: '600',
       paddingVertical: spacing.md,
       color: text,
+    },
+    modalDatePicker: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: palette.inputBackground,
+      borderRadius: borderRadius.md,
+      borderWidth: 1,
+      borderColor: palette.border,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+      marginBottom: spacing.md,
+    },
+    modalDateText: {
+      ...typography.body,
+      flex: 1,
+      marginHorizontal: spacing.sm,
+      color: text,
+      fontWeight: '600',
     },
     categoryGrid: {
       flexDirection: 'row',

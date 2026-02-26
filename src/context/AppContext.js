@@ -1338,35 +1338,6 @@ const isTaskPastArchiveWindow = (task, nowMs = Date.now()) => {
   return nowMs - due.getTime() >= TASK_ARCHIVE_WINDOW_MS;
 };
 
-const splitTaskBuckets = (items = [], nowMs = Date.now()) => {
-  const active = [];
-  const archived = [];
-  const newlyArchivedIds = [];
-
-  (items || []).forEach((task) => {
-    const isPastArchiveWindow = isTaskPastArchiveWindow(task, nowMs);
-    const isArchived = Boolean(task?.archivedAt) || isPastArchiveWindow;
-
-    if (isArchived) {
-      archived.push(task);
-      if (!task?.archivedAt && isPastArchiveWindow && task?.id) {
-        newlyArchivedIds.push(task.id);
-      }
-      return;
-    }
-    active.push(task);
-  });
-
-  active.sort((a, b) => getTaskSortMs(a) - getTaskSortMs(b));
-  archived.sort((a, b) => getTaskSortMs(b) - getTaskSortMs(a));
-
-  return {
-    active: dedupeById(active),
-    archived: dedupeById(archived),
-    newlyArchivedIds: Array.from(new Set(newlyArchivedIds)),
-  };
-};
-
 const ROUTINE_COMPLETION_KIND = Object.freeze({
   PERSONAL: 'personal',
   GROUP: 'group',
@@ -1462,6 +1433,7 @@ const realtimeFriendshipChannelRef = useRef(null);
 const friendDataPromiseRef = useRef(null);
 const healthDataPromiseRef = useRef(null);
 const healthSyncPromiseRef = useRef(null);
+const recurringFinanceSyncPromiseRef = useRef(null);
 const realtimeEnabledRef = useRef(false);
 const profileCacheRef = useRef({});
 const friendSearchCacheRef = useRef(new Map());
@@ -4969,11 +4941,22 @@ const mapExternalProfile = (row) => ({
       const userId = authUser?.id;
       if (!userId) return;
       if (!force && !shouldRefreshData('finances', ttl)) return;
-      await Promise.all([
+      const [financeRows, groupRows, assignmentRows] = await Promise.all([
         fetchFinancesFromSupabase(userId),
         fetchBudgetGroupsFromSupabase(userId),
         fetchBudgetAssignmentsFromSupabase(userId),
       ]);
+      try {
+        await syncRecurringPaymentsForDate({
+          userId,
+          referenceDate: new Date(),
+          financeRows,
+          groupRows,
+          assignmentRows,
+        });
+      } catch (err) {
+        console.log('Error syncing recurring payments:', err);
+      }
       markDataLoaded('finances');
       markDataLoaded('budgets');
     },
@@ -6555,7 +6538,6 @@ const fetchTasksFromSupabase = async (userId) => {
 
   let data = null;
   let error = null;
-  let selectedAttempt = null;
   for (const attempt of attempts) {
     ({ data, error } = await buildQuery(attempt.table, attempt.fields));
     if (error) {
@@ -6568,7 +6550,6 @@ const fetchTasksFromSupabase = async (userId) => {
       }
       break;
     }
-    selectedAttempt = attempt;
     break;
   }
 
@@ -6626,24 +6607,13 @@ const fetchTasksFromSupabase = async (userId) => {
     }
   }
 
-  const { active, archived, newlyArchivedIds } = splitTaskBuckets(mappedTasks);
-  setTasks(active);
-  setArchivedTasks(archived);
-
-  const supportsArchivedAt = Boolean(selectedAttempt?.fields?.includes('archived_at'));
-  if (supportsArchivedAt && newlyArchivedIds.length) {
-    const archiveTimestamp = new Date().toISOString();
-    const { error: archiveError } = await supabase
-      .from('tasks')
-      .update({ archived_at: archiveTimestamp })
-      .in('id', newlyArchivedIds)
-      .eq('user_id', userId)
-      .is('archived_at', null);
-
-    if (archiveError && !isMissingColumnError(archiveError, 'archived_at')) {
-      console.log('Error auto-archiving overdue tasks:', archiveError);
-    }
-  }
+  const allTasks = dedupeById(mappedTasks).sort((a, b) => {
+    const aMs = getTaskSortMs(a);
+    const bMs = getTaskSortMs(b);
+    return aMs - bMs;
+  });
+  setTasks(allTasks);
+  setArchivedTasks([]);
 };
 
 
@@ -10225,6 +10195,105 @@ const clearCompletedGroceries = async (listId = null) => {
 const getBudgetStorageKey = (userId) =>
   `${STORAGE_KEYS.BUDGETS}_${userId || 'anon'}`;
 
+const normalizeRecurringCadence = (value, fallback = 'monthly') => {
+  const normalized = String(value || fallback || 'monthly')
+    .trim()
+    .toLowerCase();
+  if (normalized === 'weekly' || normalized === 'yearly') return normalized;
+  return 'monthly';
+};
+
+const getDaysInMonth = (year, monthIndex) =>
+  new Date(year, monthIndex + 1, 0).getDate();
+
+const advanceRecurringDueDate = (dueDateValue, cadenceValue, anchorDateValue = null) => {
+  const dueDate = toStartOfLocalDay(dueDateValue);
+  if (!dueDate) return null;
+
+  const cadence = normalizeRecurringCadence(cadenceValue);
+  if (cadence === 'weekly') {
+    return new Date(
+      dueDate.getFullYear(),
+      dueDate.getMonth(),
+      dueDate.getDate() + 7
+    );
+  }
+
+  const anchorDate = toStartOfLocalDay(anchorDateValue) || dueDate;
+  const anchorDay = anchorDate.getDate();
+
+  if (cadence === 'yearly') {
+    const targetYear = dueDate.getFullYear() + 1;
+    const targetMonth = anchorDate.getMonth();
+    const targetDay = Math.min(anchorDay, getDaysInMonth(targetYear, targetMonth));
+    return new Date(targetYear, targetMonth, targetDay);
+  }
+
+  // Default monthly recurrence.
+  const monthIndex = dueDate.getMonth() + 1;
+  const targetYear = dueDate.getFullYear() + Math.floor(monthIndex / 12);
+  const targetMonth = ((monthIndex % 12) + 12) % 12;
+  const targetDay = Math.min(anchorDay, getDaysInMonth(targetYear, targetMonth));
+  return new Date(targetYear, targetMonth, targetDay);
+};
+
+const normalizeRecurringPaymentDefinition = (payment = {}, groupCadence = 'monthly') => {
+  const nextDueDateISO = toLocalDateISO(payment.nextDueDate) || null;
+  const fallbackStartDate = nextDueDateISO || toLocalDateISO(new Date());
+  return {
+    ...payment,
+    id: payment.id || uuid.v4(),
+    name: String(payment.name || '').trim() || 'Recurring payment',
+    amount: Number(payment.amount) || 0,
+    cadence: normalizeRecurringCadence(payment.cadence, groupCadence),
+    nextDueDate: nextDueDateISO,
+    startDate: payment.startDate || fallbackStartDate,
+  };
+};
+
+const getRecurringTransactionNoteMarker = (paymentId, dueDateISO) =>
+  `[pillaflow_recurring:${paymentId || 'unknown'}:${dueDateISO || ''}]`;
+
+const resolveRecurringExpenseCategory = (group = {}) => {
+  const categories = Array.isArray(group?.categories) ? group.categories.filter(Boolean) : [];
+  if (!categories.length) return 'bills';
+  if (categories.includes('bills')) return 'bills';
+  return categories[0];
+};
+
+const isExistingRecurringTransaction = (
+  transaction = {},
+  payment = {},
+  groupId,
+  dueDateISO,
+  assignmentMap = {}
+) => {
+  if (transaction?.type !== 'expense') return false;
+  const txDateISO = toLocalDateISO(transaction.date || transaction.createdAt);
+  if (!txDateISO || txDateISO !== dueDateISO) return false;
+
+  const txAmount = Number(transaction.amount) || 0;
+  const paymentAmount = Number(payment.amount) || 0;
+  if (Math.abs(txAmount - paymentAmount) > 0.0001) return false;
+
+  const noteMarker = getRecurringTransactionNoteMarker(payment.id, dueDateISO);
+  const noteValue = String(transaction.note || '').trim();
+  if (noteValue === noteMarker) return true;
+
+  const assignedGroups = Array.isArray(assignmentMap?.[transaction.id])
+    ? assignmentMap[transaction.id]
+    : [];
+  if (!assignedGroups.includes(groupId)) return false;
+
+  const txRef = String(transaction.reference || transaction.note || '')
+    .trim()
+    .toLowerCase();
+  const paymentRef = String(payment.name || '')
+    .trim()
+    .toLowerCase();
+  return Boolean(paymentRef) && txRef === paymentRef;
+};
+
 const persistBudgetGroupsLocally = async (data, userIdParam) => {
   const userId = userIdParam || authUser?.id;
   if (!userId) return;
@@ -10269,7 +10338,7 @@ const fetchBudgetGroupsFromSupabase = async (userId) => {
   if (error) {
     console.log('Error fetching budget groups:', error);
     await hydrateBudgetGroups(userId);
-    return;
+    return null;
   }
 
   const mapped = (data || []).map((row) => ({
@@ -10286,7 +10355,9 @@ const fetchBudgetGroupsFromSupabase = async (userId) => {
     currency: row.currency || userSettings.defaultCurrencyCode || 'USD',
     note: row.note || '',
     recurringPayments: Array.isArray(row.recurring_payments)
-      ? row.recurring_payments
+      ? row.recurring_payments.map((payment) =>
+          normalizeRecurringPaymentDefinition(payment, row.cadence)
+        )
       : [],
     startDate: row.start_date || row.created_at,
     createdAt: row.created_at,
@@ -10295,6 +10366,7 @@ const fetchBudgetGroupsFromSupabase = async (userId) => {
 
   setBudgetGroups(mapped);
   persistBudgetGroupsLocally(mapped, userId);
+  return mapped;
 };
 
 const getBudgetWindow = (cadence = 'monthly', referenceDate = new Date()) => {
@@ -10365,7 +10437,7 @@ const fetchBudgetAssignmentsFromSupabase = async (userId) => {
   if (error) {
     console.log('Error fetching budget assignments:', error);
     await hydrateBudgetAssignments(userId);
-    return;
+    return null;
   }
 
   const map = {};
@@ -10378,6 +10450,7 @@ const fetchBudgetAssignmentsFromSupabase = async (userId) => {
 
   setBudgetAssignments(map);
   persistBudgetAssignmentsLocally(map, userId);
+  return map;
 };
 
 const getBudgetSpendForGroup = useCallback(
@@ -10453,20 +10526,24 @@ const addBudgetGroup = async (payload = {}) => {
   }
 
   const nowISO = new Date().toISOString();
+  const normalizedCadence = normalizeRecurringCadence(payload.cadence || 'monthly');
+  const normalizedRecurringPayments = Array.isArray(payload.recurringPayments)
+    ? payload.recurringPayments.map((payment) =>
+        normalizeRecurringPaymentDefinition(payment, normalizedCadence)
+      )
+    : [];
   const insertPayload = {
     user_id: authUser.id,
     name: payload.name?.trim() || 'Budget group',
     type: payload.type === 'recurring' ? 'recurring' : 'budget',
-    cadence: payload.cadence || 'monthly',
+    cadence: normalizedCadence,
     target: Number(payload.target) || 0,
     categories: Array.isArray(payload.categories)
       ? payload.categories.filter(Boolean)
       : [],
     currency: payload.currency || userSettings.defaultCurrencyCode || 'USD',
     note: payload.note || '',
-    recurring_payments: Array.isArray(payload.recurringPayments)
-      ? payload.recurringPayments
-      : [],
+    recurring_payments: normalizedRecurringPayments,
     start_date: payload.startDate || nowISO,
   };
 
@@ -10491,7 +10568,9 @@ const addBudgetGroup = async (payload = {}) => {
     currency: data.currency,
     note: data.note,
     recurringPayments: Array.isArray(data.recurring_payments)
-      ? data.recurring_payments
+      ? data.recurring_payments.map((payment) =>
+          normalizeRecurringPaymentDefinition(payment, data.cadence)
+        )
       : [],
     startDate: data.start_date || nowISO,
     createdAt: data.created_at || nowISO,
@@ -10584,35 +10663,59 @@ const addRecurringPaymentToGroup = async (groupId, payment = {}) => {
     throw new Error('You must be logged in to add recurring payments.');
   }
 
-  const newPayment = {
-    id: payment.id || uuid.v4(),
-    name: payment.name?.trim() || 'Recurring payment',
-    amount: Number(payment.amount) || 0,
-    cadence: payment.cadence || 'monthly',
-    nextDueDate: payment.nextDueDate || null,
-    startDate: payment.startDate || new Date().toISOString(),
-  };
+  const nowISO = new Date().toISOString();
+  const normalizedDueDate = toLocalDateISO(payment.nextDueDate) || toLocalDateISO(new Date());
+  const newPayment = normalizeRecurringPaymentDefinition(
+    {
+      ...payment,
+      id: payment.id || uuid.v4(),
+      nextDueDate: normalizedDueDate,
+      startDate: payment.startDate || normalizedDueDate,
+    },
+    payment.cadence || 'monthly'
+  );
 
-  setBudgetGroups((prev) => {
-    const next = prev.map((group) => {
-      if (group.id !== groupId) return group;
-      const recurringPayments = Array.isArray(group.recurringPayments)
-        ? [...group.recurringPayments, newPayment]
-        : [newPayment];
-      supabase
-        .from('budget_groups')
-        .update({ recurring_payments: recurringPayments, updated_at: new Date().toISOString() })
-        .eq('id', groupId)
-        .eq('user_id', authUser.id);
-      return {
-        ...group,
-        recurringPayments,
-        updatedAt: new Date().toISOString(),
-      };
-    });
-    persistBudgetGroupsLocally(next, authUser.id);
-    return next;
+  const nextGroups = (budgetGroups || []).map((group) => {
+    if (group.id !== groupId) return group;
+    const recurringPayments = Array.isArray(group.recurringPayments)
+      ? [...group.recurringPayments, newPayment]
+      : [newPayment];
+    return {
+      ...group,
+      recurringPayments,
+      updatedAt: nowISO,
+    };
   });
+
+  const targetGroup = nextGroups.find((group) => group.id === groupId);
+  if (!targetGroup) {
+    throw new Error('Budget group not found.');
+  }
+
+  setBudgetGroups(nextGroups);
+  persistBudgetGroupsLocally(nextGroups, authUser.id);
+
+  const { error } = await supabase
+    .from('budget_groups')
+    .update({
+      recurring_payments: targetGroup.recurringPayments,
+      updated_at: nowISO,
+    })
+    .eq('id', groupId)
+    .eq('user_id', authUser.id);
+  if (error) {
+    console.log('Error adding recurring payment to group:', error);
+  }
+
+  try {
+    await syncRecurringPaymentsForDate({
+      userId: authUser.id,
+      referenceDate: new Date(),
+      groupRows: nextGroups,
+    });
+  } catch (err) {
+    console.log('Error syncing newly added recurring payment:', err);
+  }
 
   return newPayment;
 };
@@ -10644,7 +10747,7 @@ const fetchFinancesFromSupabase = async (userId) => {
 
     if (error) {
       console.log('Error fetching finances:', error);
-      return;
+      return null;
     }
 
     rows = data || [];
@@ -10664,6 +10767,7 @@ const fetchFinancesFromSupabase = async (userId) => {
   }));
 
   setFinances(mapped);
+  return mapped;
 };
 
 
@@ -10746,6 +10850,176 @@ const addTransaction = async (transaction) => {
   }
 
   return newTransaction;
+};
+
+const syncRecurringPaymentsForDate = async ({
+  userId: userIdParam,
+  referenceDate = new Date(),
+  financeRows,
+  groupRows,
+  assignmentRows,
+} = {}) => {
+  const userId = userIdParam || authUser?.id;
+  if (!userId) {
+    return { createdCount: 0, updatedGroups: 0 };
+  }
+
+  if (recurringFinanceSyncPromiseRef.current) {
+    return recurringFinanceSyncPromiseRef.current;
+  }
+
+  const run = (async () => {
+    const today = toStartOfLocalDay(referenceDate) || toStartOfLocalDay(new Date());
+    if (!today) {
+      return { createdCount: 0, updatedGroups: 0 };
+    }
+
+    const sourceGroups = Array.isArray(groupRows) ? groupRows : budgetGroups;
+    if (!Array.isArray(sourceGroups) || !sourceGroups.length) {
+      return { createdCount: 0, updatedGroups: 0 };
+    }
+
+    let workingFinances = Array.isArray(financeRows) ? [...financeRows] : [...finances];
+    const workingAssignments =
+      assignmentRows && typeof assignmentRows === 'object'
+        ? { ...assignmentRows }
+        : { ...(budgetAssignments || {}) };
+
+    const groupUpdates = new Map();
+    let createdCount = 0;
+
+    for (const group of sourceGroups) {
+      const recurringPayments = Array.isArray(group?.recurringPayments)
+        ? group.recurringPayments.map((entry) =>
+            normalizeRecurringPaymentDefinition(entry, group.cadence)
+          )
+        : [];
+      if (!recurringPayments.length) continue;
+
+      let groupChanged = false;
+
+      for (let index = 0; index < recurringPayments.length; index += 1) {
+        const payment = recurringPayments[index];
+        let dueDate = toStartOfLocalDay(payment.nextDueDate);
+        if (!dueDate) continue;
+
+        const anchorDate = toStartOfLocalDay(payment.startDate || payment.nextDueDate) || dueDate;
+        let guard = 0;
+
+        while (dueDate.getTime() <= today.getTime() && guard < 1200) {
+          guard += 1;
+          const dueDateISO = toLocalDateISO(dueDate);
+          if (!dueDateISO) break;
+
+          const exists = workingFinances.some((transaction) =>
+            isExistingRecurringTransaction(
+              transaction,
+              payment,
+              group.id,
+              dueDateISO,
+              workingAssignments
+            )
+          );
+
+          if (!exists) {
+            try {
+              const createdTransaction = await addTransaction({
+                type: 'expense',
+                amount: Number(payment.amount) || 0,
+                category: resolveRecurringExpenseCategory(group),
+                currency: group.currency || userSettings.defaultCurrencyCode || 'USD',
+                date: dueDateISO,
+                reference: payment.name,
+                note: getRecurringTransactionNoteMarker(payment.id, dueDateISO),
+                budgetGroupIds: [group.id],
+              });
+
+              if (createdTransaction?.id) {
+                createdCount += 1;
+                workingFinances = [...workingFinances, createdTransaction];
+                const assigned = Array.isArray(workingAssignments[createdTransaction.id])
+                  ? workingAssignments[createdTransaction.id]
+                  : [];
+                workingAssignments[createdTransaction.id] = Array.from(
+                  new Set([...assigned, group.id])
+                );
+              }
+            } catch (err) {
+              console.log('Error creating auto recurring transaction:', err);
+              break;
+            }
+          }
+
+          const nextDueDate = advanceRecurringDueDate(
+            dueDate,
+            payment.cadence || group.cadence,
+            anchorDate
+          );
+          const nextDueISO = toLocalDateISO(nextDueDate);
+          if (!nextDueDate || !nextDueISO || nextDueISO === dueDateISO) {
+            break;
+          }
+          dueDate = nextDueDate;
+        }
+
+        const normalizedNextDueISO = toLocalDateISO(dueDate) || payment.nextDueDate || null;
+        if (normalizedNextDueISO !== payment.nextDueDate) {
+          recurringPayments[index] = {
+            ...payment,
+            nextDueDate: normalizedNextDueISO,
+          };
+          groupChanged = true;
+        }
+      }
+
+      if (!groupChanged) continue;
+
+      const updatedAt = new Date().toISOString();
+      groupUpdates.set(group.id, { recurringPayments, updatedAt });
+      const { error } = await supabase
+        .from('budget_groups')
+        .update({
+          recurring_payments: recurringPayments,
+          updated_at: updatedAt,
+        })
+        .eq('id', group.id)
+        .eq('user_id', userId);
+      if (error) {
+        console.log('Error updating recurring payment schedule:', error);
+      }
+    }
+
+    if (groupUpdates.size > 0) {
+      setBudgetGroups((prev) => {
+        const baseGroups = Array.isArray(prev) && prev.length ? prev : sourceGroups;
+        const next = baseGroups.map((group) => {
+          const update = groupUpdates.get(group.id);
+          if (!update) return group;
+          return {
+            ...group,
+            recurringPayments: update.recurringPayments,
+            updatedAt: update.updatedAt,
+          };
+        });
+        persistBudgetGroupsLocally(next, userId);
+        return next;
+      });
+    }
+
+    return {
+      createdCount,
+      updatedGroups: groupUpdates.size,
+    };
+  })();
+
+  recurringFinanceSyncPromiseRef.current = run;
+  try {
+    return await run;
+  } finally {
+    if (recurringFinanceSyncPromiseRef.current === run) {
+      recurringFinanceSyncPromiseRef.current = null;
+    }
+  }
 };
 
 const deleteTransaction = async (transactionId) => {
@@ -11712,11 +11986,78 @@ const mapProfileRow = (row) => {
     return { user, session: activeSession };
   };
 
+  const checkAccountAvailability = useCallback(async ({ username, email } = {}) => {
+    const normalizedUsername = String(username || '')
+      .trim()
+      .toLowerCase();
+    const normalizedEmail = String(email || '')
+      .trim()
+      .toLowerCase();
+    const hasUsername = Boolean(normalizedUsername);
+    const hasEmail = Boolean(normalizedEmail);
+
+    if (!hasUsername && !hasEmail) {
+      return {
+        usernameAvailable: true,
+        emailAvailable: true,
+        usernameReason: 'username_not_checked',
+        emailReason: 'email_not_checked',
+      };
+    }
+
+    const { data, error } = await supabase.rpc('check_signup_availability', {
+      candidate_username: hasUsername ? normalizedUsername : null,
+      candidate_email: hasEmail ? normalizedEmail : null,
+    });
+
+    if (error) {
+      if (isMissingFunctionError(error, 'check_signup_availability')) {
+        return {
+          usernameAvailable: true,
+          emailAvailable: true,
+          usernameReason: hasUsername ? 'availability_function_missing' : 'username_not_checked',
+          emailReason: hasEmail ? 'availability_function_missing' : 'email_not_checked',
+        };
+      }
+      throw error;
+    }
+
+    const row = Array.isArray(data) ? data[0] || {} : data || {};
+    return {
+      usernameAvailable: hasUsername ? row.username_available !== false : true,
+      emailAvailable: hasEmail ? row.email_available !== false : true,
+      usernameReason: hasUsername
+        ? row.username_reason || (row.username_available === false ? 'username_taken' : 'username_available')
+        : 'username_not_checked',
+      emailReason: hasEmail
+        ? row.email_reason || (row.email_available === false ? 'email_taken' : 'email_available')
+        : 'email_not_checked',
+    };
+  }, []);
+
   const signUp = async ({ fullName, username, email, password }) => {
+    const trimmedUsername = username?.trim();
     const trimmedEmail = email?.trim().toLowerCase();
+    if (!trimmedUsername) {
+      throw new Error('Please choose a username.');
+    }
+    if (!trimmedEmail) {
+      throw new Error('Please enter your email address.');
+    }
     const passwordError = validatePasswordRequirements(password);
     if (passwordError) {
       throw new Error(passwordError);
+    }
+
+    const availability = await checkAccountAvailability({
+      username: trimmedUsername,
+      email: trimmedEmail,
+    });
+    if (!availability.usernameAvailable) {
+      throw new Error('This username is already taken. Please choose another one.');
+    }
+    if (!availability.emailAvailable) {
+      throw new Error('This email is already in use. Please sign in or use another email.');
     }
 
     const { data, error } = await supabase.auth.signUp({
@@ -11725,12 +12066,16 @@ const mapProfileRow = (row) => {
       options: {
         data: {
           full_name: fullName,
-          username,
+          username: trimmedUsername,
         },
       },
     });
 
     if (error) {
+      const message = String(error.message || '').toLowerCase();
+      if (message.includes('already registered') || message.includes('already exists')) {
+        throw new Error('This email is already in use. Please sign in or use another email.');
+      }
       throw new Error(error.message || 'Unable to create account.');
     }
 
@@ -13115,6 +13460,7 @@ const mapProfileRow = (row) => {
     authUser,
     hasOnboarded,
     signIn,
+    checkAccountAvailability,
     signUp,
     signOut,
     deleteAccount,
