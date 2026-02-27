@@ -42,10 +42,33 @@ const loadHealthKitModule = () => {
     return cachedHealthKitModule;
   }
 
+  const normalizeHealthKitModule = (moduleRef) => {
+    if (!moduleRef || typeof moduleRef !== 'object') return moduleRef;
+
+    const methodHints = ['initHealthKit', 'isAvailable', 'getDailyStepCountSamples', 'saveFood'];
+    const candidates = [
+      moduleRef,
+      moduleRef.default,
+      moduleRef.HealthKit,
+      moduleRef.AppleHealthKit,
+    ];
+
+    for (const candidate of candidates) {
+      if (!candidate || typeof candidate !== 'object') continue;
+      if (!methodHints.some((methodName) => typeof candidate?.[methodName] === 'function')) continue;
+      if (moduleRef?.Constants && !candidate.Constants) {
+        candidate.Constants = moduleRef.Constants;
+      }
+      return candidate;
+    }
+
+    return moduleRef;
+  };
+
   didTryLoadHealthKitModule = true;
   try {
     // eslint-disable-next-line global-require, import/no-dynamic-require
-    cachedHealthKitModule = require(IOS_HEALTH_KIT_MODULE);
+    cachedHealthKitModule = normalizeHealthKitModule(require(IOS_HEALTH_KIT_MODULE));
   } catch (err) {
     cachedHealthKitModule = null;
   }
@@ -424,6 +447,10 @@ const checkIosHealthAvailabilityDirect = async () => {
   }
 
   if (typeof healthKitModule.isAvailable !== 'function') {
+    // Some builds expose initHealthKit but omit isAvailable; let the permission request decide.
+    if (typeof healthKitModule.initHealthKit === 'function') {
+      return { available: true, reason: null };
+    }
     return {
       available: false,
       reason: 'ios_healthkit_is_available_missing',
@@ -1379,11 +1406,20 @@ export const checkHealthAvailability = async () => {
         ? await checkAndroidHealthAvailabilityDirect()
         : null;
 
-  if (directAvailability) {
+  if (directAvailability?.available) {
     return directAvailability;
   }
 
-  return checkHealthAvailabilityViaHealthLink();
+  const fallbackAvailability = await checkHealthAvailabilityViaHealthLink();
+  if (fallbackAvailability?.available) {
+    return fallbackAvailability;
+  }
+
+  if (directAvailability?.reason) {
+    return directAvailability;
+  }
+
+  return fallbackAvailability;
 };
 
 export const requestHealthPermissions = async ({ includeNutritionWrite = true } = {}) => {

@@ -62,6 +62,9 @@ const PermissionsScreen = () => {
     if (message === 'ios_healthkit_module_missing') {
       return 'Apple Health support is not available in this app build.';
     }
+    if (message === 'ios_healthkit_is_available_missing') {
+      return 'Apple Health support is incomplete in this app build.';
+    }
     if (message === 'nutrition_permission_not_granted') {
       return 'Steps sync was enabled, but nutrition write permission was not granted.';
     }

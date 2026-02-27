@@ -17,6 +17,7 @@ import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, shadows, borderRadius } from '../utils/theme';
 import { useApp } from '../context/AppContext';
 import AppTutorialOverlay from '../components/AppTutorialOverlay';
+import StreakIncreaseToast from '../components/StreakIncreaseToast';
 
 // Screens
 import HomeScreen from '../screens/HomeScreen';
@@ -260,6 +261,8 @@ const MainWithChatButton = ({
   isPremium,
   showTutorial,
   onDismissTutorial,
+  currentStreakIncreaseNotice,
+  onDismissCurrentStreakNotice,
   tabBarLayout,
   onTabBarLayout,
   themeColors,
@@ -279,6 +282,10 @@ const MainWithChatButton = ({
   return (
     <View style={{ flex: 1 }}>
       <TabNavigator styles={styles} onTabBarLayout={onTabBarLayout} />
+      <StreakIncreaseToast
+        notice={currentStreakIncreaseNotice}
+        onHide={onDismissCurrentStreakNotice}
+      />
       <Pressable
         onPress={handleChatPress}
         android_ripple={{ color: '#FFFFFF33', borderless: true }}
@@ -319,6 +326,8 @@ const Navigation = () => {
     isPremiumUser,
     isPremium,
     completeAppTutorial,
+    currentStreakIncreaseNotice,
+    dismissCurrentStreakIncreaseNotice,
   } = useApp();
   const [showAppTutorial, setShowAppTutorial] = React.useState(false);
   const [tabBarLayout, setTabBarLayout] = React.useState(null);
@@ -383,6 +392,8 @@ const Navigation = () => {
                 isPremium={isPremiumActive}
                 showTutorial={showAppTutorial}
                 onDismissTutorial={handleDismissTutorial}
+                currentStreakIncreaseNotice={currentStreakIncreaseNotice}
+                onDismissCurrentStreakNotice={dismissCurrentStreakIncreaseNotice}
                 tabBarLayout={tabBarLayout}
                 onTabBarLayout={(event) => setTabBarLayout(event?.nativeEvent?.layout || null)}
                 themeColors={themeColors}

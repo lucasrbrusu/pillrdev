@@ -1496,7 +1496,12 @@ const friendSearchAbortControllerRef = useRef(null);
   const streakCheckRanRef = useRef(false);
   const [streakFrozen, setStreakFrozen] = useState(false);
   const [currentStreakState, setCurrentStreakState] = useState(DEFAULT_CURRENT_STREAK_STATE);
+  const [currentStreakIncreaseNotice, setCurrentStreakIncreaseNotice] = useState(null);
   const currentStreakNeedsBootstrapRef = useRef(false);
+  useEffect(() => {
+    if (authUser?.id) return;
+    setCurrentStreakIncreaseNotice(null);
+  }, [authUser?.id]);
   const appStateRef = useRef(AppState.currentState);
   const appSessionStartMsRef = useRef(null);
   const notificationIdCacheRef = useRef({
@@ -2152,6 +2157,24 @@ const markDataLoaded = useCallback((key) => {
     },
     [authUser?.id]
   );
+
+  const showCurrentStreakIncreaseNotice = useCallback((nextStreakValue) => {
+    const nextStreak = Math.max(0, Number(nextStreakValue) || 0);
+    if (nextStreak <= 0) return;
+    setCurrentStreakIncreaseNotice({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      streak: nextStreak,
+      message: `Your current streak is ${nextStreak}.`,
+    });
+  }, []);
+
+  const dismissCurrentStreakIncreaseNotice = useCallback((noticeId = null) => {
+    setCurrentStreakIncreaseNotice((prev) => {
+      if (!prev) return null;
+      if (noticeId && prev.id !== noticeId) return prev;
+      return null;
+    });
+  }, []);
 
   useEffect(() => {
     if (!authUser?.id || isLoading) return;
@@ -6228,6 +6251,15 @@ const setHabitProgress = async (habitId, amount = 0, dateISO = null, options = {
           : computedCurrentStreakState.lastCompletionDayNumber,
       })
     : computedCurrentStreakState;
+  const previousCurrentStreak = Math.max(0, Number(currentStreakState?.streak) || 0);
+  if (
+    isTargetToday &&
+    shouldComplete &&
+    !wasCompletedOnTargetDate &&
+    nextCurrentStreakState?.streak > previousCurrentStreak
+  ) {
+    showCurrentStreakIncreaseNotice(nextCurrentStreakState.streak);
+  }
 
   if (
     nextCurrentStreakState.streak !== currentStreakState?.streak ||
@@ -13324,6 +13356,8 @@ const mapProfileRow = (row) => {
     getTodayHabitsCount,
     currentStreak,
     streakFrozen,
+    currentStreakIncreaseNotice,
+    dismissCurrentStreakIncreaseNotice,
 
     // Tasks
     tasks,

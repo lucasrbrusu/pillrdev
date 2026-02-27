@@ -577,10 +577,35 @@ const SwipeHabitCard = ({
   const swipeActiveRef = useRef(false);
   const fillRafRef = useRef(null);
   const fillResetTimeoutRef = useRef(null);
+  const streakPopScale = useRef(new Animated.Value(1)).current;
+  const previousStreakRef = useRef(Math.max(0, Number(habit?.streak) || 0));
 
   useEffect(() => {
     currentAmountRef.current = Math.max(0, parseNumber(progress, 0));
   }, [progress]);
+
+  useEffect(() => {
+    const nextStreak = Math.max(0, Number(habit?.streak) || 0);
+    const previousStreak = previousStreakRef.current;
+    if (nextStreak > previousStreak) {
+      streakPopScale.stopAnimation();
+      streakPopScale.setValue(0.97);
+      Animated.sequence([
+        Animated.timing(streakPopScale, {
+          toValue: 1.045,
+          duration: 120,
+          useNativeDriver: true,
+        }),
+        Animated.spring(streakPopScale, {
+          toValue: 1,
+          tension: 180,
+          friction: 12,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+    previousStreakRef.current = nextStreak;
+  }, [habit?.streak, streakPopScale]);
 
   const getSwipeTargetAmount = useCallback(
     (dx, startAmount = swipeStartAmountRef.current) => {
@@ -1039,7 +1064,12 @@ const SwipeHabitCard = ({
         ]}
         {...resolvedPanHandlers}
       >
-        <View style={[styles.habitWrapper, { width: rowWidth }]}>
+        <Animated.View
+          style={[
+            styles.habitWrapper,
+            { width: rowWidth, transform: [{ scale: streakPopScale }] },
+          ]}
+        >
           {shouldRenderFillTrack ? (
             <View pointerEvents="none" style={[styles.fillTrack, { backgroundColor: tintedTrackColor }]}>
               <View style={[styles.fillValue, { width: fillWidth, backgroundColor: habitColor }]} />
@@ -1140,7 +1170,7 @@ const SwipeHabitCard = ({
               )}
             </View>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
         <View style={[styles.actionRailInline, { width: ACTION_RAIL_WIDTH }]}>
           <TouchableOpacity style={[styles.actionTile, styles.actionTileEdit]} onPress={() => { closeActions(); onEdit(habit); }}>
             <Feather name="edit-2" size={17} color="#2D6BFF" />
