@@ -235,12 +235,16 @@ const defaultUserSettings = {
   themeName: 'default',
   notificationsEnabled: true,
   habitRemindersEnabled: true,
+  habitCompletionMethod: 'swipe',
   taskRemindersEnabled: true,
   routineRemindersEnabled: true,
   healthRemindersEnabled: true,
   calendarSyncEnabled: false,
   defaultCurrencyCode: 'USD',
 };
+
+const normalizeHabitCompletionMethod = (value) =>
+  String(value || 'swipe').toLowerCase() === 'manual_plus' ? 'manual_plus' : 'swipe';
 
 const DEFAULT_EVENT_TIME = { hour: 9, minute: 0 };
 const REMINDER_LEAD_MINUTES = 30;
@@ -11656,11 +11660,18 @@ const mapProfileRow = (row) => {
   };
 
   // USER SETTINGS FUNCTIONS
-  const mapSettingsRow = (row) => ({
+  const mapSettingsRow = (row, fallbackCompletionMethod = null) => ({
     id: row?.id || null,
     themeName: row?.theme_name || 'default',
     notificationsEnabled: row?.notifications_enabled ?? defaultUserSettings.notificationsEnabled,
     habitRemindersEnabled: row?.habit_reminders_enabled ?? defaultUserSettings.habitRemindersEnabled,
+    habitCompletionMethod: normalizeHabitCompletionMethod(
+      row?.habit_completion_method ??
+        row?.habitCompletionMethod ??
+        fallbackCompletionMethod ??
+        userSettings?.habitCompletionMethod ??
+        defaultUserSettings.habitCompletionMethod
+    ),
     taskRemindersEnabled: row?.task_reminders_enabled ?? defaultUserSettings.taskRemindersEnabled,
     routineRemindersEnabled:
       row?.routine_reminders_enabled ?? defaultUserSettings.routineRemindersEnabled,
@@ -11677,8 +11688,12 @@ const mapProfileRow = (row) => {
     const legacySelectFields =
       'id, user_id, theme_name, notifications_enabled, habit_reminders_enabled, task_reminders_enabled, health_reminders_enabled, default_currency_code';
     const selectVariants = [
+      `${baseSelectFields}, habit_completion_method, calendar_sync_enabled`,
+      `${baseSelectFields}, habit_completion_method`,
       `${baseSelectFields}, calendar_sync_enabled`,
       baseSelectFields,
+      `${legacySelectFields}, habit_completion_method, calendar_sync_enabled`,
+      `${legacySelectFields}, habit_completion_method`,
       `${legacySelectFields}, calendar_sync_enabled`,
       legacySelectFields,
     ];
@@ -11705,7 +11720,8 @@ const mapProfileRow = (row) => {
 
       if (
         isMissingColumnError(error, 'calendar_sync_enabled') ||
-        isMissingColumnError(error, 'routine_reminders_enabled')
+        isMissingColumnError(error, 'routine_reminders_enabled') ||
+        isMissingColumnError(error, 'habit_completion_method')
       ) {
         continue;
       }
@@ -11724,7 +11740,10 @@ const mapProfileRow = (row) => {
     }
 
     if (row) {
-      const mapped = mapSettingsRow(row);
+      const mapped = mapSettingsRow(
+        row,
+        userSettings?.habitCompletionMethod ?? defaultUserSettings.habitCompletionMethod
+      );
       setUserSettings(mapped);
       const themeToApply = mapped.themeName || 'default';
       setThemeName(themeToApply);
@@ -11745,6 +11764,11 @@ const mapProfileRow = (row) => {
       theme_name: overrides.themeName ?? userSettings.themeName ?? defaultUserSettings.themeName,
       notifications_enabled: overrides.notificationsEnabled ?? userSettings.notificationsEnabled ?? defaultUserSettings.notificationsEnabled,
       habit_reminders_enabled: overrides.habitRemindersEnabled ?? userSettings.habitRemindersEnabled ?? defaultUserSettings.habitRemindersEnabled,
+      habit_completion_method: normalizeHabitCompletionMethod(
+        overrides.habitCompletionMethod ??
+          userSettings.habitCompletionMethod ??
+          defaultUserSettings.habitCompletionMethod
+      ),
       task_reminders_enabled: overrides.taskRemindersEnabled ?? userSettings.taskRemindersEnabled ?? defaultUserSettings.taskRemindersEnabled,
       routine_reminders_enabled:
         overrides.routineRemindersEnabled ??
@@ -11788,7 +11812,15 @@ const mapProfileRow = (row) => {
       return null;
     }
 
-    const mapped = mapSettingsRow(data);
+    const mapped = mapSettingsRow(
+      data,
+      normalizeHabitCompletionMethod(
+        mutablePayload.habit_completion_method ??
+          overrides.habitCompletionMethod ??
+          userSettings.habitCompletionMethod ??
+          defaultUserSettings.habitCompletionMethod
+      )
+    );
     setUserSettings(mapped);
     return data;
   };

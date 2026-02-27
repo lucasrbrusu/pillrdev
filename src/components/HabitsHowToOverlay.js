@@ -25,7 +25,16 @@ const TUTORIAL_STEPS = [
     title: 'More quick actions',
     description: 'Swipe left on a habit to reveal details, skip, and reset actions.',
   },
+  {
+    id: 'choose_method',
+    title: 'Choose completion method',
+    description:
+      'Pick how you want to complete habits. You can change this anytime from the Habits header settings button.',
+  },
 ];
+
+const normalizeCompletionMethod = (value) =>
+  String(value || 'swipe').toLowerCase() === 'manual_plus' ? 'manual_plus' : 'swipe';
 
 const PREVIEW_ROWS = [
   {
@@ -116,7 +125,43 @@ const SwipeActionsRail = () => (
   </View>
 );
 
-const renderStepPreview = (stepId) => {
+const renderStepPreview = (stepId, selectedCompletionMethod, onSelectCompletionMethod) => {
+  const selectedMethod = normalizeCompletionMethod(selectedCompletionMethod);
+
+  if (stepId === 'choose_method') {
+    const isSwipeSelected = selectedMethod === 'swipe';
+    const isManualSelected = selectedMethod === 'manual_plus';
+    return (
+      <View style={styles.methodPickerWrap}>
+        <Pressable
+          style={[styles.methodOption, isSwipeSelected && styles.methodOptionSelected]}
+          onPress={() => onSelectCompletionMethod?.('swipe')}
+        >
+          <View style={styles.methodPreviewRow}>
+            <View style={styles.methodPreviewFill} />
+            <Ionicons name="arrow-forward" size={16} color="#1D4ED8" />
+          </View>
+          <Text style={styles.methodOptionTitle}>Swipe completion</Text>
+          <Text style={styles.methodOptionText}>Swipe right to fill progress quickly.</Text>
+        </Pressable>
+
+        <Pressable
+          style={[styles.methodOption, isManualSelected && styles.methodOptionSelected]}
+          onPress={() => onSelectCompletionMethod?.('manual_plus')}
+        >
+          <View style={styles.methodPreviewRow}>
+            <View style={styles.methodPreviewDot} />
+            <View style={styles.methodPreviewPlus}>
+              <Ionicons name="add" size={15} color="#FFFFFF" />
+            </View>
+          </View>
+          <Text style={styles.methodOptionTitle}>Manual + button</Text>
+          <Text style={styles.methodOptionText}>Use + on each habit card to add completion.</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   if (stepId === 'quick_done') {
     return (
       <View>
@@ -164,12 +209,23 @@ const renderStepPreview = (stepId) => {
   );
 };
 
-const HabitsHowToOverlay = ({ visible, onFinish }) => {
+const HabitsHowToOverlay = ({
+  visible,
+  onFinish,
+  initialCompletionMethod = 'swipe',
+}) => {
   const [stepIndex, setStepIndex] = React.useState(0);
+  const [selectedCompletionMethod, setSelectedCompletionMethod] = React.useState('swipe');
 
   React.useEffect(() => {
-    if (visible) setStepIndex(0);
+    if (!visible) return;
+    setStepIndex(0);
   }, [visible]);
+
+  React.useEffect(() => {
+    if (!visible) return;
+    setSelectedCompletionMethod(normalizeCompletionMethod(initialCompletionMethod));
+  }, [initialCompletionMethod, visible]);
 
   if (!visible) return null;
 
@@ -178,14 +234,14 @@ const HabitsHowToOverlay = ({ visible, onFinish }) => {
 
   const handleNext = () => {
     if (isLastStep) {
-      onFinish?.();
+      onFinish?.({ completionMethod: normalizeCompletionMethod(selectedCompletionMethod) });
       return;
     }
     setStepIndex((prev) => Math.min(prev + 1, TUTORIAL_STEPS.length - 1));
   };
 
   const handleClose = () => {
-    onFinish?.();
+    onFinish?.({ completionMethod: normalizeCompletionMethod(selectedCompletionMethod) });
   };
 
   return (
@@ -206,7 +262,9 @@ const HabitsHowToOverlay = ({ visible, onFinish }) => {
             </Pressable>
           </View>
 
-          <View style={styles.body}>{renderStepPreview(step.id)}</View>
+          <View style={styles.body}>
+            {renderStepPreview(step.id, selectedCompletionMethod, setSelectedCompletionMethod)}
+          </View>
 
           <Text style={styles.description}>{step.description}</Text>
 
@@ -220,7 +278,7 @@ const HabitsHowToOverlay = ({ visible, onFinish }) => {
               ))}
             </View>
             <Pressable style={styles.nextButton} onPress={handleNext}>
-              <Text style={styles.nextButtonText}>{isLastStep ? 'Done' : 'Next'}</Text>
+              <Text style={styles.nextButtonText}>{isLastStep ? 'Save & Done' : 'Next'}</Text>
             </Pressable>
           </View>
         </View>
@@ -396,6 +454,60 @@ const styles = StyleSheet.create({
     left: '50%',
     top: '45%',
     marginLeft: -16,
+  },
+  methodPickerWrap: {
+    marginBottom: spacing.xs,
+  },
+  methodOption: {
+    borderRadius: borderRadius.xl,
+    borderWidth: 1.5,
+    borderColor: '#E9E0F0',
+    backgroundColor: '#F8F5FC',
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  methodOptionSelected: {
+    borderColor: '#ED718B',
+    backgroundColor: '#FDEFF4',
+  },
+  methodPreviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+    height: 34,
+  },
+  methodPreviewFill: {
+    flex: 1,
+    height: 12,
+    borderRadius: borderRadius.full,
+    backgroundColor: '#86B9FF',
+    marginRight: spacing.sm,
+  },
+  methodPreviewDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#C7B6EA',
+  },
+  methodPreviewPlus: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#22C55E',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  methodOptionTitle: {
+    ...typography.body,
+    color: '#1E1E1E',
+    fontWeight: '800',
+  },
+  methodOptionText: {
+    ...typography.caption,
+    color: '#4B5563',
+    marginTop: spacing.xs,
+    fontWeight: '600',
   },
   description: {
     ...typography.body,

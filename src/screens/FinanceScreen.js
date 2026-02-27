@@ -32,6 +32,36 @@ const budgetCadenceOptions = [
   { value: 'yearly', label: 'Yearly' },
 ];
 
+const recurringWeekdayOptions = [
+  { value: 0, label: 'Sun' },
+  { value: 1, label: 'Mon' },
+  { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' },
+  { value: 6, label: 'Sat' },
+];
+
+const recurringMonthOptions = [
+  { value: 1, label: 'Jan' },
+  { value: 2, label: 'Feb' },
+  { value: 3, label: 'Mar' },
+  { value: 4, label: 'Apr' },
+  { value: 5, label: 'May' },
+  { value: 6, label: 'Jun' },
+  { value: 7, label: 'Jul' },
+  { value: 8, label: 'Aug' },
+  { value: 9, label: 'Sep' },
+  { value: 10, label: 'Oct' },
+  { value: 11, label: 'Nov' },
+  { value: 12, label: 'Dec' },
+];
+
+const recurringDayOfMonthOptions = Array.from({ length: 31 }, (_value, index) => ({
+  value: index + 1,
+  label: String(index + 1),
+}));
+
 const budgetTypeOptions = [
   { value: 'budget', label: 'Budget envelope' },
   { value: 'recurring', label: 'Recurring payments' },
@@ -68,6 +98,122 @@ const toDateInputValue = (dateValue = new Date()) => {
   const month = String(parsed.getMonth() + 1).padStart(2, '0');
   const day = String(parsed.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+const ISO_DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+const parseDateInputValue = (value, fallbackValue = new Date()) => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const match = trimmed.match(ISO_DATE_ONLY_PATTERN);
+    if (match) {
+      const year = Number(match[1]);
+      const month = Number(match[2]) - 1;
+      const day = Number(match[3]);
+      const parsed = new Date(year, month, day);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed;
+      }
+    }
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+
+  const fallback = fallbackValue instanceof Date
+    ? fallbackValue
+    : new Date(fallbackValue || Date.now());
+  return Number.isNaN(fallback.getTime()) ? new Date() : fallback;
+};
+
+const clampNumber = (value, minimum, maximum) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return minimum;
+  return Math.min(maximum, Math.max(minimum, Math.round(parsed)));
+};
+
+const getStartOfDay = (dateValue) => {
+  const date = parseDateInputValue(dateValue, new Date());
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+};
+
+const getDaysInMonth = (year, monthIndex) => {
+  return new Date(year, monthIndex + 1, 0).getDate();
+};
+
+const getNextWeeklyDueDate = (weekdayValue, referenceDateValue) => {
+  const referenceDate = getStartOfDay(referenceDateValue);
+  const weekday = clampNumber(weekdayValue, 0, 6);
+  const offsetDays = (weekday - referenceDate.getDay() + 7) % 7;
+  return new Date(
+    referenceDate.getFullYear(),
+    referenceDate.getMonth(),
+    referenceDate.getDate() + offsetDays
+  );
+};
+
+const getNextMonthlyDueDate = (dayValue, referenceDateValue) => {
+  const referenceDate = getStartOfDay(referenceDateValue);
+  const preferredDay = clampNumber(dayValue, 1, 31);
+  const currentMonthLimit = getDaysInMonth(
+    referenceDate.getFullYear(),
+    referenceDate.getMonth()
+  );
+  let candidate = new Date(
+    referenceDate.getFullYear(),
+    referenceDate.getMonth(),
+    Math.min(preferredDay, currentMonthLimit)
+  );
+
+  if (candidate < referenceDate) {
+    const nextMonthBase = new Date(
+      referenceDate.getFullYear(),
+      referenceDate.getMonth() + 1,
+      1
+    );
+    const nextMonthLimit = getDaysInMonth(
+      nextMonthBase.getFullYear(),
+      nextMonthBase.getMonth()
+    );
+    candidate = new Date(
+      nextMonthBase.getFullYear(),
+      nextMonthBase.getMonth(),
+      Math.min(preferredDay, nextMonthLimit)
+    );
+  }
+
+  return candidate;
+};
+
+const getNextYearlyDueDate = (monthValue, dayValue, referenceDateValue) => {
+  const referenceDate = getStartOfDay(referenceDateValue);
+  const preferredMonthIndex = clampNumber(monthValue, 1, 12) - 1;
+  const preferredDay = clampNumber(dayValue, 1, 31);
+  const currentYear = referenceDate.getFullYear();
+
+  const currentYearLimit = getDaysInMonth(currentYear, preferredMonthIndex);
+  let candidate = new Date(
+    currentYear,
+    preferredMonthIndex,
+    Math.min(preferredDay, currentYearLimit)
+  );
+
+  if (candidate < referenceDate) {
+    const nextYear = currentYear + 1;
+    const nextYearLimit = getDaysInMonth(nextYear, preferredMonthIndex);
+    candidate = new Date(
+      nextYear,
+      preferredMonthIndex,
+      Math.min(preferredDay, nextYearLimit)
+    );
+  }
+
+  return candidate;
 };
 
 const formatWindowLabel = (start, end) => {
@@ -200,7 +346,6 @@ const FinanceScreen = () => {
   const [showIncomeModal, setShowIncomeModal] = useState(false);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showRecurringDueDatePicker, setShowRecurringDueDatePicker] = useState(false);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [showRecurringModal, setShowRecurringModal] = useState(false);
   const [transactionsExpanded, setTransactionsExpanded] = useState(true);
@@ -229,6 +374,16 @@ const FinanceScreen = () => {
   const [recurringCadence, setRecurringCadence] = useState('monthly');
   const [recurringNextDueDate, setRecurringNextDueDate] = useState(
     toDateInputValue(new Date())
+  );
+  const [recurringWeeklyDay, setRecurringWeeklyDay] = useState(new Date().getDay());
+  const [recurringMonthlyDay, setRecurringMonthlyDay] = useState(
+    new Date().getDate()
+  );
+  const [recurringYearlyMonth, setRecurringYearlyMonth] = useState(
+    new Date().getMonth() + 1
+  );
+  const [recurringYearlyDay, setRecurringYearlyDay] = useState(
+    new Date().getDate()
   );
   const [activeGroupForRecurring, setActiveGroupForRecurring] = useState(null);
   const [assignToBudget, setAssignToBudget] = useState(false);
@@ -348,13 +503,60 @@ const FinanceScreen = () => {
     setBudgetNote('');
   };
 
+  const getNormalizedRecurringCadence = (cadenceValue) => {
+    if (cadenceValue === 'weekly' || cadenceValue === 'yearly') {
+      return cadenceValue;
+    }
+    return 'monthly';
+  };
+
+  const computeRecurringDueDateByCadence = ({
+    cadence = recurringCadence,
+    weeklyDay = recurringWeeklyDay,
+    monthlyDay = recurringMonthlyDay,
+    yearlyMonth = recurringYearlyMonth,
+    yearlyDay = recurringYearlyDay,
+    referenceDate = selectedDate || new Date(),
+  } = {}) => {
+    const normalizedCadence = getNormalizedRecurringCadence(cadence);
+    if (normalizedCadence === 'weekly') {
+      return getNextWeeklyDueDate(weeklyDay, referenceDate);
+    }
+    if (normalizedCadence === 'yearly') {
+      return getNextYearlyDueDate(yearlyMonth, yearlyDay, referenceDate);
+    }
+    return getNextMonthlyDueDate(monthlyDay, referenceDate);
+  };
+
+  const applyRecurringCadenceDate = (nextValues = {}) => {
+    const nextDue = computeRecurringDueDateByCadence(nextValues);
+    setRecurringNextDueDate(formatDateForInput(nextDue));
+  };
+
+  const seedRecurringCadenceValues = (seedDateValue) => {
+    const seedDate = parseDateInputValue(seedDateValue, selectedDate || new Date());
+    setRecurringWeeklyDay(seedDate.getDay());
+    setRecurringMonthlyDay(seedDate.getDate());
+    setRecurringYearlyMonth(seedDate.getMonth() + 1);
+    setRecurringYearlyDay(seedDate.getDate());
+    return seedDate;
+  };
+
   const resetRecurringForm = () => {
+    const seedDate = seedRecurringCadenceValues(new Date());
     setRecurringName('');
     setRecurringAmount('');
     setRecurringCadence('monthly');
-    setRecurringNextDueDate(formatDateForInput(new Date()));
+    setRecurringNextDueDate(
+      formatDateForInput(
+        computeRecurringDueDateByCadence({
+          cadence: 'monthly',
+          monthlyDay: seedDate.getDate(),
+          referenceDate: seedDate,
+        })
+      )
+    );
     setActiveGroupForRecurring(null);
-    setShowRecurringDueDatePicker(false);
   };
 
   const handleAddIncome = async () => {
@@ -427,13 +629,27 @@ const FinanceScreen = () => {
   };
 
   const openRecurringModalForGroup = (groupId) => {
+    const group = budgetGroups.find((entry) => entry.id === groupId) || null;
+    const defaultCadence = getNormalizedRecurringCadence(group?.cadence);
+    const seedDate = seedRecurringCadenceValues(selectedDate || new Date());
+
     setActiveGroupForRecurring(groupId);
     setShowRecurringModal(true);
     setRecurringName('');
     setRecurringAmount('');
-    setRecurringCadence('monthly');
-    setRecurringNextDueDate(formatDateForInput(selectedDate || new Date()));
-    setShowRecurringDueDatePicker(false);
+    setRecurringCadence(defaultCadence);
+    setRecurringNextDueDate(
+      formatDateForInput(
+        computeRecurringDueDateByCadence({
+          cadence: defaultCadence,
+          weeklyDay: seedDate.getDay(),
+          monthlyDay: seedDate.getDate(),
+          yearlyMonth: seedDate.getMonth() + 1,
+          yearlyDay: seedDate.getDate(),
+          referenceDate: seedDate,
+        })
+      )
+    );
   };
 
   const formatCurrency = (value, showSign = false, currencyCode) => {
@@ -507,6 +723,35 @@ const FinanceScreen = () => {
     setSelectedDate(date);
     setTransactionDate(formatDateForInput(date));
   };
+  const handleRecurringCadenceSelect = (cadenceValue) => {
+    const normalizedCadence = getNormalizedRecurringCadence(cadenceValue);
+    setRecurringCadence(normalizedCadence);
+    applyRecurringCadenceDate({ cadence: normalizedCadence });
+  };
+
+  const handleRecurringWeeklyDaySelect = (weekdayValue) => {
+    const weekday = clampNumber(weekdayValue, 0, 6);
+    setRecurringWeeklyDay(weekday);
+    applyRecurringCadenceDate({ weeklyDay: weekday });
+  };
+
+  const handleRecurringMonthlyDaySelect = (dayValue) => {
+    const dayOfMonth = clampNumber(dayValue, 1, 31);
+    setRecurringMonthlyDay(dayOfMonth);
+    applyRecurringCadenceDate({ monthlyDay: dayOfMonth });
+  };
+
+  const handleRecurringYearlyMonthSelect = (monthValue) => {
+    const month = clampNumber(monthValue, 1, 12);
+    setRecurringYearlyMonth(month);
+    applyRecurringCadenceDate({ yearlyMonth: month });
+  };
+
+  const handleRecurringYearlyDaySelect = (dayValue) => {
+    const dayOfMonth = clampNumber(dayValue, 1, 31);
+    setRecurringYearlyDay(dayOfMonth);
+    applyRecurringCadenceDate({ yearlyDay: dayOfMonth });
+  };
 
   const openBudgetGroupInsight = (groupId) => {
     if (!groupId) return;
@@ -524,10 +769,8 @@ const FinanceScreen = () => {
     (group) => group.id === activeGroupForRecurring
   );
   const recurringDuePickerValue = useMemo(() => {
-    if (!recurringNextDueDate) return new Date();
-    const parsed = new Date(`${recurringNextDueDate}T12:00:00`);
-    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-  }, [recurringNextDueDate]);
+    return parseDateInputValue(recurringNextDueDate, selectedDate || new Date());
+  }, [recurringNextDueDate, selectedDate]);
   const selectedBudgetGroup = useMemo(
     () => budgetGroups.find((group) => group.id === selectedBudgetGroupId),
     [budgetGroups, selectedBudgetGroupId]
@@ -953,7 +1196,7 @@ const FinanceScreen = () => {
                           <TouchableOpacity
                             style={styles.iconButton}
                             onPress={(e) => {
-                              e.stopPropagation();
+                              e?.stopPropagation?.();
                               openRecurringModalForGroup(summary.group.id);
                             }}
                           >
@@ -967,7 +1210,7 @@ const FinanceScreen = () => {
                         <TouchableOpacity
                           style={styles.iconButton}
                           onPress={(e) => {
-                            e.stopPropagation();
+                            e?.stopPropagation?.();
                             deleteBudgetGroup(summary.group.id);
                           }}
                         >
@@ -1081,7 +1324,7 @@ const FinanceScreen = () => {
                               : 'Not recorded yet';
                             const nextDueLabel = item.nextDueDate
                               ? `Next due ${formatDate(
-                                  new Date(`${item.nextDueDate}T12:00:00`)
+                                  parseDateInputValue(item.nextDueDate, new Date())
                                 )}`
                               : 'Due date not set';
                             return (
@@ -1120,7 +1363,7 @@ const FinanceScreen = () => {
                         <Button
                           title="Add recurring payment"
                           onPress={(e) => {
-                            e.stopPropagation();
+                            e?.stopPropagation?.();
                             openRecurringModalForGroup(summary.group.id);
                           }}
                           variant="secondary"
@@ -1518,19 +1761,6 @@ const FinanceScreen = () => {
           placeholder="e.g. Rent, Gym, Subscriptions"
         />
 
-        <Text style={styles.inputLabel}>First due date</Text>
-        <TouchableOpacity
-          style={styles.modalDatePicker}
-          onPress={() => setShowRecurringDueDatePicker(true)}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="calendar-outline" size={18} color={palette.textSecondary} />
-          <Text style={styles.modalDateText}>
-            {formatDate(recurringDuePickerValue)}
-          </Text>
-          <Ionicons name="chevron-down" size={18} color={palette.textSecondary} />
-        </TouchableOpacity>
-
         <Text style={styles.inputLabel}>Amount</Text>
         <View style={styles.amountInputContainer}>
           <Text style={styles.currencySymbol}>{selectedCurrency.symbol}</Text>
@@ -1548,9 +1778,64 @@ const FinanceScreen = () => {
         <ChipGroup
           options={budgetCadenceOptions}
           selectedValue={recurringCadence}
-          onSelect={setRecurringCadence}
+          onSelect={handleRecurringCadenceSelect}
           style={styles.chipRow}
         />
+
+        {recurringCadence === 'weekly' ? (
+          <View style={styles.cadencePickerSection}>
+            <Text style={styles.subduedLabel}>Choose day of week</Text>
+            <ChipGroup
+              options={recurringWeekdayOptions}
+              selectedValue={recurringWeeklyDay}
+              onSelect={handleRecurringWeeklyDaySelect}
+              size="small"
+              style={styles.cadenceChipGroup}
+            />
+          </View>
+        ) : null}
+
+        {recurringCadence === 'monthly' ? (
+          <View style={styles.cadencePickerSection}>
+            <Text style={styles.subduedLabel}>Choose day of month</Text>
+            <ChipGroup
+              options={recurringDayOfMonthOptions}
+              selectedValue={recurringMonthlyDay}
+              onSelect={handleRecurringMonthlyDaySelect}
+              size="small"
+              style={styles.cadenceChipGroup}
+            />
+          </View>
+        ) : null}
+
+        {recurringCadence === 'yearly' ? (
+          <View style={styles.cadencePickerSection}>
+            <Text style={styles.subduedLabel}>Choose month</Text>
+            <ChipGroup
+              options={recurringMonthOptions}
+              selectedValue={recurringYearlyMonth}
+              onSelect={handleRecurringYearlyMonthSelect}
+              size="small"
+              style={styles.cadenceChipGroup}
+            />
+            <Text style={styles.subduedLabel}>Choose day of month</Text>
+            <ChipGroup
+              options={recurringDayOfMonthOptions}
+              selectedValue={recurringYearlyDay}
+              onSelect={handleRecurringYearlyDaySelect}
+              size="small"
+              style={styles.cadenceChipGroup}
+            />
+          </View>
+        ) : null}
+
+        <Text style={styles.inputLabel}>Next due date</Text>
+        <View style={styles.modalDatePicker}>
+          <Ionicons name="calendar-outline" size={18} color={palette.textSecondary} />
+          <Text style={styles.modalDateText}>
+            {formatDate(recurringDuePickerValue)}
+          </Text>
+        </View>
 
         <View style={styles.modalButtons}>
           <Button
@@ -1578,15 +1863,6 @@ const FinanceScreen = () => {
         value={selectedDate}
         onChange={handleDateChange}
         onClose={() => setShowDatePicker(false)}
-        accentColor={palette.finance}
-      />
-      <PlatformDatePicker
-        visible={showRecurringDueDatePicker}
-        value={recurringDuePickerValue}
-        onChange={(date) => {
-          setRecurringNextDueDate(formatDateForInput(date));
-        }}
-        onClose={() => setShowRecurringDueDatePicker(false)}
         accentColor={palette.finance}
       />
     </View>
@@ -2175,6 +2451,13 @@ const createStyles = (themeColorsParam, isDark = false) => {
       marginHorizontal: spacing.sm,
       color: text,
       fontWeight: '600',
+    },
+    cadencePickerSection: {
+      marginBottom: spacing.sm,
+    },
+    cadenceChipGroup: {
+      marginTop: spacing.xs,
+      marginBottom: spacing.sm,
     },
     categoryGrid: {
       flexDirection: 'row',

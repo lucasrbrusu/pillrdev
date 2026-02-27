@@ -11,7 +11,6 @@ import {
   Alert,
   Switch,
   Platform,
-  InteractionManager,
   useWindowDimensions,
   Modal as RNModal,
 } from 'react-native';
@@ -43,6 +42,28 @@ const GOAL_PERIOD_OPTIONS = [
   { label: 'Daily', value: 'day' },
   { label: 'Weekly', value: 'week' },
   { label: 'Monthly', value: 'month' },
+];
+const GOAL_UNIT_CATEGORY_OPTIONS = [
+  { label: 'Quantity', value: 'quantity' },
+  { label: 'Time', value: 'time' },
+];
+const GOAL_UNIT_PRESETS = {
+  quantity: ['count', 'times', 'steps', 'm', 'km', 'mile', 'ml', 'oz', 'Cal', 'g', 'mg', 'drink', 'time'],
+  time: ['sec', 'min', 'hr'],
+};
+const HABIT_COMPLETION_METHODS = [
+  {
+    value: 'swipe',
+    label: 'Swipe completion',
+    description: 'Swipe right on a habit card to add progress.',
+    icon: 'swap-horizontal',
+  },
+  {
+    value: 'manual_plus',
+    label: 'Manual + button',
+    description: 'Use the + button on each habit card to add progress.',
+    icon: 'add-circle',
+  },
 ];
 const HABIT_COLOR_OPTIONS = [
   '#9B59B6',
@@ -94,6 +115,26 @@ const isSameDay = (a, b) => toDateKey(a) === toDateKey(b);
 const parseNumber = (value, fallback = 0) => {
   const next = Number(value);
   return Number.isFinite(next) ? next : fallback;
+};
+const sanitizeGoalUnit = (value, fallback = 'times') => {
+  const normalized = String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ');
+  return normalized || fallback;
+};
+const normalizeHabitCompletionMethod = (value) =>
+  String(value || 'swipe').toLowerCase() === 'manual_plus' ? 'manual_plus' : 'swipe';
+const getHabitSwipeStepAmount = (goalValue = 1) => {
+  const normalizedGoal = Math.max(1, parseNumber(goalValue, 1));
+  if (Number.isInteger(normalizedGoal)) return 1;
+  return normalizedGoal <= 5 ? 0.1 : 0.5;
+};
+const inferGoalUnitCategory = (unitValue) => {
+  const normalizedUnit = sanitizeGoalUnit(unitValue, '').toLowerCase();
+  const inTimeUnits = (GOAL_UNIT_PRESETS.time || []).some(
+    (unit) => unit.toLowerCase() === normalizedUnit
+  );
+  return inTimeUnits ? 'time' : 'quantity';
 };
 const toStartOfDay = (value) => {
   const date = value instanceof Date ? value : new Date(value || Date.now());
@@ -494,57 +535,104 @@ const SwipeHabitCard = ({
   onReset,
   onDelete,
   onSwipeAdd,
+  onQuickAdd,
+  completionMethod = 'swipe',
   onSwipeInteractionChange,
   styles,
   palette,
 }) => {
   const actionTileCount = achieved ? 2 : 3;
   const ACTION_RAIL_WIDTH = spacing.sm + actionTileCount * (64 + spacing.sm);
-  const FILL_SWIPE_DISTANCE = 280;
-  const PROGRESS_ACTIVATION_DISTANCE = 16;
-  const SWIPE_CAPTURE_DISTANCE = 18;
-  const HORIZONTAL_INTENT_RATIO = 1.45;
+  const FILL_SWIPE_DISTANCE = 220;
+  const PROGRESS_ACTIVATION_DISTANCE = 12;
+  const SWIPE_CAPTURE_DISTANCE = 10;
+  const HORIZONTAL_INTENT_RATIO = 1.1;
   const ACTION_DRAG_DAMPING = 0.88;
   const ACTION_OPEN_DISTANCE = 74;
   const ACTION_OPEN_VELOCITY = -0.62;
   const ACTION_CLOSE_DISTANCE = 52;
   const ACTION_CLOSE_VELOCITY = 0.55;
-  const PROGRESS_COMMIT_DISTANCE = 44;
-  const PROGRESS_COMMIT_RATIO_FLOOR = 0.045;
-  const PROGRESS_EASING = 1.35;
+  const PROGRESS_COMMIT_DISTANCE = 18;
+  const PROGRESS_STEP_PIXELS_MIN = 12;
+  const PROGRESS_STEP_PIXELS_MAX = 44;
+  const PROGRESS_STEP_CALIBRATION_WINDOW = 12;
+  const PROGRESS_EASING = 1.18;
+  const goalValue = getGoalValue(habit);
+  const swipeStepAmount = getHabitSwipeStepAmount(goalValue);
+  const swipeStepPrecision =
+    swipeStepAmount >= 1 ? 0 : Math.min(3, String(swipeStepAmount).split('.')[1]?.length || 1);
   const { width: windowWidth } = useWindowDimensions();
   const rowWidth = Math.max(1, windowWidth - spacing.lg * 2);
-  const canSwipeProgress = swipeGesturesEnabled && isInteractive && !achieved;
+  const resolvedCompletionMethod = normalizeHabitCompletionMethod(completionMethod);
+  const manualPlusEnabled = resolvedCompletionMethod === 'manual_plus';
+  const canSwipeProgress = swipeGesturesEnabled && isInteractive && !achieved && !manualPlusEnabled;
   const canSwipeActions = swipeGesturesEnabled && (isInteractive || achieved);
   const translateX = useRef(new Animated.Value(0)).current;
   const [actionsOpen, setActionsOpen] = useState(false);
   const [dragFillRatio, setDragFillRatio] = useState(0);
   const dragFillRatioRef = useRef(0);
-  const progressRatioRef = useRef(clamp(ratio, 0, 1));
-  const swipeStartRatioRef = useRef(clamp(ratio, 0, 1));
+  const swipeStartAmountRef = useRef(Math.max(0, parseNumber(progress, 0)));
+  const currentAmountRef = useRef(Math.max(0, parseNumber(progress, 0)));
+  const swipeModeRef = useRef('idle');
   const swipeActiveRef = useRef(false);
   const fillRafRef = useRef(null);
   const fillResetTimeoutRef = useRef(null);
 
   useEffect(() => {
-    progressRatioRef.current = clamp(ratio, 0, 1);
-  }, [ratio]);
+    currentAmountRef.current = Math.max(0, parseNumber(progress, 0));
+  }, [progress]);
 
-  const getSwipeTargetRatio = useCallback(
-    (dx, startRatio = progressRatioRef.current) => {
-      const base = clamp(startRatio, 0, 1);
-      if (dx <= 0) return base;
+  const getSwipeTargetAmount = useCallback(
+    (dx, startAmount = swipeStartAmountRef.current) => {
+      const clampedStart = clamp(parseNumber(startAmount, 0), 0, goalValue);
+      if (dx <= PROGRESS_ACTIVATION_DISTANCE) return clampedStart;
+
       const adjustedDistance = Math.max(0, dx - PROGRESS_ACTIVATION_DISTANCE);
-      if (adjustedDistance <= 0) return base;
+      const remaining = Math.max(0, goalValue - clampedStart);
+      if (remaining <= 0) return goalValue;
 
-      const remaining = Math.max(0, 1 - base);
-      if (remaining <= 0) return 1;
-
-      const swipeProgress = clamp(adjustedDistance / FILL_SWIPE_DISTANCE, 0, 1) ** PROGRESS_EASING;
-      const delta = swipeProgress * remaining;
-      return clamp(base + delta, base, 1);
+      const remainingSteps = Math.max(1, Math.ceil(remaining / swipeStepAmount));
+      const calibratedStepCount = Math.max(
+        1,
+        Math.min(remainingSteps, PROGRESS_STEP_CALIBRATION_WINDOW)
+      );
+      const stepPixelDistance = clamp(
+        FILL_SWIPE_DISTANCE / calibratedStepCount,
+        PROGRESS_STEP_PIXELS_MIN,
+        PROGRESS_STEP_PIXELS_MAX
+      );
+      const easedDistance = adjustedDistance ** PROGRESS_EASING;
+      const easedStepPixels = stepPixelDistance ** PROGRESS_EASING;
+      const stepCount = Math.floor((easedDistance + easedStepPixels * 0.08) / easedStepPixels);
+      const steppedDelta = stepCount * swipeStepAmount;
+      const nextAmount = clamp(clampedStart + steppedDelta, clampedStart, goalValue);
+      return Number(nextAmount.toFixed(swipeStepPrecision));
     },
-    [FILL_SWIPE_DISTANCE, PROGRESS_ACTIVATION_DISTANCE, PROGRESS_EASING]
+    [
+      FILL_SWIPE_DISTANCE,
+      PROGRESS_ACTIVATION_DISTANCE,
+      PROGRESS_STEP_CALIBRATION_WINDOW,
+      PROGRESS_STEP_PIXELS_MAX,
+      PROGRESS_STEP_PIXELS_MIN,
+      PROGRESS_EASING,
+      goalValue,
+      swipeStepAmount,
+      swipeStepPrecision,
+    ]
+  );
+
+  const getSwipePreviewRatio = useCallback(
+    (dx, startAmount = swipeStartAmountRef.current) => {
+      const clampedStart = clamp(parseNumber(startAmount, 0), 0, goalValue);
+      if (dx <= 0) return goalValue > 0 ? clamp(clampedStart / goalValue, 0, 1) : 0;
+      const adjustedDistance = Math.max(0, dx - PROGRESS_ACTIVATION_DISTANCE);
+      const remaining = Math.max(0, goalValue - clampedStart);
+      if (remaining <= 0) return 1;
+      const swipeProgress = clamp(adjustedDistance / FILL_SWIPE_DISTANCE, 0, 1) ** PROGRESS_EASING;
+      const previewAmount = clampedStart + swipeProgress * remaining;
+      return goalValue > 0 ? clamp(previewAmount / goalValue, 0, 1) : 0;
+    },
+    [FILL_SWIPE_DISTANCE, PROGRESS_ACTIVATION_DISTANCE, PROGRESS_EASING, goalValue]
   );
 
   const flushDragFillToState = useCallback(() => {
@@ -655,25 +743,42 @@ const SwipeHabitCard = ({
   const panResponder = useMemo(
     () =>
       PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponderCapture: () => false,
         onMoveShouldSetPanResponder: (_, g) => {
           if (!swipeGesturesEnabled) return false;
+          if (!canSwipeProgress && !canSwipeActions) return false;
           const absDx = Math.abs(g.dx);
           const absDy = Math.abs(g.dy);
           if (absDx < SWIPE_CAPTURE_DISTANCE) return false;
           if (absDx <= absDy * HORIZONTAL_INTENT_RATIO) return false;
           if (actionsOpen && canSwipeActions) return true;
-          if (g.dx < 0) return canSwipeActions;
-          return canSwipeProgress;
+          if (g.dx >= 0) return canSwipeProgress;
+          return canSwipeActions;
+        },
+        onMoveShouldSetPanResponderCapture: (_, g) => {
+          if (!swipeGesturesEnabled) return false;
+          if (!canSwipeProgress && !canSwipeActions) return false;
+          const absDx = Math.abs(g.dx);
+          const absDy = Math.abs(g.dy);
+          if (absDx < SWIPE_CAPTURE_DISTANCE) return false;
+          if (absDx <= absDy * HORIZONTAL_INTENT_RATIO) return false;
+          if (actionsOpen && canSwipeActions) return true;
+          if (g.dx >= 0) return canSwipeProgress;
+          return canSwipeActions;
         },
         onPanResponderGrant: () => {
           if (!canSwipeProgress && !canSwipeActions) return;
-          swipeStartRatioRef.current = progressRatioRef.current;
+          const startAmount = currentAmountRef.current;
+          swipeStartAmountRef.current = startAmount;
+          swipeModeRef.current = actionsOpen ? 'actions' : 'idle';
           setSwipeInteractionActive(true);
         },
         onPanResponderMove: (_, g) => {
           if (!canSwipeProgress && !canSwipeActions) return;
 
           if (actionsOpen) {
+            swipeModeRef.current = 'actions';
             clearDragFillPreview();
             if (g.dx >= 0) {
               const dampedDx = g.dx * ACTION_DRAG_DAMPING;
@@ -684,20 +789,33 @@ const SwipeHabitCard = ({
             return;
           }
 
-          if (g.dx < 0) {
+          if (swipeModeRef.current === 'idle') {
+            if (g.dx >= 0 && canSwipeProgress) {
+              swipeModeRef.current = 'progress';
+            } else if (g.dx < 0 && canSwipeActions) {
+              swipeModeRef.current = 'actions';
+            } else {
+              return;
+            }
+          }
+
+          if (swipeModeRef.current === 'actions') {
             if (!canSwipeActions) return;
             clearDragFillPreview();
-            const dampedDx = g.dx * ACTION_DRAG_DAMPING;
+            const lockedDx = Math.min(0, g.dx);
+            const dampedDx = lockedDx * ACTION_DRAG_DAMPING;
             translateX.setValue(clamp(dampedDx, -ACTION_RAIL_WIDTH, 0));
             return;
           }
 
-          if (!canSwipeProgress) return;
-          // Right swipe should fill progress only; card stays in place.
+          if (swipeModeRef.current !== 'progress' || !canSwipeProgress) return;
+          const lockedDx = Math.max(0, g.dx);
           translateX.setValue(0);
-          setDragFillPreview(getSwipeTargetRatio(g.dx, swipeStartRatioRef.current));
+          setDragFillPreview(getSwipePreviewRatio(lockedDx, swipeStartAmountRef.current));
         },
         onPanResponderRelease: (_, g) => {
+          const swipeMode = swipeModeRef.current;
+          swipeModeRef.current = 'idle';
           setSwipeInteractionActive(false);
           if (!canSwipeProgress && !canSwipeActions) {
             clearDragFillPreview();
@@ -716,14 +834,15 @@ const SwipeHabitCard = ({
             return;
           }
 
-          if (g.dx < 0) {
+          if (swipeMode === 'actions' || g.dx < 0) {
             if (!canSwipeActions) {
               clearDragFillPreview();
               closeActions();
               return;
             }
             clearDragFillPreview();
-            const shouldOpen = g.dx < -ACTION_OPEN_DISTANCE || g.vx < ACTION_OPEN_VELOCITY;
+            const lockedDx = Math.min(0, g.dx);
+            const shouldOpen = lockedDx < -ACTION_OPEN_DISTANCE || g.vx < ACTION_OPEN_VELOCITY;
             if (shouldOpen) {
               openActions();
             } else {
@@ -732,25 +851,20 @@ const SwipeHabitCard = ({
             return;
           }
 
-          if (g.dx >= PROGRESS_COMMIT_DISTANCE && canSwipeProgress) {
-            const targetRatio = Math.max(
-              dragFillRatioRef.current,
-              getSwipeTargetRatio(g.dx, swipeStartRatioRef.current)
-            );
-            const ratioDelta = targetRatio - swipeStartRatioRef.current;
-            if (ratioDelta < PROGRESS_COMMIT_RATIO_FLOOR) {
+          if (swipeMode === 'progress' && g.dx >= PROGRESS_COMMIT_DISTANCE && canSwipeProgress) {
+            const nextAmount = getSwipeTargetAmount(g.dx, swipeStartAmountRef.current);
+            const amountDelta = nextAmount - swipeStartAmountRef.current;
+            if (amountDelta < swipeStepAmount) {
               clearDragFillPreview();
               closeActions();
               return;
             }
-            const goalValue = getGoalValue(habit);
-            const currentAmount = Math.max(0, parseNumber(progress, 0));
-            const nextAmount = Math.round(goalValue * targetRatio);
-            if (nextAmount <= currentAmount) {
+            if (nextAmount <= currentAmountRef.current) {
               clearDragFillPreview();
               closeActions();
               return;
             }
+            const targetRatio = goalValue > 0 ? clamp(nextAmount / goalValue, 0, 1) : 0;
             setDragFillPreview(targetRatio, { instant: true });
             onSwipeAdd(habit, nextAmount);
             clearDragFillPreview({ deferMs: 120 });
@@ -762,6 +876,7 @@ const SwipeHabitCard = ({
           closeActions();
         },
         onPanResponderTerminate: () => {
+          swipeModeRef.current = 'idle';
           setSwipeInteractionActive(false);
           clearDragFillPreview();
           if (actionsOpen) {
@@ -770,6 +885,8 @@ const SwipeHabitCard = ({
             closeActions();
           }
         },
+        onPanResponderTerminationRequest: () => false,
+        onShouldBlockNativeResponder: () => true,
       }),
     [
       ACTION_RAIL_WIDTH,
@@ -780,7 +897,6 @@ const SwipeHabitCard = ({
       ACTION_OPEN_VELOCITY,
       HORIZONTAL_INTENT_RATIO,
       PROGRESS_COMMIT_DISTANCE,
-      PROGRESS_COMMIT_RATIO_FLOOR,
       SWIPE_CAPTURE_DISTANCE,
       actionsOpen,
       canSwipeActions,
@@ -788,16 +904,17 @@ const SwipeHabitCard = ({
       clearDragFillPreview,
       closeActions,
       dragFillRatioRef,
-      getSwipeTargetRatio,
+      goalValue,
+      getSwipeTargetAmount,
+      getSwipePreviewRatio,
       habit,
       onSwipeAdd,
       setSwipeInteractionActive,
       openActions,
-      ratio,
       setDragFillPreview,
       swipeGesturesEnabled,
+      swipeStepAmount,
       translateX,
-      progress,
     ]
   );
   const resolvedPanHandlers = swipeGesturesEnabled ? panResponder.panHandlers : {};
@@ -812,8 +929,21 @@ const SwipeHabitCard = ({
     : 0;
   const overdoneVisual = overdone && !achieved;
   const isAndroid = Platform.OS === 'android';
-  const displayRatio = clamp(Math.max(ratio, dragFillRatio), 0, 1);
-  const visualFillRatio = overdoneVisual ? 0 : completed ? 1 : displayRatio;
+  const currentAmount = Math.max(0, parseNumber(progress, 0));
+  const livePreviewRatio = clamp(Math.max(ratio, dragFillRatio), 0, 1);
+  const rawPreviewAmount = livePreviewRatio * goalValue;
+  const snappedPreviewAmount = Math.round(rawPreviewAmount / swipeStepAmount) * swipeStepAmount;
+  const displayProgressAmount = Math.max(
+    currentAmount,
+    Number(clamp(snappedPreviewAmount, 0, goalValue).toFixed(swipeStepPrecision))
+  );
+  const visualFillRatio = overdoneVisual ? 0 : completed ? 1 : livePreviewRatio;
+  const formatAmount = (value) =>
+    swipeStepPrecision === 0
+      ? String(Math.round(value))
+      : String(Number(parseNumber(value, 0).toFixed(swipeStepPrecision)));
+  const goalValueLabel = formatAmount(goalValue);
+  const displayProgressLabel = formatAmount(displayProgressAmount);
   const fillWidth = rowWidth * visualFillRatio;
   const habitColor = habit.color || palette.habits;
   const overdoneBorderColor = palette.isDark ? '#6B7280' : '#9CA3AF';
@@ -882,7 +1012,9 @@ const SwipeHabitCard = ({
     ? 'Stick to your limit to complete this quit habit and keep your streak.'
     : achieved
       ? 'This habit has been achieved'
-    : 'Swipe right to add progress - Swipe left for actions - Tap for exact amount';
+      : manualPlusEnabled
+        ? 'Tap + to add progress - Swipe left for actions - Tap for exact amount'
+        : 'Swipe right to add progress - Swipe left for actions - Tap for exact amount';
   const cardBorderColor = overdoneVisual
     ? overdoneBorderColor
     : achieved
@@ -957,7 +1089,7 @@ const SwipeHabitCard = ({
                   <Text style={[styles.habitTitle, { color: habitTextColor }]} numberOfLines={1}>{habit.title}</Text>
                   {!achieved ? (
                     <Text style={[styles.habitMeta, { color: habitSubTextColor }]}>
-                      {Math.round(progress)} / {getGoalValue(habit)} {habit.goalUnit || 'times'}
+                      {displayProgressLabel} / {goalValueLabel} {habit.goalUnit || 'times'}
                     </Text>
                   ) : null}
                 </View>
@@ -968,9 +1100,28 @@ const SwipeHabitCard = ({
                       {streakLabel}
                     </Text>
                   </View>
-                  {!achieved ? (
+                  {!achieved && manualPlusEnabled ? (
+                    <TouchableOpacity
+                      style={[
+                        styles.quickAddButton,
+                        {
+                          backgroundColor: isInteractive ? '#16A34A' : withAlpha('#16A34A', 0.28),
+                          borderColor: isInteractive ? '#16A34A' : withAlpha('#16A34A', 0.44),
+                        },
+                      ]}
+                      onPress={() => {
+                        if (!isInteractive) return;
+                        onQuickAdd?.(habit);
+                      }}
+                      disabled={!isInteractive}
+                      activeOpacity={0.88}
+                    >
+                      <Ionicons name="add" size={16} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  ) : null}
+                  {!achieved && !manualPlusEnabled ? (
                     <Text style={[styles.progressMetaPercent, { color: habitTextColor }]}>
-                      {Math.round(ratio * 100)}%
+                      {Math.round(livePreviewRatio * 100)}%
                     </Text>
                   ) : null}
                 </View>
@@ -1044,9 +1195,10 @@ const HabitsScreen = () => {
     authUser,
     profile,
     profileLoaded,
-    isLoading,
     themeName,
     themeColors,
+    userSettings,
+    updateUserSettings,
     ensureHabitsLoaded,
     setHabitProgress,
     streakFrozen,
@@ -1074,7 +1226,6 @@ const HabitsScreen = () => {
   const styles = useMemo(() => createStyles(palette), [palette]);
   const [isHabitsHydrating, setIsHabitsHydrating] = useState(true);
   const [isHabitSwipeActive, setIsHabitSwipeActive] = useState(false);
-  const [areSwipeGesturesReady, setAreSwipeGesturesReady] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -1098,33 +1249,6 @@ const HabitsScreen = () => {
       isActive = false;
     };
   }, [authUser?.id, ensureHabitsLoaded]);
-
-  useEffect(() => {
-    let cancelled = false;
-    let interactionTask = null;
-
-    if (!isFocused || isLoading || isHabitsHydrating || !profileLoaded) {
-      setAreSwipeGesturesReady(false);
-      setIsHabitSwipeActive(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    interactionTask = InteractionManager.runAfterInteractions(() => {
-      if (cancelled) return;
-      requestAnimationFrame(() => {
-        if (!cancelled) setAreSwipeGesturesReady(true);
-      });
-    });
-
-    return () => {
-      cancelled = true;
-      if (interactionTask && typeof interactionTask.cancel === 'function') {
-        interactionTask.cancel();
-      }
-    };
-  }, [isFocused, isHabitsHydrating, isLoading, profileLoaded]);
 
   const hasCompletedHabitsTutorial = profile?.hasCompletedHabitsTutorial === true;
   const shouldShowHabitsTutorial = profile?.hasCompletedHabitsTutorial === false;
@@ -1156,6 +1280,7 @@ const HabitsScreen = () => {
   const [showAddTypePicker, setShowAddTypePicker] = useState(false);
   const [renderAddTypePicker, setRenderAddTypePicker] = useState(false);
   const [addTypePickerAnchor, setAddTypePickerAnchor] = useState(null);
+  const [showCompletionMethodSheet, setShowCompletionMethodSheet] = useState(false);
   const [formHideSharingSection, setFormHideSharingSection] = useState(false);
   const [formLockedGroupId, setFormLockedGroupId] = useState(null);
   const [formOnlyGroupSelection, setFormOnlyGroupSelection] = useState(false);
@@ -1166,6 +1291,10 @@ const HabitsScreen = () => {
 
   const [showGoalPeriodSheet, setShowGoalPeriodSheet] = useState(false);
   const [showTaskDaysSheet, setShowTaskDaysSheet] = useState(false);
+  const [showGoalUnitSheet, setShowGoalUnitSheet] = useState(false);
+  const [goalUnitCategory, setGoalUnitCategory] = useState('quantity');
+  const [showCustomGoalUnitInput, setShowCustomGoalUnitInput] = useState(false);
+  const [customGoalUnitInput, setCustomGoalUnitInput] = useState('');
   const [showEmojiSheet, setShowEmojiSheet] = useState(false);
   const [showGroupShareSheet, setShowGroupShareSheet] = useState(false);
   const [showFriendInviteSheet, setShowFriendInviteSheet] = useState(false);
@@ -1206,6 +1335,14 @@ const HabitsScreen = () => {
   const selectedDateISO = toISODate(selectedDate);
   const isSelectedDateToday = isSameDay(selectedDate, new Date());
   const manualAmountValue = Math.max(0, parseNumber(manualAmount, 0));
+  const habitCompletionMethod = normalizeHabitCompletionMethod(
+    userSettings?.habitCompletionMethod
+  );
+  const normalizedGoalUnit = sanitizeGoalUnit(goalUnit, 'times');
+  const currentGoalUnitPresets = GOAL_UNIT_PRESETS[goalUnitCategory] || [];
+  const isGoalUnitPreset = currentGoalUnitPresets.some(
+    (unit) => unit.toLowerCase() === normalizedGoalUnit.toLowerCase()
+  );
   const parsedStartDate = parseDateOnly(startDate) || new Date();
   const parsedEndDate = parseDateOnly(endDate);
 
@@ -1474,6 +1611,9 @@ const HabitsScreen = () => {
     setGoalPeriod('day');
     setGoalValueInput('1');
     setGoalUnit('times');
+    setGoalUnitCategory('quantity');
+    setShowCustomGoalUnitInput(false);
+    setCustomGoalUnitInput('');
     setTaskDaysMode('every_day');
     setTaskDaysCount(3);
     setSelectedDays(DAYS);
@@ -1494,6 +1634,7 @@ const HabitsScreen = () => {
     setShowFriendInviteSheet(false);
     setShowGoalPeriodSheet(false);
     setShowTaskDaysSheet(false);
+    setShowGoalUnitSheet(false);
     setIsEditingHabit(false);
     setActiveGroupHabitId(null);
     setActiveGroupHabitGroupId(null);
@@ -1514,7 +1655,11 @@ const HabitsScreen = () => {
     setHabitColor(habit.color || palette.habits);
     setGoalPeriod(habit.goalPeriod || 'day');
     setGoalValueInput(String(getGoalValue(habit)));
-    setGoalUnit(habit.goalUnit || 'times');
+    const nextGoalUnit = sanitizeGoalUnit(habit.goalUnit, 'times');
+    setGoalUnit(nextGoalUnit);
+    setGoalUnitCategory(inferGoalUnitCategory(nextGoalUnit));
+    setShowCustomGoalUnitInput(false);
+    setCustomGoalUnitInput('');
     setTaskDaysMode(habit.taskDaysMode || 'every_day');
     setTaskDaysCount(parseNumber(habit.taskDaysCount, 3));
     setSelectedDays(Array.isArray(habit.days) ? habit.days.filter((d) => DAYS.includes(d)) : DAYS);
@@ -1569,6 +1714,7 @@ const HabitsScreen = () => {
   }, []);
 
   const openAddTypePicker = useCallback(() => {
+    setShowCompletionMethodSheet(false);
     const fallbackAnchor = {
       x: windowWidth - spacing.lg - 21,
       y: insets.top + spacing.sm + 21,
@@ -1608,6 +1754,11 @@ const HabitsScreen = () => {
     }
     openAddTypePicker();
   }, [closeAddTypePicker, openAddTypePicker, showAddTypePicker]);
+
+  const openCompletionMethodSheet = useCallback(() => {
+    closeAddTypePicker();
+    setShowCompletionMethodSheet(true);
+  }, [closeAddTypePicker]);
 
   const floatingAddButtonPosition = useMemo(() => {
     const fallbackX = windowWidth - spacing.lg - 21;
@@ -1780,6 +1931,32 @@ const HabitsScreen = () => {
     }
   };
 
+  const handleQuickAddProgress = useCallback(
+    async (habit) => {
+      if (!habit || !isSelectedDateToday || isHabitsHydrating) return;
+      if (hasHabitReachedEndDate(habit, new Date())) return;
+
+      const currentAmount = Math.max(
+        0,
+        getDateProgressAmount(habit, selectedDateKey, localProgressMap)
+      );
+      const goalValue = getGoalValue(habit);
+      const stepAmount = getHabitSwipeStepAmount(goalValue);
+      const stepPrecision =
+        stepAmount >= 1 ? 0 : Math.min(3, String(stepAmount).split('.')[1]?.length || 1);
+      const habitType = habit?.habitType || 'build';
+      const nextRawAmount = Number((currentAmount + stepAmount).toFixed(stepPrecision));
+      const nextAmount =
+        habitType === 'quit'
+          ? nextRawAmount
+          : Number(Math.min(goalValue, nextRawAmount).toFixed(stepPrecision));
+
+      if (nextAmount <= currentAmount) return;
+      await applyProgress(habit, nextAmount);
+    },
+    [applyProgress, isSelectedDateToday, isHabitsHydrating, localProgressMap, selectedDateKey]
+  );
+
   const submitManualAmount = async () => {
     if (!selectedHabit || !isSelectedDateToday) {
       setShowManualModal(false);
@@ -1809,6 +1986,9 @@ const HabitsScreen = () => {
     setShowFriendInviteSheet(false);
     setShowGoalPeriodSheet(false);
     setShowTaskDaysSheet(false);
+    setShowGoalUnitSheet(false);
+    setShowCustomGoalUnitInput(false);
+    setCustomGoalUnitInput('');
     setShowReminderTimePicker(false);
     setEditingReminderTimeIndex(null);
     setShowStartDatePicker(false);
@@ -1816,14 +1996,47 @@ const HabitsScreen = () => {
     setShowQuitHabitInfoModal(false);
   };
 
+  const closeGoalUnitSheet = () => {
+    setShowGoalUnitSheet(false);
+    setShowCustomGoalUnitInput(false);
+    setCustomGoalUnitInput('');
+  };
+
+  const openGoalUnitSheet = () => {
+    setShowGoalPeriodSheet(false);
+    setShowTaskDaysSheet(false);
+    setGoalUnitCategory(inferGoalUnitCategory(goalUnit));
+    setShowCustomGoalUnitInput(false);
+    setCustomGoalUnitInput('');
+    setShowGoalUnitSheet(true);
+  };
+
+  const selectGoalUnit = (unit) => {
+    setGoalUnit(sanitizeGoalUnit(unit, 'times'));
+    closeGoalUnitSheet();
+  };
+
+  const applyCustomGoalUnit = () => {
+    const nextGoalUnit = sanitizeGoalUnit(customGoalUnitInput, '');
+    if (!nextGoalUnit) {
+      Alert.alert('Add a metric', 'Enter a custom metric name to use as your goal unit.');
+      return;
+    }
+    setGoalUnit(nextGoalUnit);
+    setGoalUnitCategory(inferGoalUnitCategory(nextGoalUnit));
+    closeGoalUnitSheet();
+  };
+
   const toggleGoalPeriodPicker = () => {
     setShowGoalPeriodSheet((prev) => !prev);
     setShowTaskDaysSheet(false);
+    setShowGoalUnitSheet(false);
   };
 
   const toggleTaskDaysPicker = () => {
     setShowTaskDaysSheet((prev) => !prev);
     setShowGoalPeriodSheet(false);
+    setShowGoalUnitSheet(false);
   };
 
   const openStartDatePicker = () => {
@@ -1942,7 +2155,7 @@ const HabitsScreen = () => {
       color: habitColor,
       goalPeriod,
       goalValue,
-      goalUnit: goalUnit.trim() || 'times',
+      goalUnit: sanitizeGoalUnit(goalUnit, 'times'),
       taskDaysMode,
       taskDaysCount,
       monthDays: selectedMonthDays,
@@ -2087,11 +2300,38 @@ const HabitsScreen = () => {
     return cells;
   }, [monthAnchor]);
 
-  const handleFinishHabitsHowTo = useCallback(() => {
-    setShowHabitsHowTo(false);
-    if (hasCompletedHabitsTutorial) return;
-    completeHabitsTutorial?.();
-  }, [completeHabitsTutorial, hasCompletedHabitsTutorial]);
+  const applyHabitCompletionMethod = useCallback(
+    async (methodValue) => {
+      const nextMethod = normalizeHabitCompletionMethod(methodValue);
+      if (nextMethod === habitCompletionMethod) return true;
+      try {
+        await updateUserSettings?.({ habitCompletionMethod: nextMethod });
+        return true;
+      } catch (error) {
+        Alert.alert(
+          'Unable to update method',
+          error?.message || 'Please try again.'
+        );
+        return false;
+      }
+    },
+    [habitCompletionMethod, updateUserSettings]
+  );
+
+  const handleFinishHabitsHowTo = useCallback(
+    async ({ completionMethod } = {}) => {
+      setShowHabitsHowTo(false);
+      await applyHabitCompletionMethod(completionMethod || habitCompletionMethod);
+      if (hasCompletedHabitsTutorial) return;
+      completeHabitsTutorial?.();
+    },
+    [
+      applyHabitCompletionMethod,
+      completeHabitsTutorial,
+      habitCompletionMethod,
+      hasCompletedHabitsTutorial,
+    ]
+  );
 
   return (
     <View style={[styles.container, { backgroundColor: palette.background, paddingTop: insets.top + spacing.sm }]}>
@@ -2107,6 +2347,13 @@ const HabitsScreen = () => {
             <Text style={[styles.pageSubtitle, { color: palette.textMuted }]}>Build better, quit worse</Text>
           </View>
           <View style={styles.headerAddWrap}>
+            <TouchableOpacity
+              style={[styles.headerSettingsButton, { backgroundColor: palette.card, borderColor: palette.cardBorder }]}
+              onPress={openCompletionMethodSheet}
+              activeOpacity={0.9}
+            >
+              <Ionicons name="settings-outline" size={19} color={palette.text} />
+            </TouchableOpacity>
             <TouchableOpacity
               ref={addTypeButtonRef}
               style={[styles.headerAddButton, { backgroundColor: palette.habits }]}
@@ -2245,7 +2492,6 @@ const HabitsScreen = () => {
                 streakFrozen={streakFrozen}
                 freezeEligible={isSelectedDateToday}
                 isInteractive={!isHabitsHydrating && isSelectedDateToday && !lifecycleCompleted}
-                swipeGesturesEnabled={areSwipeGesturesReady}
                 onTap={(item) => {
                   if (isHabitsHydrating && !lifecycleCompleted) return;
                   if (item.__isGroupHabit) {
@@ -2287,6 +2533,8 @@ const HabitsScreen = () => {
                   await removeHabitByItem(item);
                 }}
                 onSwipeAdd={applyProgress}
+                onQuickAdd={handleQuickAddProgress}
+                completionMethod={habitCompletionMethod}
                 onSwipeInteractionChange={setIsHabitSwipeActive}
                 styles={styles}
                 palette={palette}
@@ -2299,6 +2547,7 @@ const HabitsScreen = () => {
       <HabitsHowToOverlay
         visible={showHabitsHowTo}
         onFinish={handleFinishHabitsHowTo}
+        initialCompletionMethod={habitCompletionMethod}
       />
 
       {renderAddTypePicker ? (
@@ -2379,6 +2628,76 @@ const HabitsScreen = () => {
           </Animated.View>
         </RNModal>
       ) : null}
+
+      <RNModal
+        visible={showCompletionMethodSheet}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCompletionMethodSheet(false)}
+        statusBarTranslucent={Platform.OS === 'android'}
+      >
+        <View style={styles.sheetOverlay}>
+          <TouchableOpacity
+            style={styles.sheetBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowCompletionMethodSheet(false)}
+          />
+          <View
+            style={[
+              styles.sheetCard,
+              {
+                backgroundColor: palette.card,
+                borderColor: palette.cardBorder,
+                paddingBottom: Math.max(insets.bottom, spacing.md),
+              },
+            ]}
+          >
+            <Text style={[styles.sheetTitle, { color: palette.text }]}>Habit Completion Method</Text>
+            {HABIT_COMPLETION_METHODS.map((option) => {
+              const selected = habitCompletionMethod === option.value;
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[
+                    styles.completionMethodOption,
+                    {
+                      borderColor: selected ? palette.habits : palette.cardBorder,
+                      backgroundColor: selected ? withAlpha(palette.habits, 0.14) : palette.mutedSurface,
+                    },
+                  ]}
+                  onPress={async () => {
+                    const updated = await applyHabitCompletionMethod(option.value);
+                    if (updated) setShowCompletionMethodSheet(false);
+                  }}
+                  activeOpacity={0.9}
+                >
+                  <View
+                    style={[
+                      styles.completionMethodIcon,
+                      { backgroundColor: selected ? palette.habits : palette.card },
+                    ]}
+                  >
+                    <Ionicons
+                      name={option.icon}
+                      size={18}
+                      color={selected ? '#FFFFFF' : palette.textMuted}
+                    />
+                  </View>
+                  <View style={styles.completionMethodTextWrap}>
+                    <Text style={[styles.completionMethodTitle, { color: palette.text }]}>{option.label}</Text>
+                    <Text style={[styles.completionMethodDesc, { color: palette.textMuted }]}>
+                      {option.description}
+                    </Text>
+                  </View>
+                  {selected ? (
+                    <Ionicons name="checkmark-circle" size={20} color={palette.habits} />
+                  ) : null}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      </RNModal>
 
       <Modal
         visible={showManualModal}
@@ -2722,9 +3041,112 @@ const HabitsScreen = () => {
                 <Text style={[styles.rowLabel, { color: palette.text }]}>Goal value</Text>
                 <View style={styles.goalInputs}>
                   <TextInput style={[styles.goalInput, { borderColor: palette.cardBorder, color: palette.text, backgroundColor: palette.mutedSurface }]} value={goalValueInput} onChangeText={setGoalValueInput} keyboardType="numeric" />
-                  <TextInput style={[styles.goalInput, { borderColor: palette.cardBorder, color: palette.text, backgroundColor: palette.mutedSurface }]} value={goalUnit} onChangeText={setGoalUnit} />
+                  <TouchableOpacity
+                    style={[
+                      styles.goalUnitButton,
+                      {
+                        borderColor: palette.cardBorder,
+                        backgroundColor: palette.mutedSurface,
+                      },
+                    ]}
+                    onPress={openGoalUnitSheet}
+                    activeOpacity={0.88}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={[styles.goalUnitButtonText, { color: palette.text }]} numberOfLines={1}>
+                      {normalizedGoalUnit}
+                    </Text>
+                    <Ionicons name="chevron-down" size={14} color={palette.textMuted} />
+                  </TouchableOpacity>
                 </View>
               </View>
+              {showGoalUnitSheet ? (
+                <View style={[styles.inlineSheet, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]}>
+                  <View style={[styles.segmentWrap, styles.goalUnitSegmentWrap, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}>
+                    {GOAL_UNIT_CATEGORY_OPTIONS.map((category) => {
+                      const selected = goalUnitCategory === category.value;
+                      return (
+                        <TouchableOpacity
+                          key={category.value}
+                          style={[styles.segment, styles.goalUnitSegment, selected && { backgroundColor: palette.habits }]}
+                          onPress={() => setGoalUnitCategory(category.value)}
+                        >
+                          <Text style={[styles.segmentText, { color: selected ? '#FFFFFF' : palette.textMuted }]}>
+                            {category.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <View style={styles.goalUnitChipGrid}>
+                    {currentGoalUnitPresets.map((unit) => {
+                      const selected = normalizedGoalUnit.toLowerCase() === unit.toLowerCase();
+                      return (
+                        <TouchableOpacity
+                          key={unit}
+                          style={[
+                            styles.goalUnitChip,
+                            {
+                              borderColor: selected ? palette.habits : palette.cardBorder,
+                              backgroundColor: selected ? palette.habits : palette.card,
+                            },
+                          ]}
+                          onPress={() => selectGoalUnit(unit)}
+                          activeOpacity={0.9}
+                        >
+                          <Text style={[styles.goalUnitChipText, { color: selected ? '#FFFFFF' : palette.text }]}>
+                            {unit}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                    <TouchableOpacity
+                      style={[styles.goalUnitChip, styles.goalUnitAddChip, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}
+                      onPress={() => {
+                        setCustomGoalUnitInput(isGoalUnitPreset ? '' : normalizedGoalUnit);
+                        setShowCustomGoalUnitInput((prev) => !prev);
+                      }}
+                      activeOpacity={0.9}
+                    >
+                      <Ionicons name={showCustomGoalUnitInput ? 'close' : 'add'} size={18} color={palette.text} />
+                    </TouchableOpacity>
+                  </View>
+
+                  {showCustomGoalUnitInput ? (
+                    <View style={[styles.goalUnitCustomCard, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}>
+                      <Text style={[styles.goalUnitCustomLabel, { color: palette.text }]}>Custom metric</Text>
+                      <TextInput
+                        style={[styles.formInput, styles.goalUnitCustomInput, { borderColor: palette.cardBorder, color: palette.text, backgroundColor: palette.mutedSurface }]}
+                        placeholder="e.g. pages"
+                        placeholderTextColor={palette.textLight}
+                        value={customGoalUnitInput}
+                        onChangeText={setCustomGoalUnitInput}
+                        maxLength={24}
+                      />
+                      <View style={styles.goalUnitCustomActions}>
+                        <TouchableOpacity
+                          style={[styles.goalUnitCustomButton, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}
+                          onPress={() => {
+                            setShowCustomGoalUnitInput(false);
+                            setCustomGoalUnitInput('');
+                          }}
+                        >
+                          <Text style={[styles.goalUnitCustomButtonText, { color: palette.textMuted }]}>Cancel</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.goalUnitCustomButton, styles.goalUnitCustomButtonPrimary, { borderColor: palette.habits, backgroundColor: palette.habits }]}
+                          onPress={applyCustomGoalUnit}
+                        >
+                          <Text style={[styles.goalUnitCustomButtonText, { color: '#FFFFFF' }]}>Use custom</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : null}
+                  <TouchableOpacity style={[styles.sheetDone, { backgroundColor: palette.habits }]} onPress={closeGoalUnitSheet}>
+                    <Text style={styles.sheetDoneText}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
               <TouchableOpacity style={styles.rowLine} onPress={toggleTaskDaysPicker}>
                 <Text style={[styles.rowLabel, { color: palette.text }]}>Task days</Text>
                 <Text style={[styles.rowValue, { color: palette.textMuted }]}>
@@ -2920,6 +3342,135 @@ const HabitsScreen = () => {
           ) : null}
         </View>
       </Modal>
+
+      <RNModal
+        visible={showGoalUnitSheet && !showFormModal}
+        transparent
+        animationType="fade"
+        onRequestClose={closeGoalUnitSheet}
+        statusBarTranslucent={Platform.OS === 'android'}
+      >
+        <View style={styles.sheetOverlay}>
+          <TouchableOpacity style={styles.sheetBackdrop} activeOpacity={1} onPress={closeGoalUnitSheet} />
+          <View
+            style={[
+              styles.sheetCardLarge,
+              styles.goalUnitSheetCard,
+              {
+                backgroundColor: palette.card,
+                borderColor: palette.cardBorder,
+                paddingBottom: Math.max(insets.bottom, spacing.md),
+              },
+            ]}
+          >
+            <View style={[styles.goalUnitSheetHandle, { backgroundColor: palette.cardBorder }]} />
+            <View style={styles.goalUnitSheetHeader}>
+              <View style={styles.goalUnitSheetHeaderSpacer} />
+              <Text style={[styles.sheetTitle, styles.goalUnitSheetTitle, { color: palette.text }]}>Select Unit</Text>
+              <TouchableOpacity
+                style={[styles.goalUnitEditButton, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]}
+                onPress={() => {
+                  if (showCustomGoalUnitInput) {
+                    setShowCustomGoalUnitInput(false);
+                    setCustomGoalUnitInput('');
+                    return;
+                  }
+                  setCustomGoalUnitInput(isGoalUnitPreset ? '' : normalizedGoalUnit);
+                  setShowCustomGoalUnitInput(true);
+                }}
+              >
+                <Feather
+                  name={showCustomGoalUnitInput ? 'x' : 'edit-2'}
+                  size={16}
+                  color={palette.text}
+                />
+              </TouchableOpacity>
+            </View>
+
+            <View style={[styles.segmentWrap, styles.goalUnitSegmentWrap, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]}>
+              {GOAL_UNIT_CATEGORY_OPTIONS.map((category) => {
+                const selected = goalUnitCategory === category.value;
+                return (
+                  <TouchableOpacity
+                    key={category.value}
+                    style={[styles.segment, styles.goalUnitSegment, selected && { backgroundColor: palette.habits }]}
+                    onPress={() => setGoalUnitCategory(category.value)}
+                  >
+                    <Text style={[styles.segmentText, { color: selected ? '#FFFFFF' : palette.textMuted }]}>
+                      {category.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={styles.goalUnitChipGrid}>
+              {currentGoalUnitPresets.map((unit) => {
+                const selected = normalizedGoalUnit.toLowerCase() === unit.toLowerCase();
+                return (
+                  <TouchableOpacity
+                    key={unit}
+                    style={[
+                      styles.goalUnitChip,
+                      {
+                        borderColor: selected ? palette.habits : palette.cardBorder,
+                        backgroundColor: selected ? palette.habits : palette.mutedSurface,
+                      },
+                    ]}
+                    onPress={() => selectGoalUnit(unit)}
+                    activeOpacity={0.9}
+                  >
+                    <Text style={[styles.goalUnitChipText, { color: selected ? '#FFFFFF' : palette.text }]}>
+                      {unit}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+              <TouchableOpacity
+                style={[styles.goalUnitChip, styles.goalUnitAddChip, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]}
+                onPress={() => {
+                  setCustomGoalUnitInput(isGoalUnitPreset ? '' : normalizedGoalUnit);
+                  setShowCustomGoalUnitInput(true);
+                }}
+                activeOpacity={0.9}
+              >
+                <Ionicons name="add" size={18} color={palette.text} />
+              </TouchableOpacity>
+            </View>
+
+            {showCustomGoalUnitInput ? (
+              <View style={[styles.goalUnitCustomCard, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]}>
+                <Text style={[styles.goalUnitCustomLabel, { color: palette.text }]}>Custom metric</Text>
+                <TextInput
+                  style={[styles.formInput, styles.goalUnitCustomInput, { borderColor: palette.cardBorder, color: palette.text, backgroundColor: palette.card }]}
+                  placeholder="e.g. pages"
+                  placeholderTextColor={palette.textLight}
+                  value={customGoalUnitInput}
+                  onChangeText={setCustomGoalUnitInput}
+                  maxLength={24}
+                />
+                <View style={styles.goalUnitCustomActions}>
+                  <TouchableOpacity
+                    style={[styles.goalUnitCustomButton, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}
+                    onPress={() => {
+                      setShowCustomGoalUnitInput(false);
+                      setCustomGoalUnitInput('');
+                    }}
+                  >
+                    <Text style={[styles.goalUnitCustomButtonText, { color: palette.textMuted }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.goalUnitCustomButton, styles.goalUnitCustomButtonPrimary, { borderColor: palette.habits, backgroundColor: palette.habits }]}
+                    onPress={applyCustomGoalUnit}
+                  >
+                    <Text style={[styles.goalUnitCustomButtonText, { color: '#FFFFFF' }]}>Use custom</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </RNModal>
 
       <Modal
         visible={showDetailModal}
@@ -3248,7 +3799,17 @@ const createStyles = (palette) =>
     pageTitle: { ...typography.h1, fontSize: 34, fontWeight: '700' },
     pageSubtitle: { ...typography.bodySmall, marginTop: 2 },
     iconButton: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-    headerAddWrap: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
+    headerAddWrap: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
+    headerSettingsButton: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      borderWidth: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.sm,
+      ...shadows.small,
+    },
     headerAddButton: {
       width: 42,
       height: 42,
@@ -3393,10 +3954,19 @@ const createStyles = (palette) =>
     habitInfo: { flex: 1, marginRight: spacing.md },
     habitTitle: { ...typography.h3, fontWeight: '700', marginBottom: spacing.xs },
     habitMeta: { ...typography.caption, fontWeight: '600' },
-    progressMeta: { alignItems: 'flex-end', justifyContent: 'center', minWidth: 104 },
+    progressMeta: { alignItems: 'flex-end', justifyContent: 'center', minWidth: 116 },
     progressStreakRow: { flexDirection: 'row', alignItems: 'center' },
     progressMetaStreak: { ...typography.bodySmall, fontWeight: '800', marginLeft: 4 },
     progressMetaPercent: { ...typography.bodySmall, fontWeight: '800', marginTop: 8 },
+    quickAddButton: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      borderWidth: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: spacing.xs,
+    },
     habitHintRow: { marginTop: spacing.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
     habitHint: { ...typography.caption, marginTop: spacing.sm, textAlign: 'center' },
     manualCard: { borderRadius: borderRadius.xl, borderWidth: 1, padding: spacing.lg },
@@ -3549,8 +4119,21 @@ const createStyles = (palette) =>
     shareHint: { ...typography.caption, marginTop: spacing.xs },
     rowLabel: { ...typography.body, fontWeight: '600', flex: 1, marginRight: spacing.sm },
     rowValue: { ...typography.bodySmall, fontWeight: '600' },
-    goalInputs: { flexDirection: 'row' },
-    goalInput: { width: 76, borderWidth: 1, borderRadius: borderRadius.full, textAlign: 'center', paddingVertical: 6, marginLeft: spacing.xs, ...typography.bodySmall },
+    goalInputs: { flexDirection: 'row', alignItems: 'center' },
+    goalInput: { width: 80, borderWidth: 1, borderRadius: borderRadius.full, textAlign: 'center', paddingVertical: 6, marginLeft: spacing.xs, ...typography.bodySmall },
+    goalUnitButton: {
+      minWidth: 86,
+      maxWidth: 136,
+      borderWidth: 1,
+      borderRadius: borderRadius.full,
+      paddingVertical: 7,
+      paddingHorizontal: spacing.sm,
+      marginLeft: spacing.xs,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    goalUnitButtonText: { ...typography.bodySmall, fontWeight: '600', marginRight: 6, flexShrink: 1 },
     wrapRow: { flexDirection: 'row', flexWrap: 'wrap' },
     pill: { borderRadius: borderRadius.full, borderWidth: 1, paddingHorizontal: spacing.md, paddingVertical: 7, marginRight: spacing.sm, marginBottom: spacing.sm },
     pillText: { ...typography.bodySmall, fontWeight: '600' },
@@ -3745,6 +4328,76 @@ const createStyles = (palette) =>
     sheetBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.3)' },
     sheetCard: { borderTopLeftRadius: borderRadius.xl, borderTopRightRadius: borderRadius.xl, borderWidth: 1, padding: spacing.lg, maxHeight: '65%' },
     sheetCardLarge: { borderTopLeftRadius: borderRadius.xl, borderTopRightRadius: borderRadius.xl, borderWidth: 1, padding: spacing.lg, maxHeight: '82%' },
+    goalUnitSheetCard: {
+      paddingTop: spacing.sm,
+    },
+    goalUnitSheetHandle: {
+      width: 52,
+      height: 5,
+      borderRadius: borderRadius.full,
+      alignSelf: 'center',
+      marginBottom: spacing.sm,
+      opacity: 0.65,
+    },
+    goalUnitSheetHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: spacing.sm,
+    },
+    goalUnitSheetHeaderSpacer: { width: 36, height: 36 },
+    goalUnitEditButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      borderWidth: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    goalUnitSheetTitle: { marginBottom: 0, flex: 1 },
+    goalUnitSegmentWrap: { marginBottom: spacing.md },
+    goalUnitSegment: { paddingVertical: 8 },
+    goalUnitChipGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'space-between',
+      marginBottom: spacing.sm,
+    },
+    goalUnitChip: {
+      width: '23.5%',
+      borderWidth: 1,
+      borderRadius: borderRadius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: spacing.sm,
+      marginBottom: spacing.sm,
+      minHeight: 52,
+    },
+    goalUnitAddChip: {
+      borderStyle: 'dashed',
+    },
+    goalUnitChipText: { ...typography.body, fontWeight: '600' },
+    goalUnitCustomCard: {
+      borderWidth: 1,
+      borderRadius: borderRadius.lg,
+      padding: spacing.sm,
+      marginTop: spacing.xs,
+    },
+    goalUnitCustomLabel: { ...typography.bodySmall, fontWeight: '700', marginBottom: spacing.xs },
+    goalUnitCustomInput: { marginBottom: spacing.sm },
+    goalUnitCustomActions: { flexDirection: 'row' },
+    goalUnitCustomButton: {
+      flex: 1,
+      borderWidth: 1,
+      borderRadius: borderRadius.full,
+      paddingVertical: spacing.sm,
+      alignItems: 'center',
+      marginHorizontal: 3,
+    },
+    goalUnitCustomButtonPrimary: {
+      borderWidth: 1,
+    },
+    goalUnitCustomButtonText: { ...typography.bodySmall, fontWeight: '700' },
     sheetTitle: { ...typography.h3, fontWeight: '700', textAlign: 'center', marginBottom: spacing.md },
     sheetOption: { borderRadius: borderRadius.md, borderWidth: 1, paddingVertical: spacing.md, paddingHorizontal: spacing.md, marginBottom: spacing.sm },
     sheetOptionText: { ...typography.body, fontWeight: '600' },
@@ -3783,6 +4436,26 @@ const createStyles = (palette) =>
     inlineTimePickerBtnText: { ...typography.bodySmall, fontWeight: '700' },
     sheetDone: { borderRadius: borderRadius.full, alignItems: 'center', paddingVertical: spacing.md, marginTop: spacing.sm },
     sheetDoneText: { ...typography.bodySmall, color: '#FFFFFF', fontWeight: '700' },
+    completionMethodOption: {
+      borderWidth: 1,
+      borderRadius: borderRadius.lg,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.sm,
+      marginBottom: spacing.sm,
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    completionMethodIcon: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.sm,
+    },
+    completionMethodTextWrap: { flex: 1, marginRight: spacing.sm },
+    completionMethodTitle: { ...typography.body, fontWeight: '700' },
+    completionMethodDesc: { ...typography.caption, marginTop: 2 },
   });
 
 export default HabitsScreen;
