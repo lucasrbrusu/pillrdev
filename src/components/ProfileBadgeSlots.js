@@ -38,6 +38,7 @@ const ProfileBadgeSlots = ({
                 unlocked: true,
                 equippedSlots: [],
               }}
+              compact
               showMilestoneLabel={false}
             />
           ) : (
@@ -47,7 +48,7 @@ const ProfileBadgeSlots = ({
                 { borderColor, backgroundColor: 'rgba(15,23,42,0.35)' },
               ]}
             >
-              <Ionicons name="ribbon-outline" size={24} color={mutedColor} />
+              <Ionicons name="ribbon-outline" size={18} color={mutedColor} />
               <Text style={[styles.emptyText, { color: mutedColor }]}>Slot {index + 1}</Text>
             </View>
           );
@@ -80,10 +81,10 @@ const styles = StyleSheet.create({
   container: {
     borderRadius: borderRadius.xl,
     borderWidth: 1,
-    padding: spacing.md,
+    padding: spacing.sm,
   },
   header: {
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   title: {
     ...typography.body,
@@ -95,18 +96,19 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
   slotWrap: {
     flex: 1,
   },
   emptySlot: {
-    minHeight: 120,
+    width: '100%',
+    aspectRatio: 1,
     borderWidth: 1,
     borderRadius: borderRadius.lg,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 3,
   },
   emptyText: {
     ...typography.caption,

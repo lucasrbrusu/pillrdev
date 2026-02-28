@@ -228,10 +228,10 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
     achievementGrid: {
       flexDirection: 'row',
       flexWrap: 'wrap',
-      gap: spacing.sm,
+      gap: spacing.xs,
     },
     achievementTile: {
-      width: '48%',
+      width: '31.5%',
     },
   });
 };

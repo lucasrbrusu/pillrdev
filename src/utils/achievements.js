@@ -189,7 +189,7 @@ const ACHIEVEMENT_DEFINITIONS = [
     title: 'Account Age',
     slotTitle: 'Account Age',
     metricKey: 'accountAgeMonths',
-    milestones: [1, 3, 6, 9, 12, 24, 36, 48, 60, 72],
+    milestones: [1, 3, 6, 9, 12, 24, 36, 48, 60],
   },
 ];
 
@@ -335,6 +335,8 @@ export const getBadgeDetails = (badgeId) => {
   if (!parsed) return null;
   return {
     id: parsed.badgeId,
+    badgeId: parsed.badgeId,
+    achievementId: parsed.achievementId,
     title: parsed.definition?.title || 'Badge',
     slotTitle: parsed.slotTitle,
     milestone: parsed.milestone,

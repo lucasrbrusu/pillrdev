@@ -53,7 +53,7 @@ const BADGE_ASSET_BY_ID = {
 
   // Account age (requested milestones)
   'account_age:1': require('../../assets/badges/account age/account age 1 months.png'),
-  'account_age:3': require('../../assets/badges/account age/accountagemonthly.png'),
+  'account_age:3': require('../../assets/badges/account age/account age 3 months.png'),
   'account_age:6': require('../../assets/badges/account age/account age 6 months.png'),
   'account_age:9': require('../../assets/badges/account age/account age 9 months.png'),
   'account_age:12': require('../../assets/badges/account age/account age 1 year.png'),
@@ -61,7 +61,6 @@ const BADGE_ASSET_BY_ID = {
   'account_age:36': require('../../assets/badges/account age/account age 3 years.png'),
   'account_age:48': require('../../assets/badges/account age/account age 4 years.png'),
   'account_age:60': require('../../assets/badges/account age/account age 5 years.png'),
-  'account_age:72': require('../../assets/badges/account age/account age 6 years.png'),
 };
 
 const FALLBACK_BY_VARIANT = {
@@ -69,13 +68,14 @@ const FALLBACK_BY_VARIANT = {
   streak_habit: require('../../assets/badges/longest habit streak/habitstreak2.png'),
   habit_completions: require('../../assets/badges/habits completed/completion1.png'),
   habits_achieved: require('../../assets/badges/total habits achieved/totalhabits1.png'),
-  account_monthly: require('../../assets/badges/account age/accountagemonthly.png'),
+  account_monthly: require('../../assets/badges/account age/account age 3 months.png'),
   account_yearly: require('../../assets/badges/account age/account age 1 year.png'),
   default: require('../../assets/badges/longest current streak/current2.png'),
 };
 
 const getBadgeKey = (badge = {}) => {
   if (badge?.badgeId) return String(badge.badgeId);
+  if (badge?.id) return String(badge.id);
   if (badge?.achievementId && badge?.milestone !== undefined) {
     return `${badge.achievementId}:${badge.milestone}`;
   }
@@ -98,7 +98,22 @@ const AchievementBadge = ({
 }) => {
   const unlocked = !!badge?.unlocked;
   const Component = onPress ? TouchableOpacity : View;
-  const source = badge?.imageUri ? { uri: badge.imageUri } : getAsset(badge);
+  const localSource = getAsset(badge);
+  const badgeIdentity = `${badge?.badgeId || badge?.achievementId || 'badge'}:${badge?.milestone ?? ''}:${badge?.imageUri || ''}`;
+  const [useRemoteImage, setUseRemoteImage] = React.useState(Boolean(badge?.imageUri));
+
+  React.useEffect(() => {
+    setUseRemoteImage(Boolean(badge?.imageUri));
+  }, [badgeIdentity, badge?.imageUri]);
+
+  const source = useRemoteImage && badge?.imageUri ? { uri: badge.imageUri } : localSource;
+  const artStyle = compact
+    ? showMilestoneLabel
+      ? styles.badgeArtCompactWithLabel
+      : styles.badgeArtCompact
+    : showMilestoneLabel
+    ? styles.badgeArtRegularWithLabel
+    : styles.badgeArtRegular;
 
   return (
     <Component
@@ -112,10 +127,19 @@ const AchievementBadge = ({
         style,
       ]}
     >
-      <Image source={source} style={styles.badgeArt} resizeMode="contain" />
+      <View style={styles.badgeCanvas}>
+        <Image
+          source={source}
+          style={[styles.badgeArt, artStyle]}
+          resizeMode="contain"
+          onError={() => {
+            if (useRemoteImage) setUseRemoteImage(false);
+          }}
+        />
+      </View>
       {!unlocked ? (
         <View style={styles.lockOverlay}>
-          <Ionicons name="lock-closed" size={compact ? 12 : 14} color="#E2E8F0" />
+          <Ionicons name="lock-closed" size={compact ? 11 : 12} color="#E2E8F0" />
         </View>
       ) : null}
 
@@ -142,6 +166,8 @@ const AchievementBadge = ({
 
 const styles = StyleSheet.create({
   wrap: {
+    width: '100%',
+    aspectRatio: 1,
     borderWidth: 1,
     borderColor: 'rgba(148, 163, 184, 0.3)',
     borderRadius: borderRadius.lg,
@@ -151,42 +177,65 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15,23,42,0.35)',
   },
   wrapRegular: {
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.xs,
-    minHeight: 156,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
   },
   wrapCompact: {
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.xs,
-    minHeight: 122,
+    paddingVertical: 5,
+    paddingHorizontal: 5,
     borderRadius: borderRadius.lg,
   },
-  badgeArt: {
+  badgeCanvas: {
+    flex: 1,
     width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 2,
+  },
+  badgeArt: {
     aspectRatio: 1,
-    marginBottom: 2,
+    alignSelf: 'center',
+  },
+  badgeArtRegular: {
+    width: '100%',
+    height: '100%',
+  },
+  badgeArtRegularWithLabel: {
+    width: '100%',
+    height: '100%',
+  },
+  badgeArtCompact: {
+    width: '96%',
+    height: '96%',
+  },
+  badgeArtCompactWithLabel: {
+    width: '86%',
+    height: '86%',
   },
   lockOverlay: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    top: 5,
+    right: 5,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(15,23,42,0.75)',
   },
   milestone: {
     ...typography.caption,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  milestoneCompact: {
-    ...typography.caption,
     fontSize: 10,
     fontWeight: '700',
     textAlign: 'center',
+    marginTop: 2,
+  },
+  milestoneCompact: {
+    ...typography.caption,
+    fontSize: 9,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginTop: 1,
   },
   equippedPill: {
     position: 'absolute',
