@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, spacing, borderRadius, typography, shadows } from '../utils/theme';
-import { Card, Modal } from '../components';
+import { Card, Modal, ProfileBadgeSlots } from '../components';
 import { useApp } from '../context/AppContext';
 import { supabase } from '../utils/supabaseClient';
 
@@ -61,6 +61,7 @@ const FriendProfileScreen = () => {
     getUserProfileById,
     groups,
     themeName,
+    achievementBadgeCatalog,
     authUser,
     tasks,
     groupHabits,
@@ -553,6 +554,36 @@ const FriendProfileScreen = () => {
                 </View>
               </View>
             </View>
+
+            <Card
+              style={[
+                themedStyles.sectionCard,
+                themedStyles.badgeCard,
+                { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder },
+              ]}
+            >
+              <View style={themedStyles.sectionHeaderRow}>
+                <View
+                  style={[
+                    themedStyles.sectionIcon,
+                    { backgroundColor: profileTheme.statusBg },
+                  ]}
+                >
+                  <Ionicons name="ribbon" size={16} color={profileTheme.statusText} />
+                </View>
+                <Text style={themedStyles.sectionTitle}>Badges</Text>
+              </View>
+              <ProfileBadgeSlots
+                badgeSlots={profileData?.badgeSlots}
+                badgeCatalog={achievementBadgeCatalog}
+                title="Displayed badges"
+                subtitle="Selected by this user"
+                textColor={themeColors?.text || colors.text}
+                mutedColor={themeColors?.textSecondary || colors.textSecondary}
+                cardColor={isDark ? 'rgba(15,23,42,0.36)' : '#F8FAFC'}
+                borderColor={isDark ? '#1F2937' : '#E2E8F0'}
+              />
+            </Card>
 
             <Card
               style={[
@@ -1062,6 +1093,11 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
     profileStatsCard: {
       marginTop: spacing.xs,
       marginBottom: spacing.lg,
+      borderWidth: 1,
+    },
+    badgeCard: {
+      marginTop: spacing.xs,
+      marginBottom: spacing.md,
       borderWidth: 1,
     },
     sectionTitle: {

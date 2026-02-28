@@ -14,7 +14,7 @@ import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { useApp } from '../context/AppContext';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Card, Input, PlatformScrollView } from '../components';
+import { Card, Input, PlatformScrollView, ProfileBadgeSlots } from '../components';
 import {
   colors,
   shadows,
@@ -40,8 +40,7 @@ const EditProfileScreen = () => {
     updateProfile,
     themeColors,
     themeName,
-    tasks,
-    getCurrentStreak,
+    achievementBadgeCatalog,
     userSettings,
   } = useApp();
   const styles = React.useMemo(() => createStyles(themeColors), [themeColors]);
@@ -79,10 +78,6 @@ const EditProfileScreen = () => {
     [isDark, themeColors]
   );
   const isPremium = !!profile?.isPremium;
-  const currentStreak = getCurrentStreak ? getCurrentStreak() : 0;
-  const totalTasks = tasks?.length || 0;
-  const completedTasks = tasks?.filter((task) => task.completed).length || 0;
-  const successRate = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   const [name, setName] = useState(profile?.name || '');
   const [email, setEmail] = useState(profile?.email || '');
@@ -298,52 +293,15 @@ const EditProfileScreen = () => {
             <Text style={styles.profileEmail}>{email}</Text>
           </View>
           <View style={[styles.statsDivider, { backgroundColor: profileTheme.statDivider }]} />
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <View
-                style={[
-                  styles.statIconWrap,
-                  {
-                    backgroundColor: profileTheme.goalTints.calorie.bg,
-                    borderColor: profileTheme.goalTints.calorie.border,
-                  },
-                ]}
-              >
-                <Ionicons name="flame" size={18} color={profileTheme.goalTints.calorie.icon} />
-              </View>
-              <Text style={styles.statValue}>{currentStreak}</Text>
-              <Text style={styles.statLabel}>Current streak</Text>
-            </View>
-            <View style={styles.statItem}>
-              <View
-                style={[
-                  styles.statIconWrap,
-                  {
-                    backgroundColor: profileTheme.goalTints.sleep.bg,
-                    borderColor: profileTheme.goalTints.sleep.border,
-                  },
-                ]}
-              >
-                <Ionicons name="ribbon" size={18} color={profileTheme.goalTints.sleep.icon} />
-              </View>
-              <Text style={styles.statValue}>{completedTasks}</Text>
-              <Text style={styles.statLabel}>Tasks Done</Text>
-            </View>
-            <View style={styles.statItem}>
-              <View
-                style={[
-                  styles.statIconWrap,
-                  {
-                    backgroundColor: profileTheme.goalTints.water.bg,
-                    borderColor: profileTheme.goalTints.water.border,
-                  },
-                ]}
-              >
-                <Ionicons name="trending-up" size={18} color={profileTheme.goalTints.water.icon} />
-              </View>
-              <Text style={styles.statValue}>{successRate}%</Text>
-              <Text style={styles.statLabel}>Success</Text>
-            </View>
+          <View style={styles.badgesWrap}>
+            <ProfileBadgeSlots
+              badgeSlots={profile?.badgeSlots}
+              badgeCatalog={achievementBadgeCatalog}
+              textColor={themeColors?.text || colors.text}
+              mutedColor={themeColors?.textSecondary || colors.textSecondary}
+              cardColor={isDark ? 'rgba(15,23,42,0.4)' : '#FFFFFF'}
+              borderColor={isDark ? '#1F2937' : '#E2E8F0'}
+            />
           </View>
         </LinearGradient>
 
@@ -704,33 +662,9 @@ const createStyles = (themeColorsParam = colors) => {
       width: '100%',
       backgroundColor: themeColorsParam?.divider || colors.divider,
     },
-    statsRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
+    badgesWrap: {
       paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.lg,
-    },
-    statItem: {
-      flex: 1,
-      alignItems: 'center',
-    },
-    statIconWrap: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 1,
-      marginBottom: spacing.xs,
-    },
-    statValue: {
-      ...typography.h3,
-      color: baseText,
-      marginBottom: 2,
-    },
-    statLabel: {
-      ...typography.caption,
-      color: mutedText,
+      paddingVertical: spacing.md,
     },
     sectionCard: {
       marginBottom: spacing.lg,

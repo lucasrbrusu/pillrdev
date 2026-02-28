@@ -6,3 +6,5 @@ export { default as Chip, ChipGroup } from './Chip';
 export { default as PlatformScrollView } from './PlatformScrollView';
 export { default as PlatformDatePicker } from './PlatformDatePicker';
 export { default as PlatformTimePicker } from './PlatformTimePicker';
+export { default as AchievementBadge } from './AchievementBadge';
+export { default as ProfileBadgeSlots } from './ProfileBadgeSlots';

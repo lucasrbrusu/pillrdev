@@ -2207,35 +2207,46 @@ const HabitsScreen = () => {
       return;
     }
 
-    if (targetGroupId && normalizedInviteIds.length && typeof sendGroupInvites === 'function') {
-      const memberIds = new Set(
-        ((groups || []).find((group) => group.id === targetGroupId)?.members || [])
-          .map((member) => member?.id)
-          .filter(Boolean)
-      );
-      const idsToInvite = normalizedInviteIds.filter((id) => !memberIds.has(id));
-      if (idsToInvite.length) {
-        await sendGroupInvites({ groupId: targetGroupId, userIds: idsToInvite });
-      }
-    }
-
-    if (isEditingHabit && selectedHabit) {
-      if (selectedHabit.__isGroupHabit) {
-        await updateGroupHabit(selectedHabit.id, payload);
-      } else {
-        await updateHabit(selectedHabit.id, payload);
-        if (targetGroupId) {
-          await addGroupHabit({ groupId: targetGroupId, sourceHabitId: selectedHabit.id, ...payload });
-        } else if (normalizedInviteIds.length && typeof shareHabitWithFriends === 'function') {
-          await shareHabitWithFriends(selectedHabit.id, normalizedInviteIds);
+    try {
+      if (targetGroupId && normalizedInviteIds.length && typeof sendGroupInvites === 'function') {
+        const memberIds = new Set(
+          ((groups || []).find((group) => group.id === targetGroupId)?.members || [])
+            .map((member) => member?.id)
+            .filter(Boolean)
+        );
+        const idsToInvite = normalizedInviteIds.filter((id) => !memberIds.has(id));
+        if (idsToInvite.length) {
+          await sendGroupInvites({ groupId: targetGroupId, userIds: idsToInvite });
         }
       }
-    } else if (targetGroupId) {
-      if (formHideSharingSection) {
-        await addGroupHabit({ groupId: targetGroupId, ...payload });
+
+      if (isEditingHabit && selectedHabit) {
+        if (selectedHabit.__isGroupHabit) {
+          await updateGroupHabit(selectedHabit.id, payload);
+        } else {
+          await updateHabit(selectedHabit.id, payload);
+          if (targetGroupId) {
+            await addGroupHabit({ groupId: targetGroupId, sourceHabitId: selectedHabit.id, ...payload });
+          } else if (normalizedInviteIds.length && typeof shareHabitWithFriends === 'function') {
+            await shareHabitWithFriends(selectedHabit.id, normalizedInviteIds);
+          }
+        }
+      } else if (targetGroupId) {
+        if (formHideSharingSection) {
+          await addGroupHabit({ groupId: targetGroupId, ...payload });
+        } else {
+          const createdHabit = await addHabit(payload);
+          await addGroupHabit({ groupId: targetGroupId, sourceHabitId: createdHabit?.id || null, ...payload });
+          if (
+            normalizedInviteIds.length &&
+            typeof shareHabitWithFriends === 'function' &&
+            createdHabit?.id
+          ) {
+            await shareHabitWithFriends(createdHabit.id, normalizedInviteIds);
+          }
+        }
       } else {
         const createdHabit = await addHabit(payload);
-        await addGroupHabit({ groupId: targetGroupId, sourceHabitId: createdHabit?.id || null, ...payload });
         if (
           normalizedInviteIds.length &&
           typeof shareHabitWithFriends === 'function' &&
@@ -2244,19 +2255,12 @@ const HabitsScreen = () => {
           await shareHabitWithFriends(createdHabit.id, normalizedInviteIds);
         }
       }
-    } else {
-      const createdHabit = await addHabit(payload);
-      if (
-        normalizedInviteIds.length &&
-        typeof shareHabitWithFriends === 'function' &&
-        createdHabit?.id
-      ) {
-        await shareHabitWithFriends(createdHabit.id, normalizedInviteIds);
-      }
-    }
 
-    closeFormModal();
-    resetForm();
+      closeFormModal();
+      resetForm();
+    } catch (error) {
+      Alert.alert('Unable to save habit', error?.message || 'Please try again.');
+    }
   };
 
   const completeSelectedHabit = async () => {

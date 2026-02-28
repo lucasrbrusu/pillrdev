@@ -21,6 +21,7 @@ import RoutineScreen from '../screens/RoutineScreen';
 import RoutineDetailScreen from '../screens/RoutineDetailScreen';
 import FinanceScreen from '../screens/FinanceScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import AchievementsScreen from '../screens/AchievementsScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import DataAccountScreen from '../screens/DataAccountScreen';
 import DeleteAccountDetailsScreen from '../screens/DeleteAccountDetailsScreen';
@@ -38,6 +39,7 @@ import PrivacySecurityScreen from '../screens/PrivacySecurityScreen';
 import HelpSupportScreen from '../screens/HelpSupportScreen';
 import MembershipScreen from '../screens/MembershipScreen';
 import PermissionsScreen from '../screens/PermissionsScreen';
+import InvitationsScreen from '../screens/InvitationsScreen';
 import FriendsScreen from '../screens/FriendsScreen';
 import GroupsScreen from '../screens/GroupsScreen';
 import CreateGroupScreen from '../screens/CreateGroupScreen';
@@ -388,6 +390,7 @@ const Navigation = () => {
             )}
           </Stack.Screen>
           <Stack.Screen name="Profile" component={ProfileScreen} />
+          <Stack.Screen name="Achievements" component={AchievementsScreen} />
           <Stack.Screen name="Paywall" component={PaywallScreen} />
           <Stack.Screen name="EditProfile" component={EditProfileScreen} />
           <Stack.Screen name="DataAccount" component={DataAccountScreen} />
@@ -403,6 +406,7 @@ const Navigation = () => {
           <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
           <Stack.Screen name="Membership" component={MembershipScreen} />
           <Stack.Screen name="Permissions" component={PermissionsScreen} />
+          <Stack.Screen name="Invitations" component={InvitationsScreen} />
           <Stack.Screen
             name="BudgetGroupInsight"
             component={BudgetGroupInsightScreen}

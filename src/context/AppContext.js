@@ -51,6 +51,7 @@ import {
   getTaskOverlapPairs,
   normalizeTaskDurationMinutes,
 } from '../utils/taskScheduling';
+import { normalizeBadgeSlots } from '../utils/achievements';
 
 const AppContext = createContext();
 
@@ -96,6 +97,8 @@ const defaultProfile = {
   username: '',
   email: 'user@pillaflow.app',
   photo: null,
+  createdAt: null,
+  updatedAt: null,
   dailyCalorieGoal: 2000,
   preferredDailyCalorieGoal: 2000,
   dailyWaterGoal: 2,
@@ -117,6 +120,7 @@ const defaultProfile = {
   appTutorialCompletedAt: null,
   hasCompletedHabitsTutorial: null,
   habitsTutorialCompletedAt: null,
+  badgeSlots: [null, null, null],
 };
 
 const defaultHealthDay = () => ({
@@ -241,6 +245,34 @@ const defaultUserSettings = {
   healthRemindersEnabled: true,
   calendarSyncEnabled: false,
   defaultCurrencyCode: 'USD',
+  allowTaskInvites: true,
+  allowGroupInvites: true,
+  allowHabitInvites: true,
+  allowRoutineInvites: true,
+};
+
+const INVITE_PERMISSION_ERROR_MESSAGE = 'User cannot be invited due to their permissions';
+const INVITE_PERMISSION_FIELDS = {
+  task: {
+    column: 'allow_task_invites',
+    fallbackColumn: 'task_invites_enabled',
+    settingsKey: 'allowTaskInvites',
+  },
+  group: {
+    column: 'allow_group_invites',
+    fallbackColumn: 'group_invites_enabled',
+    settingsKey: 'allowGroupInvites',
+  },
+  habit: {
+    column: 'allow_habit_invites',
+    fallbackColumn: 'habit_invites_enabled',
+    settingsKey: 'allowHabitInvites',
+  },
+  routine: {
+    column: 'allow_routine_invites',
+    fallbackColumn: 'routine_invites_enabled',
+    settingsKey: 'allowRoutineInvites',
+  },
 };
 
 const normalizeHabitCompletionMethod = (value) =>
@@ -1442,6 +1474,12 @@ const realtimeEnabledRef = useRef(false);
 const profileCacheRef = useRef({});
 const friendSearchCacheRef = useRef(new Map());
 const friendSearchAbortControllerRef = useRef(null);
+const profileBadgeColumnSupportRef = useRef({
+  badge_slot_1: true,
+  badge_slot_2: true,
+  badge_slot_3: true,
+  badge_slots: true,
+});
   const [blockedUsers, setBlockedUsers] = useState({ blocked: [], blockedBy: [] });
   const friendResponseSignatureRef = useRef('');
   const taskInviteResponseSignatureRef = useRef('');
@@ -1450,6 +1488,7 @@ const friendSearchAbortControllerRef = useRef(null);
  // Profile State
   const [profile, setProfile] = useState(defaultProfile);
   const [profileLoaded, setProfileLoaded] = useState(false);
+  const [achievementBadgeCatalog, setAchievementBadgeCatalog] = useState({});
   const [userSettings, setUserSettings] = useState(defaultUserSettings);
   const [revenueCatPremium, setRevenueCatPremium] = useState({
     isActive: false,
@@ -2258,6 +2297,12 @@ const mapProfileSummary = (row) => ({
   avatarUrl: getAvatarPublicUrl(row?.photo || row?.avatar_url || row?.avatar) || null,
 });
 
+const resolveProfileBadgeSlots = (row, fallback = defaultProfile.badgeSlots) =>
+  normalizeBadgeSlots(
+    row?.badge_slots || row?.badgeSlots || [row?.badge_slot_1, row?.badge_slot_2, row?.badge_slot_3],
+    fallback
+  );
+
 const mapExternalProfile = (row) => ({
   id: row?.id || row?.user_id || null,
   username: row?.username || '',
@@ -2269,7 +2314,125 @@ const mapExternalProfile = (row) => ({
   dailySleepGoal: row?.daily_sleep_goal ?? null,
   plan: row?.plan || defaultProfile.plan,
   premiumExpiresAt: row?.premium_expires_at || row?.premiumExpiresAt || null,
+  createdAt: row?.created_at || row?.createdAt || null,
+  updatedAt: row?.updated_at || row?.updatedAt || null,
+  badgeSlots: resolveProfileBadgeSlots(row),
 });
+
+const buildAchievementBadgeCatalogFromRows = (rows = []) => {
+  const nextCatalog = {};
+  (rows || []).forEach((row) => {
+    const achievementKey = row?.achievement_key || null;
+    const milestoneValue = Number(row?.milestone_value);
+    const badgeId =
+      row?.badge_id ||
+      (achievementKey && Number.isFinite(milestoneValue)
+        ? `${achievementKey}:${milestoneValue}`
+        : null);
+    if (!badgeId) return;
+
+    const storageBucket = row?.storage_bucket || 'achievement-badges';
+    const storagePath = String(row?.storage_path || '').trim();
+    let imageUri = null;
+    if (/^https?:\/\//i.test(storagePath)) {
+      imageUri = storagePath;
+    } else if (storageBucket && storagePath) {
+      const publicResult = supabase.storage.from(storageBucket).getPublicUrl(storagePath);
+      imageUri = publicResult?.data?.publicUrl || null;
+    }
+
+    nextCatalog[badgeId] = {
+      badgeId,
+      achievementKey,
+      milestoneValue: Number.isFinite(milestoneValue) ? milestoneValue : null,
+      milestoneLabel: row?.milestone_label || null,
+      storageBucket,
+      storagePath,
+      imageUri,
+    };
+  });
+
+  return nextCatalog;
+};
+
+  const refreshAchievementBadgeCatalog = useCallback(async () => {
+    let rows = [];
+
+    const viewResult = await supabase
+      .from('v_achievement_badges')
+      .select(
+        'badge_id, achievement_key, milestone_value, milestone_label, storage_bucket, storage_path'
+      );
+
+    if (!viewResult.error) {
+      rows = viewResult.data || [];
+    } else {
+      const message = [
+        viewResult.error?.message,
+        viewResult.error?.details,
+        viewResult.error?.hint,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      const isMissingView =
+        viewResult.error?.code === '42P01' ||
+        viewResult.error?.code === 'PGRST204' ||
+        message.includes('does not exist') ||
+        message.includes('v_achievement_badges');
+
+      if (!isMissingView) {
+        console.log('Error fetching v_achievement_badges:', viewResult.error);
+      }
+
+      const tableResult = await supabase
+        .from('achievement_badges')
+        .select(
+          'achievement_key, milestone_value, milestone_label, storage_bucket, storage_path, is_active'
+        )
+        .eq('is_active', true);
+
+      if (tableResult.error) {
+        const tableMessage = [
+          tableResult.error?.message,
+          tableResult.error?.details,
+          tableResult.error?.hint,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        const isMissingTable =
+          tableResult.error?.code === '42P01' ||
+          tableResult.error?.code === 'PGRST204' ||
+          tableMessage.includes('does not exist') ||
+          tableMessage.includes('achievement_badges');
+        if (!isMissingTable) {
+          console.log('Error fetching achievement_badges:', tableResult.error);
+        }
+        rows = [];
+      } else {
+        rows = (tableResult.data || []).map((row) => ({
+          ...row,
+          badge_id:
+            row?.achievement_key && Number.isFinite(Number(row?.milestone_value))
+              ? `${row.achievement_key}:${Number(row.milestone_value)}`
+              : null,
+        }));
+      }
+    }
+
+    const nextCatalog = buildAchievementBadgeCatalogFromRows(rows);
+    setAchievementBadgeCatalog(nextCatalog);
+    return nextCatalog;
+  }, []);
+
+  useEffect(() => {
+    if (!authUser?.id) {
+      setAchievementBadgeCatalog({});
+      return;
+    }
+    refreshAchievementBadgeCatalog();
+  }, [authUser?.id, refreshAchievementBadgeCatalog]);
 
   const updateUserPresence = useCallback(async () => {
     if (!authUser?.id) return;
@@ -2956,12 +3119,94 @@ const mapExternalProfile = (row) => ({
     [authUser?.id, fetchGroups, fetchGroupInvites, fetchGroupHabits, fetchGroupRoutines]
   );
 
+  const fetchInvitePermissionByUserId = async (userIds = [], inviteType = 'task') => {
+    const ids = Array.from(new Set((userIds || []).filter(Boolean)));
+    if (!ids.length) return {};
+
+    const fieldConfig = INVITE_PERMISSION_FIELDS[inviteType] || INVITE_PERMISSION_FIELDS.task;
+    const optionalColumns = [fieldConfig.column, fieldConfig.fallbackColumn];
+    let activeOptionalColumns = [...optionalColumns];
+    let rows = null;
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= optionalColumns.length; attempt += 1) {
+      const selectColumns = ['user_id', ...activeOptionalColumns].join(', ');
+      const { data, error } = await supabase
+        .from('user_settings')
+        .select(selectColumns)
+        .in('user_id', ids);
+
+      if (!error) {
+        rows = data || [];
+        lastError = null;
+        break;
+      }
+
+      if (isMissingRelationError(error, 'user_settings')) {
+        rows = [];
+        lastError = null;
+        break;
+      }
+
+      if (isMissingColumnError(error)) {
+        const missingColumn = extractMissingColumnName(error);
+        if (missingColumn) {
+          const previousLength = activeOptionalColumns.length;
+          activeOptionalColumns = activeOptionalColumns.filter(
+            (columnName) => columnName !== missingColumn
+          );
+          if (activeOptionalColumns.length < previousLength) {
+            continue;
+          }
+        }
+        rows = [];
+        lastError = null;
+        break;
+      }
+
+      lastError = error;
+      break;
+    }
+
+    if (lastError) {
+      console.log('Error loading invite permissions:', lastError);
+      return ids.reduce((accumulator, id) => {
+        accumulator[id] = true;
+        return accumulator;
+      }, {});
+    }
+
+    const rowMap = new Map(
+      (rows || [])
+        .filter((row) => row?.user_id)
+        .map((row) => [row.user_id, row])
+    );
+
+    return ids.reduce((accumulator, id) => {
+      const row = rowMap.get(id);
+      accumulator[id] = row ? readInvitePermissionFromRow(row, inviteType) : true;
+      return accumulator;
+    }, {});
+  };
+
+  const assertInvitePermissions = async (userIds = [], inviteType = 'task') => {
+    const ids = Array.from(new Set((userIds || []).filter(Boolean)));
+    if (!ids.length) return;
+
+    const permissionsByUserId = await fetchInvitePermissionByUserId(ids, inviteType);
+    const blocked = ids.some((id) => permissionsByUserId[id] === false);
+    if (blocked) {
+      throw new Error(INVITE_PERMISSION_ERROR_MESSAGE);
+    }
+  };
+
   const createGroup = useCallback(
     async ({ name, inviteUserIds = [] }) => {
       if (!authUser?.id) throw new Error('You must be logged in to create a group.');
       if (!isPremiumUser) throw new Error('Only premium users can create groups.');
       const trimmedName = (name || '').trim();
       if (!trimmedName) throw new Error('Group name is required.');
+      const normalizedInviteUserIds = Array.from(new Set((inviteUserIds || []).filter(Boolean)));
 
       const { data, error } = await supabase
         .from('groups')
@@ -2985,9 +3230,10 @@ const mapExternalProfile = (row) => ({
         throw new Error(ownerMembershipError.message || 'Unable to create the group membership.');
       }
 
-      if (inviteUserIds.length) {
+      if (normalizedInviteUserIds.length) {
+        await assertInvitePermissions(normalizedInviteUserIds, 'group');
         await supabase.from('group_invites').insert(
-          inviteUserIds.map((id) => ({
+          normalizedInviteUserIds.map((id) => ({
             group_id: groupId,
             from_user_id: authUser.id,
             to_user_id: id,
@@ -3008,6 +3254,7 @@ const mapExternalProfile = (row) => ({
       if (!isPremiumUser) throw new Error('Only premium users can invite to groups.');
       const ids = Array.from(new Set(userIds || [])).filter(Boolean);
       if (!ids.length) return [];
+      await assertInvitePermissions(ids, 'group');
 
       const { data, error } = await supabase
         .from('group_invites')
@@ -4534,6 +4781,7 @@ const mapExternalProfile = (row) => ({
     if (!task?.id) throw new Error('Task is required.');
     if (!toUserId) throw new Error('Invalid user.');
     if (toUserId === authUser.id) throw new Error('You cannot invite yourself.');
+    await assertInvitePermissions([toUserId], 'task');
 
     await ensureTaskParticipant(task.id, task.id, 'owner');
 
@@ -5389,29 +5637,91 @@ const mapExternalProfile = (row) => ({
     async (userId) => {
       if (!userId) return null;
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select(
-          'id, user_id, username, full_name, email, avatar_url, photo, daily_calorie_goal, daily_water_goal, daily_sleep_goal, weight_manager_unit, weight_manager_current_weight, weight_manager_target_weight, weight_manager_current_body_type, weight_manager_target_body_type, weight_manager_target_calories, weight_manager_protein_grams, weight_manager_carbs_grams, weight_manager_fat_grams, plan, premium_expires_at, is_premium, has_onboarded, has_completed_app_tutorial, app_tutorial_completed_at, created_at, updated_at'
-        )
-        .or(`id.eq.${userId},user_id.eq.${userId}`)
-        .limit(1);
+      let selectedColumns = [
+        'id',
+        'user_id',
+        'username',
+        'full_name',
+        'email',
+        'avatar_url',
+        'photo',
+        'daily_calorie_goal',
+        'daily_water_goal',
+        'daily_sleep_goal',
+        'weight_manager_unit',
+        'weight_manager_current_weight',
+        'weight_manager_target_weight',
+        'weight_manager_current_body_type',
+        'weight_manager_target_body_type',
+        'weight_manager_target_calories',
+        'weight_manager_protein_grams',
+        'weight_manager_carbs_grams',
+        'weight_manager_fat_grams',
+        'plan',
+        'premium_expires_at',
+        'is_premium',
+        'has_onboarded',
+        'has_completed_app_tutorial',
+        'app_tutorial_completed_at',
+        'badge_slot_1',
+        'badge_slot_2',
+        'badge_slot_3',
+        'badge_slots',
+        'created_at',
+        'updated_at',
+      ];
 
-      if (error) {
-        if (!isMissingColumnError(error, 'id') && !isMissingColumnError(error, 'user_id')) {
-          console.log('Error fetching profile for user:', error);
+      let row = null;
+      let lastError = null;
+
+      while (selectedColumns.length) {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select(selectedColumns.join(', '))
+          .or(`id.eq.${userId},user_id.eq.${userId}`)
+          .limit(1);
+
+        if (error && isMissingColumnError(error)) {
+          const missingColumn = extractMissingColumnName(error);
+          if (!missingColumn) {
+            lastError = error;
+            break;
+          }
+          const nextColumns = selectedColumns.filter(
+            (columnName) => columnName.toLowerCase() !== missingColumn
+          );
+          if (nextColumns.length === selectedColumns.length) {
+            lastError = error;
+            break;
+          }
+          selectedColumns = nextColumns;
+          continue;
+        }
+
+        if (error) {
+          lastError = error;
+          break;
+        }
+
+        row = Array.isArray(data) ? data[0] : data;
+        lastError = null;
+        break;
+      }
+
+      if (lastError) {
+        if (!isMissingColumnError(lastError, 'id') && !isMissingColumnError(lastError, 'user_id')) {
+          console.log('Error fetching profile for user:', lastError);
         }
         return null;
       }
 
-      const row = Array.isArray(data) ? data[0] : data;
       if (!row) return null;
 
       const lastSeen = userStatusesRef.current[userId] || null;
 
       return { ...mapExternalProfile(row), lastSeen };
     },
-    [isMissingColumnError]
+    [extractMissingColumnName, isMissingColumnError]
   );
 
 const fetchHabitsFromSupabase = async (userId, _groupListParam) => {
@@ -5658,6 +5968,7 @@ const shareHabitWithFriends = async (habitId, friendIds = []) => {
   const friendSet = new Set((friends || []).map((friend) => friend?.id).filter(Boolean));
   const validFriendIds = normalizedIds.filter((id) => friendSet.has(id));
   if (!validFriendIds.length) return [];
+  await assertInvitePermissions(validFriendIds, 'habit');
 
   const { data: habitRow, error: habitError } = await supabase
     .from('habits')
@@ -11196,6 +11507,7 @@ const mapProfileRow = (row) => {
     row?.habitsTutorialCompletedAt ??
     profile.habitsTutorialCompletedAt ??
     defaultProfile.habitsTutorialCompletedAt;
+  const badgeSlots = resolveProfileBadgeSlots(row, profile?.badgeSlots || defaultProfile.badgeSlots);
 
   return {
     profileId: row?.id || null,
@@ -11208,6 +11520,8 @@ const mapProfileRow = (row) => {
     username: row?.username || authUser?.user_metadata?.username || '',
     email: row?.email || authUser?.email || profile.email || defaultProfile.email,
     photo: getAvatarPublicUrl(row?.photo || row?.avatar_url || row?.avatar) || null,
+    createdAt: row?.created_at || row?.createdAt || profile?.createdAt || defaultProfile.createdAt,
+    updatedAt: row?.updated_at || row?.updatedAt || profile?.updatedAt || defaultProfile.updatedAt,
     dailyCalorieGoal,
     preferredDailyCalorieGoal,
     dailyWaterGoal: row?.daily_water_goal ?? defaultProfile.dailyWaterGoal,
@@ -11252,6 +11566,7 @@ const mapProfileRow = (row) => {
     hasCompletedHabitsTutorial: normalizedHasCompletedHabitsTutorial,
     habitsTutorialCompletedAt,
     habits_tutorial_completed_at: habitsTutorialCompletedAt,
+    badgeSlots,
   };
 };
 
@@ -11307,6 +11622,10 @@ const mapProfileRow = (row) => {
         'app_tutorial_completed_at',
         'has_completed_habits_tutorial',
         'habits_tutorial_completed_at',
+        'badge_slot_1',
+        'badge_slot_2',
+        'badge_slot_3',
+        'badge_slots',
         'created_at',
         'updated_at',
       ];
@@ -11691,7 +12010,95 @@ const mapProfileRow = (row) => {
     return upsertProfileRow(payload);
   };
 
+  const persistProfileBadgeSlotsRemotely = async (userId, nextBadgeSlots) => {
+    if (!userId) return false;
+    const normalizedSlots = normalizeBadgeSlots(nextBadgeSlots, defaultProfile.badgeSlots);
+    const columnSupport = profileBadgeColumnSupportRef.current || {};
+
+    let payload = pruneUndefined({
+      badge_slot_1: columnSupport.badge_slot_1 ? normalizedSlots[0] : undefined,
+      badge_slot_2: columnSupport.badge_slot_2 ? normalizedSlots[1] : undefined,
+      badge_slot_3: columnSupport.badge_slot_3 ? normalizedSlots[2] : undefined,
+      badge_slots: columnSupport.badge_slots ? normalizedSlots : undefined,
+      updated_at: new Date().toISOString(),
+    });
+
+    while (Object.keys(payload).length > 1) {
+      const runUpdate = async (columnName) =>
+        supabase.from('profiles').update(payload).eq(columnName, userId);
+
+      let { error } = await runUpdate('id');
+      if (error && isMissingColumnError(error, 'id')) {
+        ({ error } = await runUpdate('user_id'));
+      }
+
+      if (!error) return true;
+
+      if (isMissingColumnError(error)) {
+        const missingColumn = extractMissingColumnName(error);
+        if (!missingColumn) break;
+        const matchingKey = Object.keys(payload).find(
+          (key) => key.toLowerCase() === missingColumn
+        );
+        if (!matchingKey) break;
+        delete payload[matchingKey];
+        if (Object.prototype.hasOwnProperty.call(profileBadgeColumnSupportRef.current, matchingKey)) {
+          profileBadgeColumnSupportRef.current[matchingKey] = false;
+        }
+        continue;
+      }
+
+      console.log('Error saving profile badge slots:', error);
+      break;
+    }
+
+    return false;
+  };
+
+  const updateProfileBadgeSlots = async (badgeSlots) => {
+    const normalizedSlots = normalizeBadgeSlots(
+      badgeSlots,
+      profile?.badgeSlots || defaultProfile.badgeSlots
+    );
+    const nextProfile = { ...profile, badgeSlots: normalizedSlots };
+    setProfile(nextProfile);
+
+    if (authUser?.id) {
+      setCachedProfile(authUser.id, nextProfile);
+      persistProfileLocally(authUser.id, nextProfile, hasOnboarded);
+      await persistProfileBadgeSlotsRemotely(authUser.id, normalizedSlots);
+    }
+
+    return normalizedSlots;
+  };
+
+  const setProfileBadgeSlot = async (slotIndex, badgeId) => {
+    const index = Number(slotIndex);
+    if (!Number.isInteger(index) || index < 0 || index > 2) return;
+    const normalizedCurrent = normalizeBadgeSlots(profile?.badgeSlots, defaultProfile.badgeSlots);
+    const nextSlots = [...normalizedCurrent];
+    nextSlots[index] = badgeId || null;
+    await updateProfileBadgeSlots(nextSlots);
+  };
+
   // USER SETTINGS FUNCTIONS
+  const readInvitePermissionFromRow = useCallback((row, type) => {
+    const fieldConfig = INVITE_PERMISSION_FIELDS[type];
+    if (!fieldConfig) return true;
+
+    const primaryValue = row?.[fieldConfig.column];
+    if (primaryValue !== null && primaryValue !== undefined) {
+      return Boolean(primaryValue);
+    }
+
+    const fallbackValue = row?.[fieldConfig.fallbackColumn];
+    if (fallbackValue !== null && fallbackValue !== undefined) {
+      return Boolean(fallbackValue);
+    }
+
+    return defaultUserSettings[fieldConfig.settingsKey];
+  }, []);
+
   const mapSettingsRow = (row, fallbackCompletionMethod = null) => ({
     id: row?.id || null,
     themeName: row?.theme_name || 'default',
@@ -11711,28 +12118,43 @@ const mapProfileRow = (row) => {
     calendarSyncEnabled:
       row?.calendar_sync_enabled ?? defaultUserSettings.calendarSyncEnabled,
     defaultCurrencyCode: row?.default_currency_code || defaultUserSettings.defaultCurrencyCode,
+    allowTaskInvites: readInvitePermissionFromRow(row, 'task'),
+    allowGroupInvites: readInvitePermissionFromRow(row, 'group'),
+    allowHabitInvites: readInvitePermissionFromRow(row, 'habit'),
+    allowRoutineInvites: readInvitePermissionFromRow(row, 'routine'),
   });
 
   const fetchUserSettings = async (userId) => {
     if (!userId) return null;
-    const baseSelectFields =
-      'id, user_id, theme_name, notifications_enabled, habit_reminders_enabled, task_reminders_enabled, routine_reminders_enabled, health_reminders_enabled, default_currency_code';
-    const legacySelectFields =
-      'id, user_id, theme_name, notifications_enabled, habit_reminders_enabled, task_reminders_enabled, health_reminders_enabled, default_currency_code';
-    const selectVariants = [
-      `${baseSelectFields}, habit_completion_method, calendar_sync_enabled`,
-      `${baseSelectFields}, habit_completion_method`,
-      `${baseSelectFields}, calendar_sync_enabled`,
-      baseSelectFields,
-      `${legacySelectFields}, habit_completion_method, calendar_sync_enabled`,
-      `${legacySelectFields}, habit_completion_method`,
-      `${legacySelectFields}, calendar_sync_enabled`,
-      legacySelectFields,
+    const requiredSelectFields = [
+      'id',
+      'user_id',
+      'theme_name',
+      'notifications_enabled',
+      'habit_reminders_enabled',
+      'task_reminders_enabled',
+      'health_reminders_enabled',
+      'default_currency_code',
     ];
+    const optionalSelectFields = [
+      'routine_reminders_enabled',
+      'habit_completion_method',
+      'calendar_sync_enabled',
+      INVITE_PERMISSION_FIELDS.task.column,
+      INVITE_PERMISSION_FIELDS.group.column,
+      INVITE_PERMISSION_FIELDS.habit.column,
+      INVITE_PERMISSION_FIELDS.routine.column,
+      INVITE_PERMISSION_FIELDS.task.fallbackColumn,
+      INVITE_PERMISSION_FIELDS.group.fallbackColumn,
+      INVITE_PERMISSION_FIELDS.habit.fallbackColumn,
+      INVITE_PERMISSION_FIELDS.routine.fallbackColumn,
+    ];
+    let availableOptionalFields = [...optionalSelectFields];
     let row = null;
     let lastError = null;
 
-    for (const fields of selectVariants) {
+    for (let attempt = 0; attempt <= optionalSelectFields.length; attempt += 1) {
+      const fields = [...requiredSelectFields, ...availableOptionalFields].join(', ');
       const { data, error } = await supabase
         .from('user_settings')
         .select(fields)
@@ -11750,12 +12172,19 @@ const mapProfileRow = (row) => {
         break;
       }
 
-      if (
-        isMissingColumnError(error, 'calendar_sync_enabled') ||
-        isMissingColumnError(error, 'routine_reminders_enabled') ||
-        isMissingColumnError(error, 'habit_completion_method')
-      ) {
-        continue;
+      if (isMissingColumnError(error)) {
+        const missingColumn = extractMissingColumnName(error);
+        if (missingColumn) {
+          const previousLength = availableOptionalFields.length;
+          availableOptionalFields = availableOptionalFields.filter(
+            (columnName) => columnName !== missingColumn
+          );
+          if (availableOptionalFields.length < previousLength) {
+            continue;
+          }
+        }
+        lastError = error;
+        break;
       }
 
       lastError = error;
@@ -11812,6 +12241,22 @@ const mapProfileRow = (row) => {
         userSettings.calendarSyncEnabled ??
         defaultUserSettings.calendarSyncEnabled,
       default_currency_code: overrides.defaultCurrencyCode ?? userSettings.defaultCurrencyCode ?? defaultUserSettings.defaultCurrencyCode,
+      allow_task_invites:
+        overrides.allowTaskInvites ??
+        userSettings.allowTaskInvites ??
+        defaultUserSettings.allowTaskInvites,
+      allow_group_invites:
+        overrides.allowGroupInvites ??
+        userSettings.allowGroupInvites ??
+        defaultUserSettings.allowGroupInvites,
+      allow_habit_invites:
+        overrides.allowHabitInvites ??
+        userSettings.allowHabitInvites ??
+        defaultUserSettings.allowHabitInvites,
+      allow_routine_invites:
+        overrides.allowRoutineInvites ??
+        userSettings.allowRoutineInvites ??
+        defaultUserSettings.allowRoutineInvites,
       language: 'en',
       updated_at: nowISO,
     };
@@ -11824,7 +12269,8 @@ const mapProfileRow = (row) => {
     let data = null;
     let error = null;
 
-    for (let attempt = 0; attempt < 4; attempt += 1) {
+    const maxAttempts = Object.keys(mutablePayload).length + 1;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       ({ data, error } = await supabase
         .from('user_settings')
         .upsert(mutablePayload, { onConflict: 'user_id' })
@@ -13301,6 +13747,7 @@ const mapProfileRow = (row) => {
       profile.premium_expires_at ||
       defaultProfile.premiumExpiresAt;
     const isPremium = rcIsPremium || computeIsPremium(plan, premiumExpiresAt);
+    const badgeSlots = normalizeBadgeSlots(profile?.badgeSlots, defaultProfile.badgeSlots);
 
     return {
       ...profile,
@@ -13311,6 +13758,7 @@ const mapProfileRow = (row) => {
       premiumExpiresAt,
       premium_expires_at: premiumExpiresAt,
       isPremium,
+      badgeSlots,
     };
   }, [profile, authUser, revenueCatPremium]);
 
@@ -13511,9 +13959,13 @@ const mapProfileRow = (row) => {
     updateGroupName,
 
     // Profile
+    achievementBadgeCatalog,
+    refreshAchievementBadgeCatalog,
     revenueCatPremium,
     refreshRevenueCatPremium,
     updateProfile,
+    updateProfileBadgeSlots,
+    setProfileBadgeSlot,
     completeAppTutorial,
     completeHabitsTutorial,
     userSettings,

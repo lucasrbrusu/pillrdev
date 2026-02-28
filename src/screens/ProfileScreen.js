@@ -12,8 +12,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
-import { Card } from '../components';
+import { Card, ProfileBadgeSlots } from '../components';
 import { LinearGradient } from 'expo-linear-gradient';
+import { buildAchievementSections, computeAchievementMetrics } from '../utils/achievements';
 import {
   colors,
   shadows,
@@ -38,7 +39,9 @@ const ProfileScreen = () => {
     signOut,
     themeColors,
     themeName,
-    tasks,
+    achievementBadgeCatalog,
+    habits,
+    authUser,
     getCurrentStreak,
     t,
   } = useApp();
@@ -55,40 +58,31 @@ const ProfileScreen = () => {
   const styles = React.useMemo(() => createStyles(themeColors, isDark), [themeColors, isDark]);
   const isPremium = !!profile?.isPremium;
   const currentStreak = getCurrentStreak ? getCurrentStreak() : 0;
-  const totalTasks = tasks?.length || 0;
-  const completedTasks = tasks?.filter((task) => task.completed).length || 0;
-  const successRate = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
-  const stats = React.useMemo(
-    () => [
-      {
-        id: 'streak',
-        label: t('Current streak'),
-        value: currentStreak,
-        icon: 'flame',
-        color: '#F97316',
-        bg: isDark ? 'rgba(249,115,22,0.18)' : '#FFEDD5',
-        border: isDark ? 'rgba(249,115,22,0.35)' : '#FED7AA',
-      },
-      {
-        id: 'tasks',
-        label: t('Tasks Done'),
-        value: completedTasks,
-        icon: 'ribbon',
-        color: '#A855F7',
-        bg: isDark ? 'rgba(168,85,247,0.18)' : '#F3E8FF',
-        border: isDark ? 'rgba(168,85,247,0.35)' : '#E9D5FF',
-      },
-      {
-        id: 'success',
-        label: t('Success'),
-        value: `${successRate}%`,
-        icon: 'trending-up',
-        color: '#22C55E',
-        bg: isDark ? 'rgba(34,197,94,0.18)' : '#DCFCE7',
-        border: isDark ? 'rgba(34,197,94,0.35)' : '#BBF7D0',
-      },
-    ],
-    [currentStreak, completedTasks, isDark, successRate, t]
+  const achievementMetrics = React.useMemo(
+    () =>
+      computeAchievementMetrics({
+        habits,
+        currentStreak,
+        profileCreatedAt: profile?.createdAt,
+        authCreatedAt: authUser?.created_at,
+      }),
+    [authUser?.created_at, currentStreak, habits, profile?.createdAt]
+  );
+  const achievementSections = React.useMemo(
+    () =>
+      buildAchievementSections({
+        metrics: achievementMetrics,
+        badgeSlots: profile?.badgeSlots,
+      }),
+    [achievementMetrics, profile?.badgeSlots]
+  );
+  const unlockedBadgeCount = React.useMemo(
+    () =>
+      achievementSections.reduce(
+        (count, section) => count + section.badges.filter((badge) => badge.unlocked).length,
+        0
+      ),
+    [achievementSections]
   );
 
   const settingsOptions = [
@@ -115,6 +109,12 @@ const ProfileScreen = () => {
       label: 'Permissions',
       icon: 'lock-closed-outline',
       onPress: () => navigation.navigate('Permissions'),
+    },
+    {
+      id: 'invitations',
+      label: 'Invitations',
+      icon: 'mail-open-outline',
+      onPress: () => navigation.navigate('Invitations'),
     },
     {
       id: 'privacy',
@@ -150,6 +150,11 @@ const ProfileScreen = () => {
         bg: isDark ? 'rgba(14,165,233,0.2)' : '#E0F2FE',
         border: isDark ? 'rgba(14,165,233,0.35)' : '#BAE6FD',
         color: '#0EA5E9',
+      },
+      invitations: {
+        bg: isDark ? 'rgba(6,182,212,0.2)' : '#CFFAFE',
+        border: isDark ? 'rgba(6,182,212,0.35)' : '#A5F3FC',
+        color: '#06B6D4',
       },
       privacy: {
         bg: isDark ? 'rgba(34,197,94,0.2)' : '#DCFCE7',
@@ -244,22 +249,36 @@ const ProfileScreen = () => {
         </Card>
 
         <Card style={styles.profileStatsCard}>
-          <View style={styles.statsRow}>
-            {stats.map((stat) => (
-              <View key={stat.id} style={styles.statItem}>
-                <View
-                  style={[
-                    styles.statIconWrap,
-                    { backgroundColor: stat.bg, borderColor: stat.border },
-                  ]}
-                >
-                  <Ionicons name={stat.icon} size={18} color={stat.color} />
-                </View>
-                <Text style={styles.statValue}>{stat.value}</Text>
-                <Text style={styles.statLabel}>{stat.label}</Text>
-              </View>
-            ))}
+          <View style={styles.achievementsHeaderRow}>
+            <View style={styles.achievementsHeaderIcon}>
+              <Ionicons name="ribbon" size={16} color="#C7D2FE" />
+            </View>
+            <View style={styles.achievementsHeaderTextWrap}>
+              <Text style={styles.achievementsTitle}>Achievements</Text>
+              <Text style={styles.achievementsSubtitle}>{unlockedBadgeCount} unlocked badges</Text>
+            </View>
           </View>
+
+          <ProfileBadgeSlots
+            badgeSlots={profile?.badgeSlots}
+            badgeCatalog={achievementBadgeCatalog}
+            textColor={themeColors?.text || colors.text}
+            mutedColor={themeColors?.textSecondary || colors.textSecondary}
+            cardColor={isDark ? 'rgba(15,23,42,0.5)' : '#F8FAFC'}
+            borderColor={isDark ? 'rgba(148,163,184,0.3)' : '#E2E8F0'}
+          />
+          <TouchableOpacity
+            style={styles.viewAchievementsButton}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('Achievements')}
+          >
+            <Text style={styles.viewAchievementsText}>Open Achievements Page</Text>
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={themeColors?.textSecondary || colors.textSecondary}
+            />
+          </TouchableOpacity>
         </Card>
 
         {!isPremium && (
@@ -473,37 +492,52 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
       borderColor: themeColorsParam?.border || colors.border,
       backgroundColor: themeColorsParam?.card || colors.card,
       marginBottom: spacing.lg,
-      padding: 0,
+      padding: spacing.lg,
       overflow: 'hidden',
       ...flatShadow,
     },
-    statsRow: {
+    achievementsHeaderRow: {
       flexDirection: 'row',
-      justifyContent: 'space-between',
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.lg,
-    },
-    statItem: {
-      flex: 1,
       alignItems: 'center',
+      marginBottom: spacing.md,
     },
-    statIconWrap: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
+    achievementsHeaderIcon: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
       alignItems: 'center',
       justifyContent: 'center',
-      borderWidth: 1,
-      marginBottom: spacing.xs,
+      backgroundColor: isDark ? 'rgba(99,102,241,0.26)' : '#EEF2FF',
+      marginRight: spacing.sm,
     },
-    statValue: {
+    achievementsHeaderTextWrap: {
+      flex: 1,
+    },
+    achievementsTitle: {
       ...typography.h3,
       color: baseText,
-      marginBottom: 2,
     },
-    statLabel: {
+    achievementsSubtitle: {
       ...typography.caption,
       color: mutedText,
+      marginTop: 2,
+    },
+    viewAchievementsButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: spacing.md,
+      borderWidth: 1,
+      borderColor: themeColorsParam?.border || colors.border,
+      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
+      borderRadius: borderRadius.lg,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+    },
+    viewAchievementsText: {
+      ...typography.body,
+      color: baseText,
+      fontWeight: '600',
     },
     premiumUpsellWrap: {
       width: '100%',
