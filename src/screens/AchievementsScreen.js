@@ -30,6 +30,7 @@ const AchievementsScreen = () => {
     authUser,
     getCurrentStreak,
     achievementBadgeCatalog,
+    achievementUnlockedBadgeIds,
     setProfileBadgeSlot,
     themeColors,
     themeName,
@@ -55,6 +56,7 @@ const AchievementsScreen = () => {
       const sections = buildAchievementSections({
         metrics: achievementMetrics,
         badgeSlots: profile?.badgeSlots,
+        unlockedBadgeIds: achievementUnlockedBadgeIds,
       });
       return sections.map((section) => ({
         ...section,
@@ -70,7 +72,7 @@ const AchievementsScreen = () => {
         }),
       }));
     },
-    [achievementBadgeCatalog, achievementMetrics, profile?.badgeSlots]
+    [achievementBadgeCatalog, achievementMetrics, achievementUnlockedBadgeIds, profile?.badgeSlots]
   );
 
   const unlockedBadgeCount = React.useMemo(

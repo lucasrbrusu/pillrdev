@@ -51,7 +51,12 @@ import {
   getTaskOverlapPairs,
   normalizeTaskDurationMinutes,
 } from '../utils/taskScheduling';
-import { normalizeBadgeSlots } from '../utils/achievements';
+import {
+  normalizeBadgeSlots,
+  normalizeAchievementBadgeId,
+  computeAchievementMetrics,
+  computeEarnedAchievementBadges,
+} from '../utils/achievements';
 
 const AppContext = createContext();
 
@@ -1480,6 +1485,12 @@ const profileBadgeColumnSupportRef = useRef({
   badge_slot_3: true,
   badge_slots: true,
 });
+const achievementRpcSupportRef = useRef({
+  getStatus: true,
+  batchUnlock: true,
+  singleUnlock: true,
+});
+const achievementSyncInFlightRef = useRef(false);
   const [blockedUsers, setBlockedUsers] = useState({ blocked: [], blockedBy: [] });
   const friendResponseSignatureRef = useRef('');
   const taskInviteResponseSignatureRef = useRef('');
@@ -1489,6 +1500,8 @@ const profileBadgeColumnSupportRef = useRef({
   const [profile, setProfile] = useState(defaultProfile);
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [achievementBadgeCatalog, setAchievementBadgeCatalog] = useState({});
+  const [achievementUnlocks, setAchievementUnlocks] = useState({});
+  const [achievementUnlocksLoaded, setAchievementUnlocksLoaded] = useState(false);
   const [userSettings, setUserSettings] = useState(defaultUserSettings);
   const [revenueCatPremium, setRevenueCatPremium] = useState({
     isActive: false,
@@ -1567,6 +1580,24 @@ const profileBadgeColumnSupportRef = useRef({
   const notificationPlanSignatureRef = useRef('');
   const calendarSyncMapRef = useRef(createDefaultCalendarSyncState());
   const currentStreak = currentStreakState?.streak || 0;
+  const achievementMetrics = useMemo(
+    () =>
+      computeAchievementMetrics({
+        habits,
+        currentStreak,
+        profileCreatedAt: profile?.createdAt,
+        authCreatedAt: authUser?.created_at,
+      }),
+    [authUser?.created_at, currentStreak, habits, profile?.createdAt]
+  );
+  const earnedAchievementBadges = useMemo(
+    () => computeEarnedAchievementBadges(achievementMetrics),
+    [achievementMetrics]
+  );
+  const achievementUnlockedBadgeIds = useMemo(
+    () => Object.keys(achievementUnlocks),
+    [achievementUnlocks]
+  );
 
   // Immutable snapshots of the original palettes and typography
   const defaultPaletteRef = useRef(
@@ -2355,6 +2386,56 @@ const buildAchievementBadgeCatalogFromRows = (rows = []) => {
   return nextCatalog;
 };
 
+const isMissingRelationError = (error, relationName = '') => {
+  if (!error) return false;
+  const message = [error.message, error.details, error.hint]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return (
+    error.code === '42P01' ||
+    error.code === 'PGRST204' ||
+    message.includes('does not exist') ||
+    (relationName && message.includes(String(relationName).toLowerCase()))
+  );
+};
+
+const isMissingFunctionError = (error, functionName = '') => {
+  if (!error) return false;
+  const message = [error.message, error.details, error.hint]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return (
+    error.code === '42883' ||
+    error.code === 'PGRST202' ||
+    (message.includes('does not exist') && message.includes('function')) ||
+    (functionName && message.includes(String(functionName).toLowerCase()))
+  );
+};
+
+const mapAchievementUnlockRows = (rows = []) => {
+  const nextUnlocks = {};
+  (rows || []).forEach((row) => {
+    const milestoneValue = Number(row?.milestone_value);
+    const rawBadgeId =
+      row?.badge_id ||
+      (row?.achievement_key && Number.isFinite(milestoneValue)
+        ? `${row.achievement_key}:${milestoneValue}`
+        : null);
+    const badgeId = normalizeAchievementBadgeId(rawBadgeId);
+    if (!badgeId) return;
+    const [achievementKey] = badgeId.split(':');
+    nextUnlocks[badgeId] = {
+      badgeId,
+      achievementKey: row?.achievement_key || achievementKey || null,
+      milestoneValue: Number.isFinite(milestoneValue) ? milestoneValue : null,
+      unlockedAt: row?.unlocked_at || row?.created_at || null,
+    };
+  });
+  return nextUnlocks;
+};
+
   const refreshAchievementBadgeCatalog = useCallback(async () => {
     let rows = [];
 
@@ -2426,6 +2507,50 @@ const buildAchievementBadgeCatalogFromRows = (rows = []) => {
     return nextCatalog;
   }, []);
 
+  const refreshAchievementUnlocks = useCallback(async () => {
+    if (!authUser?.id) {
+      setAchievementUnlocks({});
+      setAchievementUnlocksLoaded(false);
+      return {};
+    }
+
+    let rows = [];
+    let shouldFallbackToTable = true;
+
+    if (achievementRpcSupportRef.current.getStatus) {
+      const rpcResult = await supabase.rpc('get_my_achievement_status');
+      if (!rpcResult.error) {
+        rows = (rpcResult.data || []).filter((row) => row?.unlocked);
+        shouldFallbackToTable = false;
+      } else if (isMissingFunctionError(rpcResult.error, 'get_my_achievement_status')) {
+        achievementRpcSupportRef.current.getStatus = false;
+      } else {
+        console.log('Error fetching achievement status RPC:', rpcResult.error);
+      }
+    }
+
+    if (shouldFallbackToTable) {
+      const tableResult = await supabase
+        .from('user_achievement_unlocks')
+        .select('badge_id, achievement_key, milestone_value, unlocked_at, created_at')
+        .eq('user_id', authUser.id);
+
+      if (tableResult.error) {
+        if (!isMissingRelationError(tableResult.error, 'user_achievement_unlocks')) {
+          console.log('Error fetching user achievement unlocks:', tableResult.error);
+        }
+        rows = [];
+      } else {
+        rows = tableResult.data || [];
+      }
+    }
+
+    const nextUnlocks = mapAchievementUnlockRows(rows);
+    setAchievementUnlocks(nextUnlocks);
+    setAchievementUnlocksLoaded(true);
+    return nextUnlocks;
+  }, [authUser?.id]);
+
   useEffect(() => {
     if (!authUser?.id) {
       setAchievementBadgeCatalog({});
@@ -2433,6 +2558,122 @@ const buildAchievementBadgeCatalogFromRows = (rows = []) => {
     }
     refreshAchievementBadgeCatalog();
   }, [authUser?.id, refreshAchievementBadgeCatalog]);
+
+  useEffect(() => {
+    if (!authUser?.id) {
+      setAchievementUnlocks({});
+      setAchievementUnlocksLoaded(false);
+      return;
+    }
+    setAchievementUnlocks({});
+    setAchievementUnlocksLoaded(false);
+    refreshAchievementUnlocks();
+  }, [authUser?.id, refreshAchievementUnlocks]);
+
+  const syncEarnedAchievements = useCallback(async () => {
+    if (!authUser?.id || !achievementUnlocksLoaded) return [];
+    if (achievementSyncInFlightRef.current) return [];
+
+    const unlockedSet = new Set(Object.keys(achievementUnlocks || {}));
+    const pendingUnlocks = (earnedAchievementBadges || []).filter(
+      (entry) => entry?.badgeId && !unlockedSet.has(entry.badgeId)
+    );
+    if (!pendingUnlocks.length) return [];
+
+    achievementSyncInFlightRef.current = true;
+    try {
+      let savedBadgeIds = [];
+
+      if (achievementRpcSupportRef.current.batchUnlock) {
+        const payload = pendingUnlocks.map((entry) => ({
+          achievement_key: entry.achievementId,
+          milestone_value: entry.milestone,
+        }));
+        const batchResult = await supabase.rpc('unlock_earned_achievements', {
+          p_unlocks: payload,
+        });
+
+        if (!batchResult.error) {
+          savedBadgeIds = pendingUnlocks.map((entry) => entry.badgeId);
+        } else if (isMissingFunctionError(batchResult.error, 'unlock_earned_achievements')) {
+          achievementRpcSupportRef.current.batchUnlock = false;
+        } else {
+          console.log('Error syncing earned achievements (batch RPC):', batchResult.error);
+        }
+      }
+
+      if (!savedBadgeIds.length && achievementRpcSupportRef.current.singleUnlock) {
+        const singleUnlockIds = [];
+        for (const entry of pendingUnlocks) {
+          const result = await supabase.rpc('unlock_achievement', {
+            p_achievement_key: entry.achievementId,
+            p_milestone_value: entry.milestone,
+          });
+
+          if (!result.error) {
+            singleUnlockIds.push(entry.badgeId);
+            continue;
+          }
+
+          if (isMissingFunctionError(result.error, 'unlock_achievement')) {
+            achievementRpcSupportRef.current.singleUnlock = false;
+            break;
+          }
+
+          console.log('Error syncing earned achievement (single RPC):', result.error);
+        }
+        savedBadgeIds = singleUnlockIds;
+      }
+
+      if (!savedBadgeIds.length) {
+        const nowISO = new Date().toISOString();
+        const fallbackRows = pendingUnlocks.map((entry) => ({
+          user_id: authUser.id,
+          badge_id: entry.badgeId,
+          achievement_key: entry.achievementId,
+          milestone_value: entry.milestone,
+          unlocked_at: nowISO,
+        }));
+        const fallbackResult = await supabase
+          .from('user_achievement_unlocks')
+          .upsert(fallbackRows, { onConflict: 'user_id,badge_id' });
+
+        if (fallbackResult.error) {
+          if (!isMissingRelationError(fallbackResult.error, 'user_achievement_unlocks')) {
+            console.log('Error syncing earned achievements (table fallback):', fallbackResult.error);
+          }
+          return [];
+        }
+        savedBadgeIds = pendingUnlocks.map((entry) => entry.badgeId);
+      }
+
+      if (!savedBadgeIds.length) return [];
+
+      setAchievementUnlocks((prev) => {
+        const next = { ...(prev || {}) };
+        const nowISO = new Date().toISOString();
+        pendingUnlocks.forEach((entry) => {
+          if (!savedBadgeIds.includes(entry.badgeId)) return;
+          next[entry.badgeId] = {
+            badgeId: entry.badgeId,
+            achievementKey: entry.achievementId,
+            milestoneValue: Number(entry.milestone) || null,
+            unlockedAt: next[entry.badgeId]?.unlockedAt || nowISO,
+          };
+        });
+        return next;
+      });
+
+      return savedBadgeIds;
+    } finally {
+      achievementSyncInFlightRef.current = false;
+    }
+  }, [authUser?.id, achievementUnlocks, achievementUnlocksLoaded, earnedAchievementBadges]);
+
+  useEffect(() => {
+    if (!authUser?.id || !achievementUnlocksLoaded) return;
+    syncEarnedAchievements();
+  }, [authUser?.id, achievementUnlocksLoaded, syncEarnedAchievements]);
 
   const updateUserPresence = useCallback(async () => {
     if (!authUser?.id) return;
@@ -12076,9 +12317,13 @@ const mapProfileRow = (row) => {
   const setProfileBadgeSlot = async (slotIndex, badgeId) => {
     const index = Number(slotIndex);
     if (!Number.isInteger(index) || index < 0 || index > 2) return;
+    const normalizedBadgeId = badgeId ? normalizeAchievementBadgeId(badgeId) : null;
+    if (normalizedBadgeId && !achievementUnlocks?.[normalizedBadgeId]) {
+      return;
+    }
     const normalizedCurrent = normalizeBadgeSlots(profile?.badgeSlots, defaultProfile.badgeSlots);
     const nextSlots = [...normalizedCurrent];
-    nextSlots[index] = badgeId || null;
+    nextSlots[index] = normalizedBadgeId || null;
     await updateProfileBadgeSlots(nextSlots);
   };
 
@@ -13962,6 +14207,11 @@ const mapProfileRow = (row) => {
     // Profile
     achievementBadgeCatalog,
     refreshAchievementBadgeCatalog,
+    achievementUnlocks,
+    achievementUnlockedBadgeIds,
+    achievementUnlocksLoaded,
+    refreshAchievementUnlocks,
+    syncEarnedAchievements,
     revenueCatPremium,
     refreshRevenueCatPremium,
     updateProfile,

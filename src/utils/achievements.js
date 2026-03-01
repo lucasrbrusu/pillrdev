@@ -209,6 +209,8 @@ const sanitizeBadgeId = (value) => {
   return buildBadgeId(achievementId, milestone);
 };
 
+export const normalizeAchievementBadgeId = (value) => sanitizeBadgeId(value);
+
 export const normalizeBadgeSlots = (value, fallback = EMPTY_BADGE_SLOTS) => {
   const fallbackSlots = Array.isArray(fallback)
     ? [...fallback, ...EMPTY_BADGE_SLOTS].slice(0, BADGE_SLOT_COUNT)
@@ -289,8 +291,31 @@ export const computeAchievementMetrics = ({
   };
 };
 
-export const buildAchievementSections = ({ metrics = {}, badgeSlots = EMPTY_BADGE_SLOTS } = {}) => {
+export const computeEarnedAchievementBadges = (metrics = {}) =>
+  ACHIEVEMENT_DEFINITIONS.flatMap((definition) => {
+    const metricValue = Math.max(0, Number(metrics?.[definition.metricKey]) || 0);
+    return definition.milestones
+      .filter((milestone) => metricValue >= milestone)
+      .map((milestone) => ({
+        badgeId: buildBadgeId(definition.id, milestone),
+        achievementId: definition.id,
+        milestone,
+      }));
+  });
+
+const normalizeUnlockedBadgeSet = (value) => {
+  if (value === undefined || value === null) return null;
+  const source = value instanceof Set ? Array.from(value) : Array.isArray(value) ? value : [];
+  return new Set(source.map((entry) => sanitizeBadgeId(entry)).filter(Boolean));
+};
+
+export const buildAchievementSections = ({
+  metrics = {},
+  badgeSlots = EMPTY_BADGE_SLOTS,
+  unlockedBadgeIds = undefined,
+} = {}) => {
   const equipped = normalizeBadgeSlots(badgeSlots);
+  const unlockedBadgeSet = normalizeUnlockedBadgeSet(unlockedBadgeIds);
 
   return ACHIEVEMENT_DEFINITIONS.map((definition) => {
     const metricValue = Math.max(0, Number(metrics?.[definition.metricKey]) || 0);
@@ -308,7 +333,8 @@ export const buildAchievementSections = ({ metrics = {}, badgeSlots = EMPTY_BADG
         milestone,
         milestoneLabel: buildMilestoneLabel(definition.id, milestone),
         variant: getBadgeVariant(definition.id, milestone),
-        unlocked: metricValue >= milestone,
+        eligible: metricValue >= milestone,
+        unlocked: unlockedBadgeSet ? unlockedBadgeSet.has(badgeId) : metricValue >= milestone,
         metricValue,
         equippedSlots,
       };
