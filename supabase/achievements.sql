@@ -221,6 +221,16 @@ create index if not exists user_achievement_unlocks_user_idx
 create index if not exists user_achievement_unlocks_key_milestone_idx
   on public.user_achievement_unlocks (achievement_key, milestone_value);
 
+-- Ensure ON CONFLICT (user_id, badge_id) is valid even on pre-existing schemas.
+delete from public.user_achievement_unlocks a
+using public.user_achievement_unlocks b
+where a.ctid < b.ctid
+  and a.user_id is not distinct from b.user_id
+  and a.badge_id is not distinct from b.badge_id;
+
+create unique index if not exists user_achievement_unlocks_user_badge_uq
+  on public.user_achievement_unlocks (user_id, badge_id);
+
 alter table public.user_achievement_unlocks enable row level security;
 
 grant select, insert, update, delete on public.user_achievement_unlocks to authenticated;

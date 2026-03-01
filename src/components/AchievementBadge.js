@@ -101,14 +101,7 @@ const AchievementBadge = ({
   const unlocked = !!badge?.unlocked;
   const Component = onPress ? TouchableOpacity : View;
   const localSource = getAsset(badge);
-  const badgeIdentity = `${badge?.badgeId || badge?.achievementId || 'badge'}:${badge?.milestone ?? ''}:${badge?.imageUri || ''}`;
-  const [useRemoteImage, setUseRemoteImage] = React.useState(Boolean(badge?.imageUri));
-
-  React.useEffect(() => {
-    setUseRemoteImage(Boolean(badge?.imageUri));
-  }, [badgeIdentity, badge?.imageUri]);
-
-  const source = useRemoteImage && badge?.imageUri ? { uri: badge.imageUri } : localSource;
+  const source = localSource;
   const artStyle = compact
     ? showMilestoneLabel
       ? styles.badgeArtCompactWithLabel
@@ -139,9 +132,6 @@ const AchievementBadge = ({
           source={source}
           style={[styles.badgeArt, artStyle]}
           resizeMode="contain"
-          onError={() => {
-            if (useRemoteImage) setUseRemoteImage(false);
-          }}
         />
       </View>
       {!unlocked ? (

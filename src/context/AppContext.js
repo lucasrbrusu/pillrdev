@@ -2386,34 +2386,6 @@ const buildAchievementBadgeCatalogFromRows = (rows = []) => {
   return nextCatalog;
 };
 
-const isMissingRelationError = (error, relationName = '') => {
-  if (!error) return false;
-  const message = [error.message, error.details, error.hint]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-  return (
-    error.code === '42P01' ||
-    error.code === 'PGRST204' ||
-    message.includes('does not exist') ||
-    (relationName && message.includes(String(relationName).toLowerCase()))
-  );
-};
-
-const isMissingFunctionError = (error, functionName = '') => {
-  if (!error) return false;
-  const message = [error.message, error.details, error.hint]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-  return (
-    error.code === '42883' ||
-    error.code === 'PGRST202' ||
-    (message.includes('does not exist') && message.includes('function')) ||
-    (functionName && message.includes(String(functionName).toLowerCase()))
-  );
-};
-
 const mapAchievementUnlockRows = (rows = []) => {
   const nextUnlocks = {};
   (rows || []).forEach((row) => {
@@ -2595,6 +2567,10 @@ const mapAchievementUnlockRows = (rows = []) => {
 
         if (!batchResult.error) {
           savedBadgeIds = pendingUnlocks.map((entry) => entry.badgeId);
+        } else if (batchResult.error?.code === '42P10') {
+          // Missing unique constraint for ON CONFLICT on some older schemas.
+          achievementRpcSupportRef.current.batchUnlock = false;
+          achievementRpcSupportRef.current.singleUnlock = false;
         } else if (isMissingFunctionError(batchResult.error, 'unlock_earned_achievements')) {
           achievementRpcSupportRef.current.batchUnlock = false;
         } else {
@@ -2615,6 +2591,11 @@ const mapAchievementUnlockRows = (rows = []) => {
             continue;
           }
 
+          if (result.error?.code === '42P10') {
+            achievementRpcSupportRef.current.singleUnlock = false;
+            break;
+          }
+
           if (isMissingFunctionError(result.error, 'unlock_achievement')) {
             achievementRpcSupportRef.current.singleUnlock = false;
             break;
@@ -2627,24 +2608,28 @@ const mapAchievementUnlockRows = (rows = []) => {
 
       if (!savedBadgeIds.length) {
         const nowISO = new Date().toISOString();
-        const fallbackRows = pendingUnlocks.map((entry) => ({
-          user_id: authUser.id,
-          badge_id: entry.badgeId,
-          achievement_key: entry.achievementId,
-          milestone_value: entry.milestone,
-          unlocked_at: nowISO,
-        }));
-        const fallbackResult = await supabase
-          .from('user_achievement_unlocks')
-          .upsert(fallbackRows, { onConflict: 'user_id,badge_id' });
+        const insertedIds = [];
+        for (const entry of pendingUnlocks) {
+          const insertResult = await supabase
+            .from('user_achievement_unlocks')
+            .insert({
+              user_id: authUser.id,
+              badge_id: entry.badgeId,
+              achievement_key: entry.achievementId,
+              milestone_value: entry.milestone,
+              unlocked_at: nowISO,
+            });
 
-        if (fallbackResult.error) {
-          if (!isMissingRelationError(fallbackResult.error, 'user_achievement_unlocks')) {
-            console.log('Error syncing earned achievements (table fallback):', fallbackResult.error);
+          if (!insertResult.error || insertResult.error?.code === '23505') {
+            insertedIds.push(entry.badgeId);
+            continue;
           }
-          return [];
+
+          if (!isMissingRelationError(insertResult.error, 'user_achievement_unlocks')) {
+            console.log('Error syncing earned achievements (table fallback):', insertResult.error);
+          }
         }
-        savedBadgeIds = pendingUnlocks.map((entry) => entry.badgeId);
+        savedBadgeIds = insertedIds;
       }
 
       if (!savedBadgeIds.length) return [];
@@ -2899,10 +2884,14 @@ const mapAchievementUnlockRows = (rows = []) => {
 
   const isMissingRelationError = (error, relation) => {
     if (!error) return false;
-    const message = (error.message || '').toLowerCase();
+    const message = [error.message, error.details, error.hint]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
     const relationName = (relation || '').toLowerCase();
     return (
       error.code === '42P01' ||
+      error.code === 'PGRST204' ||
       message.includes('does not exist') ||
       (relationName && message.includes(relationName))
     );
