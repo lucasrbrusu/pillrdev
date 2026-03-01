@@ -6503,7 +6503,6 @@ const setHabitProgress = async (habitId, amount = 0, dateISO = null, options = {
     ? Math.max(computedNextStreak, (habit.streak || 0) + 1)
     : computedNextStreak;
 
-  const hadAnyCompletionOnTargetDate = hasAnyHabitCompletedOnDate(habits, dateKey);
   const targetDayNumber = toUtcDayNumberFromLocalDay(dateValue);
   const buildUpdatedHabitForSnapshot = (item) => {
     if (item.id !== habitId) return item;
@@ -6545,24 +6544,26 @@ const setHabitProgress = async (habitId, amount = 0, dateISO = null, options = {
   const nextHabitsSnapshot = (habits || []).map(buildUpdatedHabitForSnapshot);
   setHabits((prev) => (prev || []).map(buildUpdatedHabitForSnapshot));
 
-  const hasAnyCompletionOnTargetDateAfter = hasAnyHabitCompletedOnDate(nextHabitsSnapshot, dateKey);
-  const shouldPreserveFrozenCurrentStreak =
+  const shouldResumeFrozenCurrentStreak =
     streakFrozen &&
     isTargetToday &&
     shouldComplete &&
-    !hadAnyCompletionOnTargetDate &&
-    hasAnyCompletionOnTargetDateAfter &&
-    currentStreakState?.lastCompletionDayNumber !== targetDayNumber;
+    !wasCompletedOnTargetDate;
   const computedCurrentStreakState = buildCurrentStreakStateFromHabits(nextHabitsSnapshot, new Date());
-  const nextCurrentStreakState = shouldPreserveFrozenCurrentStreak
+  const previousCurrentStreak = Math.max(0, Number(currentStreakState?.streak) || 0);
+  const nextCurrentStreakState = shouldResumeFrozenCurrentStreak
     ? normalizeCurrentStreakState({
-        streak: Math.max(computedCurrentStreakState.streak, currentStreak + 1),
+        streak: Math.max(
+          computedCurrentStreakState.streak,
+          previousCurrentStreak,
+          previousCurrentStreak +
+            (currentStreakState?.lastCompletionDayNumber === targetDayNumber ? 0 : 1)
+        ),
         lastCompletionDayNumber: Number.isFinite(targetDayNumber)
           ? targetDayNumber
           : computedCurrentStreakState.lastCompletionDayNumber,
       })
     : computedCurrentStreakState;
-  const previousCurrentStreak = Math.max(0, Number(currentStreakState?.streak) || 0);
   if (
     isTargetToday &&
     shouldComplete &&

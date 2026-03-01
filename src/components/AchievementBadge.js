@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { borderRadius, spacing, typography } from '../utils/theme';
+import { useApp } from '../context/AppContext';
 
 const BADGE_ASSET_BY_ID = {
   // Longest current streak
@@ -96,6 +97,7 @@ const AchievementBadge = ({
   showMilestoneLabel = true,
   disabled = false,
 }) => {
+  const { themeName, themeColors } = useApp();
   const unlocked = !!badge?.unlocked;
   const Component = onPress ? TouchableOpacity : View;
   const localSource = getAsset(badge);
@@ -114,6 +116,10 @@ const AchievementBadge = ({
     : showMilestoneLabel
     ? styles.badgeArtRegularWithLabel
     : styles.badgeArtRegular;
+  const badgeBackgroundColor =
+    themeName === 'default'
+      ? themeColors?.background || '#FFFFFF'
+      : 'rgba(15,23,42,0.35)';
 
   return (
     <Component
@@ -124,6 +130,7 @@ const AchievementBadge = ({
         styles.wrap,
         compact ? styles.wrapCompact : styles.wrapRegular,
         { opacity: unlocked ? 1 : 0.58 },
+        { backgroundColor: badgeBackgroundColor },
         style,
       ]}
     >
@@ -197,20 +204,20 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   badgeArtRegular: {
-    width: '100%',
-    height: '100%',
+    width: '104%',
+    height: '104%',
   },
   badgeArtRegularWithLabel: {
+    width: '104%',
+    height: '104%',
+  },
+  badgeArtCompact: {
     width: '100%',
     height: '100%',
   },
-  badgeArtCompact: {
-    width: '96%',
-    height: '96%',
-  },
   badgeArtCompactWithLabel: {
-    width: '86%',
-    height: '86%',
+    width: '90%',
+    height: '90%',
   },
   lockOverlay: {
     position: 'absolute',

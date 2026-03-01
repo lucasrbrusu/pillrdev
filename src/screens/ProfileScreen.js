@@ -248,7 +248,10 @@ const ProfileScreen = () => {
           </TouchableOpacity>
         </Card>
 
-        <Card style={styles.profileStatsCard}>
+        <Card
+          style={styles.profileStatsCard}
+          onPress={() => navigation.navigate('Achievements')}
+        >
           <View style={styles.achievementsHeaderRow}>
             <View style={styles.achievementsHeaderIcon}>
               <Ionicons name="ribbon" size={16} color="#C7D2FE" />
@@ -257,6 +260,11 @@ const ProfileScreen = () => {
               <Text style={styles.achievementsTitle}>Achievements</Text>
               <Text style={styles.achievementsSubtitle}>{unlockedBadgeCount} unlocked badges</Text>
             </View>
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={themeColors?.textSecondary || colors.textSecondary}
+            />
           </View>
 
           <ProfileBadgeSlots
@@ -267,18 +275,6 @@ const ProfileScreen = () => {
             cardColor={isDark ? 'rgba(15,23,42,0.5)' : '#F8FAFC'}
             borderColor={isDark ? 'rgba(148,163,184,0.3)' : '#E2E8F0'}
           />
-          <TouchableOpacity
-            style={styles.viewAchievementsButton}
-            activeOpacity={0.85}
-            onPress={() => navigation.navigate('Achievements')}
-          >
-            <Text style={styles.viewAchievementsText}>Open Achievements Page</Text>
-            <Ionicons
-              name="chevron-forward"
-              size={18}
-              color={themeColors?.textSecondary || colors.textSecondary}
-            />
-          </TouchableOpacity>
         </Card>
 
         {!isPremium && (
@@ -521,23 +517,6 @@ const createStyles = (themeColorsParam = colors, isDark = false) => {
       ...typography.caption,
       color: mutedText,
       marginTop: 2,
-    },
-    viewAchievementsButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginTop: spacing.md,
-      borderWidth: 1,
-      borderColor: themeColorsParam?.border || colors.border,
-      backgroundColor: themeColorsParam?.inputBackground || colors.inputBackground,
-      borderRadius: borderRadius.lg,
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.md,
-    },
-    viewAchievementsText: {
-      ...typography.body,
-      color: baseText,
-      fontWeight: '600',
     },
     premiumUpsellWrap: {
       width: '100%',
