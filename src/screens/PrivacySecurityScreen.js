@@ -33,8 +33,9 @@ const legalLinks = [
 const PrivacySecurityScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { themeColors, t } = useApp();
+  const { themeColors, t, mfaFactors, isMfaLoading } = useApp();
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
+  const verifiedMfaCount = mfaFactors?.verified?.length || 0;
 
   const handleOpenLink = (url) => {
     Linking.openURL(url);
@@ -58,6 +59,25 @@ const PrivacySecurityScreen = () => {
           <Text style={styles.headerTitle}>{t('Privacy & Security')}</Text>
           <View style={styles.headerSpacer} />
         </View>
+
+        <Card style={styles.card}>
+          <Text style={styles.sectionTitle}>{t('Security')}</Text>
+          <Text style={styles.sectionSubtitle}>
+            {isMfaLoading
+              ? t('Checking your 2FA status...')
+              : verifiedMfaCount > 0
+                ? t('Two-factor authentication is enabled.')
+                : t('Protect your account with two-factor authentication.')}
+          </Text>
+          <Button
+            title={t('Two-Factor Authentication')}
+            icon="shield-checkmark-outline"
+            variant="outline"
+            onPress={() => navigation.navigate('TwoFactorAuth')}
+            style={styles.linkButton}
+            fullWidth
+          />
+        </Card>
 
         <Card style={styles.card}>
           <Text style={styles.sectionTitle}>{t('Legal')}</Text>

@@ -256,6 +256,20 @@ const defaultUserSettings = {
   allowRoutineInvites: true,
 };
 
+const createDefaultMfaFactors = () => ({
+  all: [],
+  verified: [],
+  unverified: [],
+  verifiedTotp: [],
+});
+
+const getPreferredMfaFactor = (factors) => {
+  const verifiedTotp = Array.isArray(factors?.verifiedTotp) ? factors.verifiedTotp : [];
+  if (verifiedTotp.length) return verifiedTotp[0];
+  const verified = Array.isArray(factors?.verified) ? factors.verified : [];
+  return verified.length ? verified[0] : null;
+};
+
 const INVITE_PERMISSION_ERROR_MESSAGE = 'User cannot be invited due to their permissions';
 const INVITE_PERMISSION_FIELDS = {
   task: {
@@ -1512,6 +1526,12 @@ const achievementSyncInFlightRef = useRef(false);
 
   // Auth State
   const [authUser, setAuthUser] = useState(null);
+  const [mfaFactors, setMfaFactors] = useState(createDefaultMfaFactors());
+  const [mfaCurrentLevel, setMfaCurrentLevel] = useState(null);
+  const [mfaNextLevel, setMfaNextLevel] = useState(null);
+  const [isMfaLoading, setIsMfaLoading] = useState(false);
+  const [isMfaChallengeRequired, setIsMfaChallengeRequired] = useState(false);
+  const mfaRefreshRequestRef = useRef(0);
   const [hasOnboarded, setHasOnboarded] = useState(false);
   const [themeName, setThemeName] = useState('default');
   const [themeColors, setThemeColors] = useState({ ...colors });
@@ -12575,6 +12595,238 @@ const mapProfileRow = (row) => {
     return true;
   };
 
+  const resetMfaState = useCallback(() => {
+    setMfaFactors(createDefaultMfaFactors());
+    setMfaCurrentLevel(null);
+    setMfaNextLevel(null);
+    setIsMfaChallengeRequired(false);
+    setIsMfaLoading(false);
+  }, []);
+
+  const refreshMfaState = useCallback(
+    async ({ showLoading = true, throwOnError = false } = {}) => {
+      const activeUserId = authUser?.id;
+      if (!activeUserId) {
+        mfaRefreshRequestRef.current += 1;
+        resetMfaState();
+        return {
+          challengeRequired: false,
+          verifiedFactors: [],
+          currentLevel: null,
+          nextLevel: null,
+        };
+      }
+
+      const requestId = mfaRefreshRequestRef.current + 1;
+      mfaRefreshRequestRef.current = requestId;
+      if (showLoading) setIsMfaLoading(true);
+
+      try {
+        const [
+          { data: factorData, error: factorError },
+          { data: assuranceData, error: assuranceError },
+        ] = await Promise.all([
+          supabase.auth.mfa.listFactors(),
+          supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
+        ]);
+
+        if (factorError) throw factorError;
+        if (assuranceError) throw assuranceError;
+
+        const allFactors = Array.isArray(factorData?.all) ? factorData.all : [];
+        const verifiedFactors = allFactors.filter((factor) => factor?.status === 'verified');
+        const unverifiedFactors = allFactors.filter((factor) => factor?.status !== 'verified');
+        const verifiedTotpFactors = verifiedFactors.filter(
+          (factor) => factor?.factor_type === 'totp'
+        );
+        const currentLevel = assuranceData?.currentLevel || null;
+        const nextLevel = assuranceData?.nextLevel || null;
+        const challengeRequired =
+          verifiedFactors.length > 0 && currentLevel !== 'aal2';
+
+        if (mfaRefreshRequestRef.current === requestId) {
+          setMfaFactors({
+            all: allFactors,
+            verified: verifiedFactors,
+            unverified: unverifiedFactors,
+            verifiedTotp: verifiedTotpFactors,
+          });
+          setMfaCurrentLevel(currentLevel);
+          setMfaNextLevel(nextLevel);
+          setIsMfaChallengeRequired(challengeRequired);
+        }
+
+        return {
+          challengeRequired,
+          verifiedFactors,
+          currentLevel,
+          nextLevel,
+        };
+      } catch (error) {
+        console.log('Error refreshing MFA status:', error);
+        const fallbackFactors = Array.isArray(authUser?.factors) ? authUser.factors : [];
+        const fallbackVerified = fallbackFactors.filter((factor) => factor?.status === 'verified');
+        const fallbackUnverified = fallbackFactors.filter(
+          (factor) => factor?.status !== 'verified'
+        );
+        const fallbackVerifiedTotp = fallbackVerified.filter(
+          (factor) => factor?.factor_type === 'totp'
+        );
+        const fallbackRequired = fallbackVerified.length > 0;
+
+        if (mfaRefreshRequestRef.current === requestId) {
+          setMfaFactors({
+            all: fallbackFactors,
+            verified: fallbackVerified,
+            unverified: fallbackUnverified,
+            verifiedTotp: fallbackVerifiedTotp,
+          });
+          setMfaCurrentLevel(null);
+          setMfaNextLevel(fallbackVerified.length > 0 ? 'aal2' : null);
+          setIsMfaChallengeRequired(fallbackRequired);
+        }
+
+        if (throwOnError) {
+          throw new Error(error?.message || 'Unable to refresh 2FA status.');
+        }
+
+        return {
+          challengeRequired: fallbackRequired,
+          verifiedFactors: fallbackVerified,
+          currentLevel: null,
+          nextLevel: fallbackVerified.length > 0 ? 'aal2' : null,
+        };
+      } finally {
+        if (mfaRefreshRequestRef.current === requestId) {
+          setIsMfaLoading(false);
+        }
+      }
+    },
+    [authUser?.factors, authUser?.id, resetMfaState]
+  );
+
+  useEffect(() => {
+    if (!authUser?.id) {
+      resetMfaState();
+      return;
+    }
+    refreshMfaState().catch(() => {});
+  }, [authUser?.id, refreshMfaState, resetMfaState]);
+
+  const enrollTotpMfa = useCallback(
+    async ({ friendlyName, issuer } = {}) => {
+      if (!authUser?.id) {
+        throw new Error('You must be logged in to set up 2FA.');
+      }
+
+      const { data, error } = await supabase.auth.mfa.enroll({
+        factorType: 'totp',
+        friendlyName: friendlyName || 'Pillaflow Authenticator',
+        ...(issuer ? { issuer } : {}),
+      });
+
+      if (error) {
+        throw new Error(error.message || 'Unable to set up 2FA.');
+      }
+
+      await refreshMfaState({ showLoading: false });
+      return data;
+    },
+    [authUser?.id, refreshMfaState]
+  );
+
+  const verifyTotpMfaEnrollment = useCallback(
+    async ({ factorId, code }) => {
+      const normalizedCode = String(code || '').trim();
+      if (!factorId) {
+        throw new Error('Missing 2FA setup session.');
+      }
+      if (!normalizedCode) {
+        throw new Error('Please enter the verification code.');
+      }
+
+      const { data, error } = await supabase.auth.mfa.challengeAndVerify({
+        factorId,
+        code: normalizedCode,
+      });
+
+      if (error) {
+        throw new Error(error.message || 'Unable to verify 2FA setup.');
+      }
+
+      await refreshMfaState({ showLoading: false });
+      return data;
+    },
+    [refreshMfaState]
+  );
+
+  const verifyMfaChallenge = useCallback(
+    async ({ code, factorId } = {}) => {
+      const normalizedCode = String(code || '').trim();
+      if (!normalizedCode) {
+        throw new Error('Please enter your 2FA code.');
+      }
+
+      const preferredFactor = factorId
+        ? { id: factorId }
+        : getPreferredMfaFactor(mfaFactors);
+      if (!preferredFactor?.id) {
+        throw new Error('No verified 2FA factor is available for this account.');
+      }
+
+      const { data, error } = await supabase.auth.mfa.challengeAndVerify({
+        factorId: preferredFactor.id,
+        code: normalizedCode,
+      });
+
+      if (error) {
+        throw new Error(error.message || 'Unable to verify your 2FA code.');
+      }
+
+      await refreshMfaState({ showLoading: false });
+      return data;
+    },
+    [mfaFactors, refreshMfaState]
+  );
+
+  const cancelMfaEnrollment = useCallback(
+    async ({ factorId } = {}) => {
+      if (!factorId) return;
+
+      const { error } = await supabase.auth.mfa.unenroll({ factorId });
+      if (error) {
+        throw new Error(error.message || 'Unable to cancel 2FA setup.');
+      }
+
+      await refreshMfaState({ showLoading: false });
+    },
+    [refreshMfaState]
+  );
+
+  const disableMfa = useCallback(
+    async ({ factorId } = {}) => {
+      if (!authUser?.id) {
+        throw new Error('You must be logged in to disable 2FA.');
+      }
+
+      const factorIds = factorId
+        ? [factorId]
+        : mfaFactors.verified.map((factor) => factor?.id).filter(Boolean);
+
+      if (!factorIds.length) return;
+
+      for (const id of factorIds) {
+        const { error } = await supabase.auth.mfa.unenroll({ factorId: id });
+        if (error) {
+          throw new Error(error.message || 'Unable to disable 2FA.');
+        }
+      }
+
+      await refreshMfaState({ showLoading: false });
+    },
+    [authUser?.id, mfaFactors.verified, refreshMfaState]
+  );
+
   const t = (text) => text;
 
   const uploadProfilePhoto = async (uri) => {
@@ -12664,6 +12916,11 @@ const mapProfileRow = (row) => {
     // `user` is a Supabase auth user object
     const isSameUser = authUser?.id && user?.id && String(authUser.id) === String(user.id);
     setProfileLoaded(false);
+    setMfaFactors(createDefaultMfaFactors());
+    setMfaCurrentLevel(null);
+    setMfaNextLevel(null);
+    setIsMfaChallengeRequired(false);
+    setIsMfaLoading(true);
     dataLoadTimestampsRef.current = {};
     friendDataPromiseRef.current = null;
     healthDataPromiseRef.current = null;
@@ -12857,6 +13114,8 @@ const mapProfileRow = (row) => {
     healthDataPromiseRef.current = null;
     lastPresenceUpdateRef.current = 0;
     setAuthUser(null);
+    mfaRefreshRequestRef.current += 1;
+    resetMfaState();
     pushRegistrationRef.current = {
       ...pushRegistrationRef.current,
       userId: null,
@@ -14216,6 +14475,17 @@ const mapProfileRow = (row) => {
 
     // Auth
     authUser,
+    mfaFactors,
+    mfaCurrentLevel,
+    mfaNextLevel,
+    isMfaLoading,
+    isMfaChallengeRequired,
+    refreshMfaState,
+    enrollTotpMfa,
+    verifyTotpMfaEnrollment,
+    verifyMfaChallenge,
+    cancelMfaEnrollment,
+    disableMfa,
     hasOnboarded,
     signIn,
     checkAccountAvailability,

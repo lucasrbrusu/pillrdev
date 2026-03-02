@@ -36,6 +36,8 @@ import AppearanceScreen from '../screens/AppearanceScreen';
 import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';
 import NotificationCenterScreen from '../screens/NotificationCenterScreen';
 import PrivacySecurityScreen from '../screens/PrivacySecurityScreen';
+import TwoFactorAuthScreen from '../screens/TwoFactorAuthScreen';
+import MfaChallengeScreen from '../screens/MfaChallengeScreen';
 import HelpSupportScreen from '../screens/HelpSupportScreen';
 import MembershipScreen from '../screens/MembershipScreen';
 import PermissionsScreen from '../screens/PermissionsScreen';
@@ -308,6 +310,8 @@ const Navigation = () => {
   const {
     isLoading,
     authUser,
+    isMfaLoading,
+    isMfaChallengeRequired,
     hasOnboarded,
     themeColors,
     profile,
@@ -355,7 +359,7 @@ const Navigation = () => {
     [themeColors]
   );
 
-  if (isLoading) {
+  if (isLoading || (authUser && isMfaLoading)) {
     return (
       <NavigationContainer theme={navTheme}>
         <View style={[styles.loadingContainer, { backgroundColor: themeColors.background }]}>
@@ -368,87 +372,99 @@ const Navigation = () => {
   return (
     <NavigationContainer theme={navTheme}>
       {authUser ? (
-        <Stack.Navigator
-          screenOptions={{
-            headerShown: false,
-            cardStyle: { backgroundColor: themeColors.background },
-          }}
-        >
-          <Stack.Screen name="Main">
-            {() => (
-              <MainWithChatButton
-                styles={styles}
-                isPremium={isPremiumActive}
-                showTutorial={showAppTutorial}
-                onDismissTutorial={handleDismissTutorial}
-                currentStreakIncreaseNotice={currentStreakIncreaseNotice}
-                onDismissCurrentStreakNotice={dismissCurrentStreakIncreaseNotice}
-                tabBarLayout={tabBarLayout}
-                onTabBarLayout={(event) => setTabBarLayout(event?.nativeEvent?.layout || null)}
-                themeColors={themeColors}
-              />
-            )}
-          </Stack.Screen>
-          <Stack.Screen name="Profile" component={ProfileScreen} />
-          <Stack.Screen name="Achievements" component={AchievementsScreen} />
-          <Stack.Screen name="Paywall" component={PaywallScreen} />
-          <Stack.Screen name="EditProfile" component={EditProfileScreen} />
-          <Stack.Screen name="DataAccount" component={DataAccountScreen} />
-          <Stack.Screen name="DeleteAccountDetails" component={DeleteAccountDetailsScreen} />
-          <Stack.Screen name="Currency" component={CurrencyScreen} />
-          <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
-          <Stack.Screen name="Finance" component={FinanceScreen} />
-          <Stack.Screen
-            name="SpendingInsights"
-            component={SpendingInsightsScreen}
-          />
-          <Stack.Screen name="PrivacySecurity" component={PrivacySecurityScreen} />
-          <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
-          <Stack.Screen name="Membership" component={MembershipScreen} />
-          <Stack.Screen name="Permissions" component={PermissionsScreen} />
-          <Stack.Screen name="Invitations" component={InvitationsScreen} />
-          <Stack.Screen
-            name="BudgetGroupInsight"
-            component={BudgetGroupInsightScreen}
-          />
-          <Stack.Screen name="Notes" component={NotesScreen} />
-          <Stack.Screen name="Calendar" component={CalendarScreen} />
-          <Stack.Screen name="RoutineDetail" component={RoutineDetailScreen} />
-          <Stack.Screen name="Appearance" component={AppearanceScreen} />
-          <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
-          <Stack.Screen name="NotificationCenter" component={NotificationCenterScreen} />
-          <Stack.Screen
-            name="Friends"
-            component={FriendsScreen}
-            options={{
-              gestureEnabled: true,
-              gestureDirection: 'horizontal',
-              gestureResponseDistance: FRIENDS_GESTURE_DISTANCE,
+        isMfaChallengeRequired ? (
+          <Stack.Navigator
+            screenOptions={{
+              headerShown: false,
+              cardStyle: { backgroundColor: themeColors.background },
             }}
-          />
-          <Stack.Screen name="FriendProfile" component={FriendProfileScreen} />
-          <Stack.Screen name="Groups" component={GroupsScreen} />
-          <Stack.Screen name="CreateGroup" component={CreateGroupScreen} />
-          <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />
-          <Stack.Screen name="GroupDetails" component={GroupDetailsScreen} />
-          <Stack.Screen name="Insights" component={InsightsScreen} />
-          <Stack.Screen name="Chat" component={ChatScreen} />
-          <Stack.Screen name="FocusMode" component={FocusModeScreen} />
-          <Stack.Screen name="CountdownTimer" component={CountdownTimerScreen} />
-          <Stack.Screen name="WeightManager" component={WeightManagerScreen} />
-          <Stack.Screen name="WeightProgress" component={WeightProgressScreen} />
-          <Stack.Screen name="WeightManagerUpdatePlan" component={WeightManagerUpdatePlanScreen} />
-          <Stack.Screen name="WeightJourneyHistory" component={WeightJourneyHistoryScreen} />
-          <Stack.Screen
-            name="WeightJourneyHistoryDetail"
-            component={WeightJourneyHistoryDetailScreen}
-          />
-          <Stack.Screen name="Steps" component={StepsScreen} />
-          <Stack.Screen name="WaterLog" component={WaterLogScreen} />
-          <Stack.Screen name="SleepLog" component={SleepLogScreen} />
-          <Stack.Screen name="MoodCalendar" component={MoodCalendarScreen} />
-          <Stack.Screen name="Streak" component={StreakScreen} />
-        </Stack.Navigator>
+          >
+            <Stack.Screen name="MfaChallenge" component={MfaChallengeScreen} />
+          </Stack.Navigator>
+        ) : (
+          <Stack.Navigator
+            screenOptions={{
+              headerShown: false,
+              cardStyle: { backgroundColor: themeColors.background },
+            }}
+          >
+            <Stack.Screen name="Main">
+              {() => (
+                <MainWithChatButton
+                  styles={styles}
+                  isPremium={isPremiumActive}
+                  showTutorial={showAppTutorial}
+                  onDismissTutorial={handleDismissTutorial}
+                  currentStreakIncreaseNotice={currentStreakIncreaseNotice}
+                  onDismissCurrentStreakNotice={dismissCurrentStreakIncreaseNotice}
+                  tabBarLayout={tabBarLayout}
+                  onTabBarLayout={(event) => setTabBarLayout(event?.nativeEvent?.layout || null)}
+                  themeColors={themeColors}
+                />
+              )}
+            </Stack.Screen>
+            <Stack.Screen name="Profile" component={ProfileScreen} />
+            <Stack.Screen name="Achievements" component={AchievementsScreen} />
+            <Stack.Screen name="Paywall" component={PaywallScreen} />
+            <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+            <Stack.Screen name="DataAccount" component={DataAccountScreen} />
+            <Stack.Screen name="DeleteAccountDetails" component={DeleteAccountDetailsScreen} />
+            <Stack.Screen name="Currency" component={CurrencyScreen} />
+            <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
+            <Stack.Screen name="Finance" component={FinanceScreen} />
+            <Stack.Screen
+              name="SpendingInsights"
+              component={SpendingInsightsScreen}
+            />
+            <Stack.Screen name="PrivacySecurity" component={PrivacySecurityScreen} />
+            <Stack.Screen name="TwoFactorAuth" component={TwoFactorAuthScreen} />
+            <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
+            <Stack.Screen name="Membership" component={MembershipScreen} />
+            <Stack.Screen name="Permissions" component={PermissionsScreen} />
+            <Stack.Screen name="Invitations" component={InvitationsScreen} />
+            <Stack.Screen
+              name="BudgetGroupInsight"
+              component={BudgetGroupInsightScreen}
+            />
+            <Stack.Screen name="Notes" component={NotesScreen} />
+            <Stack.Screen name="Calendar" component={CalendarScreen} />
+            <Stack.Screen name="RoutineDetail" component={RoutineDetailScreen} />
+            <Stack.Screen name="Appearance" component={AppearanceScreen} />
+            <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
+            <Stack.Screen name="NotificationCenter" component={NotificationCenterScreen} />
+            <Stack.Screen
+              name="Friends"
+              component={FriendsScreen}
+              options={{
+                gestureEnabled: true,
+                gestureDirection: 'horizontal',
+                gestureResponseDistance: FRIENDS_GESTURE_DISTANCE,
+              }}
+            />
+            <Stack.Screen name="FriendProfile" component={FriendProfileScreen} />
+            <Stack.Screen name="Groups" component={GroupsScreen} />
+            <Stack.Screen name="CreateGroup" component={CreateGroupScreen} />
+            <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />
+            <Stack.Screen name="GroupDetails" component={GroupDetailsScreen} />
+            <Stack.Screen name="Insights" component={InsightsScreen} />
+            <Stack.Screen name="Chat" component={ChatScreen} />
+            <Stack.Screen name="FocusMode" component={FocusModeScreen} />
+            <Stack.Screen name="CountdownTimer" component={CountdownTimerScreen} />
+            <Stack.Screen name="WeightManager" component={WeightManagerScreen} />
+            <Stack.Screen name="WeightProgress" component={WeightProgressScreen} />
+            <Stack.Screen name="WeightManagerUpdatePlan" component={WeightManagerUpdatePlanScreen} />
+            <Stack.Screen name="WeightJourneyHistory" component={WeightJourneyHistoryScreen} />
+            <Stack.Screen
+              name="WeightJourneyHistoryDetail"
+              component={WeightJourneyHistoryDetailScreen}
+            />
+            <Stack.Screen name="Steps" component={StepsScreen} />
+            <Stack.Screen name="WaterLog" component={WaterLogScreen} />
+            <Stack.Screen name="SleepLog" component={SleepLogScreen} />
+            <Stack.Screen name="MoodCalendar" component={MoodCalendarScreen} />
+            <Stack.Screen name="Streak" component={StreakScreen} />
+          </Stack.Navigator>
+        )
       ) : (
         <Stack.Navigator
           screenOptions={{
