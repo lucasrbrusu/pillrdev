@@ -37,12 +37,13 @@ const TIME_RANGE_OPTIONS = [
   { label: 'Afternoon', value: 'afternoon' },
   { label: 'Evening', value: 'evening' },
 ];
-const HABIT_VIEW_FILTERS = ['All', 'Personal', 'Group', 'Achieved'];
+const HABIT_VIEW_FILTERS = ['All', 'Personal', 'Group', 'Build habits', 'Quit habits', 'Achieved'];
 const GOAL_PERIOD_OPTIONS = [
   { label: 'Daily', value: 'day' },
   { label: 'Weekly', value: 'week' },
   { label: 'Monthly', value: 'month' },
 ];
+const DEFAULT_QUIT_GOAL_DAYS_PLACEHOLDER = '30';
 const GOAL_UNIT_CATEGORY_OPTIONS = [
   { label: 'Quantity', value: 'quantity' },
   { label: 'Time', value: 'time' },
@@ -116,6 +117,12 @@ const parseNumber = (value, fallback = 0) => {
   const next = Number(value);
   return Number.isFinite(next) ? next : fallback;
 };
+const parsePositiveIntOrNull = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  const normalized = Math.trunc(numeric);
+  return normalized > 0 ? normalized : null;
+};
 const sanitizeGoalUnit = (value, fallback = 'times') => {
   const normalized = String(value || '')
     .trim()
@@ -161,6 +168,24 @@ const parseDateOnly = (value) => {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
   return toStartOfDay(parsed);
+};
+const formatDisplayDate = (value, fallback = 'Not set') => {
+  const parsed = parseDateOnly(value);
+  if (!parsed) return fallback;
+  return parsed.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+};
+const getInclusiveDaySpan = (startValue, endValue) => {
+  const startDate = parseDateOnly(startValue);
+  const endDate = parseDateOnly(endValue);
+  if (!startDate || !endDate) return null;
+  const startDay = toUtcDayNumber(startDate);
+  const endDay = toUtcDayNumber(endDate);
+  if (!Number.isFinite(startDay) || !Number.isFinite(endDay) || endDay < startDay) return null;
+  return endDay - startDay + 1;
 };
 const normalizeWeekdayToken = (value) => {
   const token = String(value || '').trim().slice(0, 3).toLowerCase();
@@ -1345,6 +1370,7 @@ const HabitsScreen = () => {
   const [habitColor, setHabitColor] = useState(colors.habits);
   const [goalPeriod, setGoalPeriod] = useState('day');
   const [goalValueInput, setGoalValueInput] = useState('1');
+  const [quitGoalDaysInput, setQuitGoalDaysInput] = useState('');
   const [goalUnit, setGoalUnit] = useState('times');
   const [taskDaysMode, setTaskDaysMode] = useState('every_day');
   const [taskDaysCount, setTaskDaysCount] = useState(3);
@@ -1374,6 +1400,11 @@ const HabitsScreen = () => {
     (unit) => unit.toLowerCase() === normalizedGoalUnit.toLowerCase()
   );
   const parsedStartDate = parseDateOnly(startDate) || new Date();
+  const parsedQuitGoalDays = parsePositiveIntOrNull(quitGoalDaysInput);
+  const projectedQuitEndDate = useMemo(() => {
+    if (habitType !== 'quit' || !parsedQuitGoalDays) return null;
+    return toISODate(addDays(parsedStartDate, parsedQuitGoalDays - 1));
+  }, [habitType, parsedQuitGoalDays, parsedStartDate]);
   const parsedEndDate = parseDateOnly(endDate);
 
   const habitsWithDefaults = useMemo(() => (habits || []).map(withDefaults), [habits]);
@@ -1561,16 +1592,22 @@ const HabitsScreen = () => {
     day: 'numeric',
     year: 'numeric',
   });
+  const selectedHabitStartedOnLabel = selectedHabit
+    ? formatDisplayDate(selectedHabit.startDate || selectedHabit.createdAt)
+    : 'Not set';
 
   const baseFilteredHabits = useMemo(
     () =>
       visibleHabits
         .filter((habit) => {
           const fullyCompleted = hasHabitReachedEndDate(habit, new Date());
+          const quitHabit = (habit?.habitType || 'build') === 'quit';
           if (selectedCategory === 'Achieved') return fullyCompleted;
           if (fullyCompleted) return false;
           if (selectedCategory === 'Personal') return !habit.__isGroupHabit;
           if (selectedCategory === 'Group') return Boolean(habit.__isGroupHabit);
+          if (selectedCategory === 'Build habits') return !quitHabit;
+          if (selectedCategory === 'Quit habits') return quitHabit;
           return true;
         })
         .filter((habit) => (selectedTimeRange === 'all_day' ? true : habit.timeRange === selectedTimeRange))
@@ -1640,6 +1677,7 @@ const HabitsScreen = () => {
     setHabitColor(palette.habits);
     setGoalPeriod('day');
     setGoalValueInput('1');
+    setQuitGoalDaysInput('');
     setGoalUnit('times');
     setGoalUnitCategory('quantity');
     setShowCustomGoalUnitInput(false);
@@ -1685,6 +1723,13 @@ const HabitsScreen = () => {
     setHabitColor(habit.color || palette.habits);
     setGoalPeriod(habit.goalPeriod || 'day');
     setGoalValueInput(String(getGoalValue(habit)));
+    const quitGoalDays = (habit.habitType || 'build') === 'quit'
+      ? getInclusiveDaySpan(
+          habit.startDate || toISODate(new Date()),
+          habit.endDate
+        )
+      : null;
+    setQuitGoalDaysInput(quitGoalDays ? String(quitGoalDays) : '');
     const nextGoalUnit = sanitizeGoalUnit(habit.goalUnit, 'times');
     setGoalUnit(nextGoalUnit);
     setGoalUnitCategory(inferGoalUnitCategory(nextGoalUnit));
@@ -2106,10 +2151,13 @@ const HabitsScreen = () => {
     (nextType) => {
       setHabitType(nextType);
       if (nextType === 'quit' && habitType !== 'quit') {
+        if (!parsePositiveIntOrNull(quitGoalDaysInput)) {
+          setQuitGoalDaysInput(DEFAULT_QUIT_GOAL_DAYS_PLACEHOLDER);
+        }
         setShowQuitHabitInfoModal(true);
       }
     },
-    [habitType]
+    [habitType, quitGoalDaysInput]
   );
 
   const toggleInvitedFriend = (friendId) => {
@@ -2164,6 +2212,20 @@ const HabitsScreen = () => {
   const submitHabit = async () => {
     if (!habitTitle.trim()) return;
     const goalValue = Math.max(1, parseNumber(goalValueInput, 1));
+    const normalizedStartDate = toISODate(parsedStartDate);
+    let normalizedEndDate = endDate;
+
+    if (habitType === 'quit' && parsedQuitGoalDays) {
+      normalizedEndDate = toISODate(addDays(parsedStartDate, parsedQuitGoalDays - 1));
+    }
+
+    const parsedPayloadEndDate = parseDateOnly(normalizedEndDate);
+    if (
+      parsedPayloadEndDate &&
+      toUtcDayNumber(parsedPayloadEndDate) < toUtcDayNumber(parsedStartDate)
+    ) {
+      normalizedEndDate = normalizedStartDate;
+    }
 
     let repeat = 'Daily';
     if (goalPeriod === 'week') repeat = 'Weekly';
@@ -2195,8 +2257,8 @@ const HabitsScreen = () => {
       reminderMessage: reminderMessage.trim(),
       showMemoAfterCompletion,
       chartType,
-      startDate,
-      endDate,
+      startDate: normalizedStartDate,
+      endDate: normalizedEndDate,
     };
 
     const normalizedInviteIds = Array.from(new Set(invitedFriendIds)).filter(Boolean);
@@ -2500,7 +2562,13 @@ const HabitsScreen = () => {
           <View style={[styles.emptyState, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}>
             <Feather name="target" size={34} color={palette.habits} />
             <Text style={[styles.emptyTitle, { color: palette.text }]}>
-              {selectedCategory === 'Achieved' ? 'No achieved habits yet' : 'No habits found'}
+              {selectedCategory === 'Achieved'
+                ? 'No achieved habits yet'
+                : selectedCategory === 'Build habits'
+                ? 'No build habits yet'
+                : selectedCategory === 'Quit habits'
+                ? 'No quit habits yet'
+                : 'No habits found'}
             </Text>
             <TouchableOpacity style={[styles.emptyButton, { backgroundColor: palette.habits }]} onPress={openCreateModalPersonal}>
               <Text style={styles.emptyButtonText}>Create Habit</Text>
@@ -3094,6 +3162,35 @@ const HabitsScreen = () => {
                   </TouchableOpacity>
                 </View>
               </View>
+              {habitType === 'quit' ? (
+                <>
+                  <View style={styles.rowLine}>
+                    <Text style={[styles.rowLabel, { color: palette.text }]}>Goal (days quit)</Text>
+                    <TextInput
+                      style={[
+                        styles.goalInput,
+                        styles.goalDaysInput,
+                        {
+                          borderColor: palette.cardBorder,
+                          color: palette.text,
+                          backgroundColor: palette.mutedSurface,
+                        },
+                      ]}
+                      value={quitGoalDaysInput}
+                      onChangeText={setQuitGoalDaysInput}
+                      keyboardType="numeric"
+                      placeholder={DEFAULT_QUIT_GOAL_DAYS_PLACEHOLDER}
+                      placeholderTextColor={palette.textLight}
+                      maxLength={4}
+                    />
+                  </View>
+                  <Text style={[styles.shareHint, { color: palette.textMuted }]}>
+                    {projectedQuitEndDate
+                      ? `Target end date: ${projectedQuitEndDate}`
+                      : 'Set how many days you want to aim for quitting.'}
+                  </Text>
+                </>
+              ) : null}
               {showGoalUnitSheet ? (
                 <View style={[styles.inlineSheet, { borderColor: palette.cardBorder, backgroundColor: palette.mutedSurface }]}>
                   <View style={[styles.segmentWrap, styles.goalUnitSegmentWrap, { borderColor: palette.cardBorder, backgroundColor: palette.card }]}>
@@ -3319,11 +3416,13 @@ const HabitsScreen = () => {
                 </View>
               </View>
               <TouchableOpacity style={styles.rowLine} onPress={openStartDatePicker}>
-                <Text style={[styles.rowLabel, { color: palette.text }]}>Start date</Text>
+                <Text style={[styles.rowLabel, { color: palette.text }]}>Started on</Text>
                 <Text style={[styles.rowValue, { color: palette.textMuted }]}>{startDate}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.rowLine} onPress={openEndDatePicker}>
-                <Text style={[styles.rowLabel, { color: palette.text }]}>End date</Text>
+                <Text style={[styles.rowLabel, { color: palette.text }]}>
+                  {habitType === 'quit' ? 'Target end date' : 'End date'}
+                </Text>
                 <Text style={[styles.rowValue, { color: palette.textMuted }]}>{endDate || 'No end'}</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -3577,6 +3676,9 @@ const HabitsScreen = () => {
                   <View style={styles.detailHeaderText}>
                     <Text style={[styles.detailHeaderTitle, { color: palette.text }]}>{selectedHabit.title}</Text>
                     <Text style={[styles.detailHeaderSub, { color: palette.textMuted }]}>{selectedHabit.category || 'Personal'}</Text>
+                    <Text style={[styles.detailHeaderMeta, { color: palette.textMuted }]}>
+                      Started on {selectedHabitStartedOnLabel}
+                    </Text>
                   </View>
                 </View>
               </LinearGradient>
@@ -4155,6 +4257,7 @@ const createStyles = (palette) =>
     rowValue: { ...typography.bodySmall, fontWeight: '600' },
     goalInputs: { flexDirection: 'row', alignItems: 'center' },
     goalInput: { width: 80, borderWidth: 1, borderRadius: borderRadius.full, textAlign: 'center', paddingVertical: 6, marginLeft: spacing.xs, ...typography.bodySmall },
+    goalDaysInput: { width: 96, marginLeft: 0 },
     goalUnitButton: {
       minWidth: 86,
       maxWidth: 136,
@@ -4233,6 +4336,7 @@ const createStyles = (palette) =>
     detailHeaderText: { flex: 1 },
     detailHeaderTitle: { ...typography.h1, color: '#FFFFFF', fontWeight: '800', fontSize: 36 },
     detailHeaderSub: { ...typography.bodySmall, color: 'rgba(255,255,255,0.88)', marginTop: 2, fontWeight: '700' },
+    detailHeaderMeta: { ...typography.caption, color: 'rgba(255,255,255,0.78)', marginTop: 4, fontWeight: '600' },
     detailProgressCardWrap: {
       marginHorizontal: spacing.lg,
       marginTop: -12,

@@ -876,8 +876,15 @@ const computeQuitHabitStreak = (habit = {}, options = {}) => {
     failedPeriodIndices.add(periodIndex);
   });
 
+  if (failedPeriodIndices.has(currentPeriodIndex)) return 0;
+
+  // Quit streak counts fully completed periods since "started on":
+  // start day/week/month begins at 0 until one full period passes.
+  const latestCountablePeriodIndex = currentPeriodIndex - 1;
+  if (latestCountablePeriodIndex < startPeriodIndex) return 0;
+
   let streak = 0;
-  for (let cursor = currentPeriodIndex; cursor >= startPeriodIndex; cursor -= 1) {
+  for (let cursor = latestCountablePeriodIndex; cursor >= startPeriodIndex; cursor -= 1) {
     if (failedPeriodIndices.has(cursor)) break;
     streak += 1;
   }
